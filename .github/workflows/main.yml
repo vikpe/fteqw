@@ -22,9 +22,7 @@ jobs:
       - name: Verify
         run: emcc -v
 
-      - run: |
-          emcc -v
-          make FTE_TARGET=web web gl-rel
+      - run: make FTE_TARGET=web web gl-rel
         working-directory: engine
 
       - uses: actions/upload-artifact@v3
