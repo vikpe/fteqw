@@ -1795,6 +1795,7 @@ ifeq ($(FTE_TARGET),web)
 	EMCC_CFLAGS= -DFTE_TARGET_WEB
 	EMCC_LDFLAGS=$(EMCC_CFLAGS) $(JSLIBS) $(WEB_PREJS)
 #	EMCC_CFLAGS+= -s BINARYEN_TRAP_MODE='clamp'		#fix bigfloat->int rounding crashes
+	EMCC_CFLAGS+= -s USE_ZLIB=1
 	EMCC_LDFLAGS+= -s LEGACY_GL_EMULATION=0			#simplify the opengl wrappers.
 	EMCC_LDFLAGS+= -s NO_FILESYSTEM=1				#we have our own.
 	EMCC_LDFLAGS+= -s FILESYSTEM=0					#we have our own.
