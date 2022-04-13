@@ -1,0 +1,35 @@
+name: FTEQW
+
+on: [push]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          fetch-depth: 1
+
+      - run: git checkout HEAD
+
+      - name: Setup emsdk
+        uses: mymindstorm/setup-emsdk@v11
+        with:
+          version: 3.1.8
+          actions-cache-folder: 'emsdk-cache'
+
+      - name: Verify
+        run: emcc -v
+
+      - run: |
+          emcc -v
+          make FTE_TARGET=web web gl-rel
+        working-directory: engine
+
+      - uses: actions/upload-artifact@v3
+        with:
+          name: ftewebgl
+          path: |
+            engine/release/ftewebgl.js
+            engine/release/ftewebgl.wasm
