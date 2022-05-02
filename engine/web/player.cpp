@@ -3,6 +3,9 @@
 
 using namespace emscripten;
 
+extern float demtime;
+extern bool endofdemo;
+
 val player_info() {
   std::vector<val> vect;
 
@@ -19,7 +22,6 @@ val player_info() {
       continue;
     }
 
-
     val p(val::object());
     p.set("name", val(name));
     p.set("team", val(team));
@@ -32,7 +34,16 @@ val player_info() {
   return rv;
 }
 
+void execute(std::string text) {
+  Cmd_ExecuteString(text.data(), RESTRICT_LOCAL);
+}
+
+float gametime() {
+  return demtime;
+}
 
 EMSCRIPTEN_BINDINGS(fte) {
   function("player_info", &player_info);
+  function("gametime", &gametime);
+  function("execute", &execute);
 }
