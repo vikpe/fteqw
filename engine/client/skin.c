@@ -152,17 +152,15 @@ void Skin_Find (player_info_t *sc)
 {
 	qwskin_t		*skin;
 	int			i;
-	char		name[128], *s;
+	char		*name, *s;
 
 
 	sc->model = NULL;
 	sc->skinid = 0;
 	sc->qwskin = NULL;
 
-	s = Skin_FindName(sc);
-	if (!*s)
-		return;
-	COM_StripExtension (s, name, sizeof(name));
+    // QTube hack, just hardcode skin to team name.
+	name = sc->team;
 
 	for (i=0 ; i<numskins ; i++)
 	{
