@@ -152,7 +152,7 @@ void Skin_Find (player_info_t *sc)
 {
 	qwskin_t		*skin;
 	int			i;
-	char		*name, *s;
+	char		*name;
 
 
 	sc->model = NULL;
