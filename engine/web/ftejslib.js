@@ -146,76 +146,12 @@ mergeInto(LibraryManager.library,
 			switch(event.type)
 			{
 				case 'message':
-					console.log(event);
-					console.log(event.data);
 					FTEC.loadurl(event.data.url, event.data.cmd, undefined);
 					break;
 				case 'resize':
 					if (FTEC.evcb.resize != 0)
 					{
 						{{{makeDynCall('vii')}}}(FTEC.evcb.resize, Module['canvas'].width, Module['canvas'].height);
-					}
-					break;
-				case 'mousemove':
-					if (FTEC.evcb.mouse != 0)
-					{
-						if (Browser.pointerLock)
-						{
-							if (typeof event.movementX === 'undefined')
-							{
-								event.movementX = event.mozMovementX;
-								event.movementY = event.mozMovementY;
-							}
-							if (typeof event.movementX === 'undefined')
-							{
-								event.movementX = event.webkitMovementX;
-								event.movementY = event.webkitMovementY;
-							}
-							{{{makeDynCall('viiffff')}}}(FTEC.evcb.mouse, 0, false, event.movementX, event.movementY, 0, 0);
-						}
-						else
-						{
-							var rect = Module['canvas'].getBoundingClientRect();
-							{{{makeDynCall('viiffff')}}}(FTEC.evcb.mouse, 0, true, (event.clientX - rect.left)*(Module['canvas'].width/rect.width), (event.clientY - rect.top)*(Module['canvas'].height/rect.height), 0, 0);
-						}
-					}
-					break;
-				case 'mousedown':
-					window.focus();
-					//older browsers need fullscreen in order for requestPointerLock to work.
-					//newer browsers can still break pointer locks when alt-tabbing, even without breaking fullscreen.
-					//so lets spam requests for it
-					if (!document.fullscreenElement)
-						if (FTEC.evcb.wantfullscreen != 0)
-							if ({{{makeDynCall('i')}}}(FTEC.evcb.wantfullscreen))
-							{
-								try
-								{
-									Module['canvas'].requestFullscreen();
-								}
-								catch(e)
-								{
-									console.log("requestFullscreen:");
-									console.log(e);
-								}
-							}
-					if (FTEC.pointerwantlock != 0 && FTEC.pointerislocked == 0)
-					{
-						FTEC.pointerislocked = -1;  //don't repeat the request on every click. firefox has a fit at that, so require the mouse to leave the element or something before we retry.
-						Module['canvas'].requestPointerLock({unadjustedMovement: true}).catch(()=>{
-							Module['canvas'].requestPointerLock().then(()=>{
-								console.log("Your shitty browser doesn't support disabling mouse acceleration.");
-							}).catch(()=>{
-								FTEC.pointerislocked = 0;	//failure. no real idea why. try again next frame though...
-							});
-						});
-					}
-					//fallthrough
-				case 'mouseup':
-					if (FTEC.evcb.button != 0)
-					{
-						{{{makeDynCall('viii')}}}(FTEC.evcb.button, 0, event.type=='mousedown', event.button);
-						event.preventDefault();
 					}
 					break;
 				case 'mousewheel':
@@ -225,15 +161,6 @@ mergeInto(LibraryManager.library,
 						{{{makeDynCall('viii')}}}(FTEC.evcb.button, 0, 2, event.deltaY);
 						event.preventDefault();
 					}
-					break;
-				case 'mouseout':
-					if (FTEC.evcb.button != 0)
-					{
-						for (var i = 0; i < 8; i++)	
-							{{{makeDynCall('viii')}}}(FTEC.evcb.button, 0, false, i);
-					}
-					if (FTEC.pointerislocked == -1)
-						FTEC.pointerislocked = 0;
 					break;
 				case 'focus':
 				case 'blur':
@@ -263,65 +190,6 @@ mergeInto(LibraryManager.library,
 						if ({{{makeDynCall('iiiii')}}}(FTEC.evcb.key, 0, event.type=='keydown', event.keyCode, 0))
 							event.preventDefault();
 					}
-					break;
-				case 'touchstart':
-				case 'touchend':
-				case 'touchcancel':
-				case 'touchleave':
-				case 'touchmove':
-					var touches = event.changedTouches;
-					for (var i = 0; i < touches.length; i++)
-					{
-						var t = touches[i];
-						if (FTEC.evcb.mouse)
-							{{{makeDynCall('viiffff')}}}(FTEC.evcb.mouse, t.identifier+1, true, t.pageX, t.pageY, 0, Math.sqrt(t.radiusX*t.radiusX+t.radiusY*t.radiusY));
-						if (FTEC.evcb.button)
-						{
-							if (event.type == 'touchstart')
-								{{{makeDynCall('viii')}}}(FTEC.evcb.button, t.identifier+1, 1, 0);
-							else if (event.type != 'touchmove')
-								{{{makeDynCall('viii')}}}(FTEC.evcb.button, t.identifier+1, 0, 0);
-						}
-					}
-					event.preventDefault();
-					break;
-				case 'dragenter':
-				case 'dragover':
-					event.stopPropagation();
-					event.preventDefault();
-					break;
-				case 'drop':
-					event.stopPropagation();
-					event.preventDefault();
-					var files = event.dataTransfer.files;
-					for (var i = 0; i < files.length; i++)
-					{
-						var file = files[i];
-						var reader = new FileReader();
-						reader.onload = function(evt)
-						{
-							FTEC.loadurl(file.name, "", evt.target.result);
-						};
-						reader.readAsArrayBuffer(file);
-					}
-					break;
-				case 'gamepadconnected':
-					var gp = e.gamepad;
-					if (FTEH.gamepads === undefined)
-						FTEH.gamepads = [];
-					FTEH.gamepads[gp.index] = gp;
-					console.log("Gamepad connected at index %d: %s. %d buttons, %d axes.", gp.index, gp.id, gp.buttons.length, gp.axes.length);
-					break;
-				case 'gamepaddisconnected':
-					var gp = e.gamepad;
-					delete FTEH.gamepads[gp.index];
-					if (FTEC.evcb.jaxis)	//try and clear out the axis when released.
-						for (var j = 0; j < 6; j+=1)
-							{{{makeDynCall('viifi')}}}(FTEC.evcb.jaxis, gp.index, j, 0, true);
-					if (FTEC.evcb.jbutton)	//try and clear out the axis when released.
-						for (var j = 0; j < 32+4; j+=1)
-							{{{makeDynCall('viiii')}}}(FTEC.evcb.jbutton, gp.index, j, 0, true);
-					console.log("Gamepad disconnected from index %d: %s", gp.index, gp.id);
 					break;
 				case 'pointerlockerror':
 				case 'pointerlockchange':
@@ -418,10 +286,8 @@ mergeInto(LibraryManager.library,
 		if (!FTEC.donecb)
 		{
 			FTEC.donecb = 1;
-			var events = ['mousedown', 'mouseup', 'mousemove', 'wheel', 'mousewheel', 'mouseout', 
+			var events = ['wheel', 'mousewheel', 
 						'keypress', 'keydown', 'keyup', 
-						'touchstart', 'touchend', 'touchcancel', 'touchleave', 'touchmove',
-						'dragenter', 'dragover', 'drop',
 						'message', 'resize',
 						'pointerlockerror', 'pointerlockchange', 'mozpointerlockchange', 'webkitpointerlockchange',
 						'focus', 'blur'];   //try to fix alt-tab
@@ -437,7 +303,7 @@ mergeInto(LibraryManager.library,
 				document.addEventListener(event, FTEC.handleevent, true);
 			});
 
-			var windowevents = ['message','gamepadconnected', 'gamepaddisconnected', 'beforeunload'];
+			var windowevents = ['message','beforeunload'];
 			windowevents.forEach(function(event)
 			{
 				window.addEventListener(event, FTEC.handleevent, true);
@@ -479,6 +345,11 @@ mergeInto(LibraryManager.library,
 			if (FTEC.evcb.resize != 0)
 				{{{makeDynCall('vii')}}}(FTEC.evcb.resize, Module['canvas'].width, Module['canvas'].height);
 		};
+		/*
+		document.onfullscreenchange = function() {
+			window.onresize();
+		}
+		*/
 		window.onresize();
 
 		if (FTEC.evcb.hashchange)
