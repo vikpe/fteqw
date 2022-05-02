@@ -7245,6 +7245,12 @@ void CLQW_ParseServerMessage (void)
 		case svc_centerprint:
 			s = MSG_ReadString ();
 
+            // Leave KTX match banner alone
+			if (!strchr(s, '\n')) {
+				memmove(s + 20, s, strlen(s) + 1);
+				memset(s, '\n', 20);
+			}
+
 #ifdef PLUGINS
 			if (Plug_CenterPrintMessage(s, destsplit))
 #endif
