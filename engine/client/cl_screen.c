@@ -427,6 +427,10 @@ void SCR_CenterPrint (int pnum, const char *str, qboolean skipgamecode)
 			return;
 #endif
 	}
+	// QTube, hide centerprint when showing scores
+	if (cl.playerview[0].sb_showteamscores) {
+		str = "";
+	}
 
 	if (Cmd_AliasExist("f_centerprint", RESTRICT_LOCAL))
 	{

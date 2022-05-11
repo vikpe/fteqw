@@ -754,6 +754,8 @@ void Sbar_ShowTeamScores (void)
 
 	cl.playerview[seat].sb_showteamscores = true;
 	sb_updates = 0;
+	// QTube hide centerprint
+	SCR_CenterPrint (0, "", false);
 }
 
 /*
