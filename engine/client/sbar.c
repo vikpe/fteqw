@@ -3465,10 +3465,13 @@ void Sbar_DeathmatchOverlay (playerview_t *pv, int start)
 	{
 		COLUMN_KILLS
 		COLUMN_DEATHS
+		// QTube: Disable teamkills
+		/*
 		if (cl.teamplay)
 		{
 			COLUMN_TKILLS
 		}
+		*/
 	}
 	if (scr_scoreboard_showflags.ival && cl.teamplay && Stats_HaveFlags(scr_scoreboard_showflags.ival&1))
 	{
