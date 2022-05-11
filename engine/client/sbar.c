@@ -3068,6 +3068,7 @@ void Sbar_TeamOverlay (playerview_t *pv)
 	int rank_width = 320-32*2;
 	int startx;
 	int trackplayer;
+	int offset;
 
 	qboolean ourteam;
 
@@ -3081,7 +3082,14 @@ void Sbar_TeamOverlay (playerview_t *pv)
 		return;
 	}
 
-	y = gr.y;
+	// QTube: Move the scoreboard closer to center.
+	offset = 120;
+	for (i = 0; i < scoreboardteams; i++) {
+		tm = teams + i;
+		offset += 10 * tm->players;
+	}
+	y = gr.y + (vid.height - offset) / 2;
+	
 
 	if (scr_scoreboard_drawtitle.ival)
 	{
