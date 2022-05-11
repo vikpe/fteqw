@@ -80,6 +80,7 @@ typedef struct {
 } fragstats_t;
 
 cvar_t r_tracker_frags = CVARD("r_tracker_frags", "0", "0: like vanilla quake\n1: shows only your kills/deaths\n2: shows all kills\n");
+cvar_t r_tracker_show = CVARD("r_tracker_show", "1", "0: hide tracker\n1: show tracker\n");
 static fragstats_t fragstats;
 
 int Stats_GetKills(int playernum)
@@ -218,6 +219,10 @@ void Stats_FragMessage(int p1, int wid, int p2, qboolean teamkill)
 	};
 	char message[512];
 	console_t *tracker;
+
+	if (!r_tracker_show.ival)
+		return;
+
 	struct wt_s *w = &fragstats.weapontotals[wid];
 	const char *p1n = (p1 < 0)?nonplayers[-p1]:cl.players[p1].name;
 	const char *p2n = (p2 < 0)?nonplayers[-p2]:cl.players[p2].name;
@@ -606,6 +611,7 @@ void Stats_Clear(void)
 void Stats_Init(void)
 {
 	Cvar_Register(&r_tracker_frags, NULL);
+	Cvar_Register(&r_tracker_show, NULL);
 }
 static void Stats_LoadFragFile(char *name)
 {
