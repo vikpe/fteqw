@@ -209,7 +209,7 @@ void *Sys_GetAddressForName(dllhandle_t *module, const char *exportname)
 
 void Sys_BrowserRedirect_f(void)
 {
-	emscriptenfte_window_location(Cmd_Argv(1));
+	// emscriptenfte_window_location(Cmd_Argv(1));
 }
 
 char *Sys_URIScheme_NeedsRegistering(void)

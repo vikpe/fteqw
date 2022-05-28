@@ -29,13 +29,6 @@ mergeInto(LibraryManager.library,
 		alert(msg);
 	},
 	
-	emscriptenfte_window_location : function(msg)
-	{
-		msg = UTF8ToString(msg);
-		console.log("Redirecting page to " + msg);
-		window.location = msg;
-	},
-
 //	emscriptenfte_handle_alloc__deps : ['$FTEH'],
 	emscriptenfte_handle_alloc : function(h)
 	{
@@ -352,14 +345,6 @@ mergeInto(LibraryManager.library,
 		*/
 		window.onresize();
 
-		if (FTEC.evcb.hashchange)
-		{
-			window.onhashchange = function()
-			{
-				FTEC.loadurl(location.hash.substring(1), "", undefined);
-			};
-		}
-		
 		_emscriptenfte_updatepointerlock(false, false);
 		} catch(e)
 		{
