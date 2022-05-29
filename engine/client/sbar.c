@@ -3283,16 +3283,17 @@ ping time frags name
 	total = realtime - s->realentertime;				\
 	minutes = (int)total/60;							\
 	sprintf (num, "%4i", minutes);						\
-	Draw_FunStringWidth(x, y, num, 4*8, false, false);	\
+	if (s->spectator && s->spectator != 2)				\
+	{													\
+		Draw_FunStringWidth(x+8, y, "spectator", 9*8, false, false);	\
+	} else {											\
+		Draw_FunStringWidth(x, y, num, 4*8, false, false);	\
+	}                                                   \
 },NOFILL)
 #define COLUMN_FRAGS COLUMN(frags, 5*8,					\
 {	\
 	int cx; int cy;										\
-	if (s->spectator && s->spectator != 2)				\
-	{													\
-		Draw_FunStringWidth(x, y, "spectator", 5*8, false, false);	\
-	}													\
-	else												\
+	if (!(s->spectator && s->spectator != 2))			\
 	{													\
 		f = s->frags;									\
 		sprintf(num, "%3i",f);							\
@@ -3332,16 +3333,18 @@ ping time frags name
 },NOFILL)
 #define COLUMN_RULESET COLUMN(ruleset, 8*8,	{Draw_FunStringWidth(x, y, s->ruleset, 8*8, false, false);},NOFILL)
 #define COLUMN_NAME COLUMN(name, namesize,	{Draw_FunStringWidth(x, y, s->name, namesize, false, false);},NOFILL)
-#define COLUMN_KILLS COLUMN(kils, 4*8, {Draw_FunStringWidth(x, y, va("%4i", Stats_GetKills(k)), 4*8, false, false);},NOFILL)
-#define COLUMN_TKILLS COLUMN(tkil, 4*8, {Draw_FunStringWidth(x, y, va("%4i", Stats_GetTKills(k)), 4*8, false, false);},NOFILL)
-#define COLUMN_DEATHS COLUMN(dths, 4*8, {Draw_FunStringWidth(x, y, va("%4i", Stats_GetDeaths(k)), 4*8, false, false);},NOFILL)
-#define COLUMN_TOUCHES COLUMN(tchs, 4*8, {Draw_FunStringWidth(x, y, va("%4i", Stats_GetTouches(k)), 4*8, false, false);},NOFILL)
-#define COLUMN_CAPS COLUMN(caps, 4*8, {Draw_FunStringWidth(x, y, va("%4i", Stats_GetCaptures(k)), 4*8, false, false);},NOFILL)
+#define COLUMN_KILLS COLUMN(kils, 4*8, if (!(s->spectator && s->spectator != 2)) {Draw_FunStringWidth(x, y, va("%4i", Stats_GetKills(k)), 4*8, false, false);},NOFILL)
+#define COLUMN_TKILLS COLUMN(tkil, 4*8, if (!(s->spectator && s->spectator != 2)) {Draw_FunStringWidth(x, y, va("%4i", Stats_GetTKills(k)), 4*8, false, false);},NOFILL)
+#define COLUMN_DEATHS COLUMN(dths, 4*8, if (!(s->spectator && s->spectator != 2)) {Draw_FunStringWidth(x, y, va("%4i", Stats_GetDeaths(k)), 4*8, false, false);},NOFILL)
+#define COLUMN_TOUCHES COLUMN(tchs, 4*8, if (!(s->spectator && s->spectator != 2)) {Draw_FunStringWidth(x, y, va("%4i", Stats_GetTouches(k)), 4*8, false, false);},NOFILL)
+#define COLUMN_CAPS COLUMN(caps, 4*8, if (!(s->spectator && s->spectator != 2)) {Draw_FunStringWidth(x, y, va("%4i", Stats_GetCaptures(k)), 4*8, false, false);},NOFILL)
 #define COLUMN_AFK COLUMN(afk, 0, {int cs = atoi(InfoBuf_ValueForKey(&s->userinfo, "chat")); if (cs)Draw_FunStringWidth(x+4, y, (cs&2)?"afk":"msg", 4*8, false, false);},NOFILL)
 
 
 //columns are listed here in display order
-#define ALLCOLUMNS COLUMN_PING COLUMN_PL COLUMN_TIME COLUMN_RULESET COLUMN_FRAGS COLUMN_TEAMNAME COLUMN_NAME COLUMN_KILLS COLUMN_TKILLS COLUMN_DEATHS COLUMN_TOUCHES COLUMN_CAPS COLUMN_AFK
+//#define ALLCOLUMNS COLUMN_PING COLUMN_PL COLUMN_TIME COLUMN_RULESET COLUMN_FRAGS COLUMN_TEAMNAME COLUMN_NAME COLUMN_KILLS COLUMN_TKILLS COLUMN_DEATHS COLUMN_TOUCHES COLUMN_CAPS COLUMN_AFK
+// QTube
+#define ALLCOLUMNS COLUMN_TIME COLUMN_FRAGS COLUMN_NAME COLUMN_KILLS COLUMN_DEATHS COLUMN_TOUCHES COLUMN_CAPS
 
 enum
 {
@@ -3454,16 +3457,19 @@ void Sbar_DeathmatchOverlay (playerview_t *pv, int start)
 #define COLUMN(title, cwidth, code, fill) if (rank_width+(cwidth)+8 <= gr.width) {showcolumns |= (1<<COLUMN##title); rank_width += cwidth+8;}
 //columns are listed here in priority order (if the screen is too narrow, later ones will be hidden)
 	COLUMN_NAME
-	COLUMN_PING
+	// QTube
+	// COLUMN_PING
 	if (cls.protocol == CP_QUAKEWORLD)
 	{
-		COLUMN_PL
+		// QTube
+		// COLUMN_PL
 		COLUMN_TIME
 	}
 	COLUMN_FRAGS
 	if (cl.teamplay)
 	{
-		COLUMN_TEAMNAME
+		// QTube
+		// COLUMN_TEAMNAME
 	}
 	if (scr_scoreboard_showflags.ival && cl.teamplay && Stats_HaveFlags(scr_scoreboard_showflags.ival&1))
 	{
@@ -3487,9 +3493,11 @@ void Sbar_DeathmatchOverlay (playerview_t *pv, int start)
 	}
 	if (scr_scoreboard_showruleset.ival && (scr_scoreboard_showruleset.ival==2||Ruleset_GetRulesetName()))
 	{
-		COLUMN_RULESET
+		// QTube
+		// COLUMN_RULESET
 	}
-	COLUMN_AFK
+	// QTube
+	// COLUMN_AFK
 #undef COLUMN
 
 	rank_width -= namesize;
