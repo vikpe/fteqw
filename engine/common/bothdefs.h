@@ -966,6 +966,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #define MAX_Q2EDICTS 1024
 
+// QTube: For managing runes via fragstats
+#define RUNE_MASK (IT_SIGIL1 | IT_SIGIL2 | IT_SIGIL3 | IT_SIGIL4)
+
 //
 // stats are integers communicated to the client by the server
 //

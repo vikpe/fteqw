@@ -5672,7 +5672,7 @@ static void CL_ServerInfo (void)
 CL_SetStat
 =====================
 */
-static void CL_SetStat_Internal (int pnum, int stat, int ivalue, float fvalue)
+void CL_SetStat_Internal (int pnum, int stat, int ivalue, float fvalue)
 {
 	if (cl.playerview[pnum].stats[stat] != ivalue)
 		Sbar_Changed ();
@@ -5816,6 +5816,12 @@ static void CL_SetStatNumeric (int pnum, int stat, int ivalue, float fvalue)
 	if (cls.demoplayback == DPB_MVD || cls.demoplayback == DPB_EZTV)
 	{
 		extern int cls_lastto;
+		
+		// QTube: Don't reset runes on ITEMS update
+		if (stat == STAT_ITEMS) {
+			ivalue = (ivalue & ~RUNE_MASK) | (cl.players[cls_lastto].stats[stat] & RUNE_MASK);
+		}
+
 		cl.players[cls_lastto].stats[stat]=ivalue;
 		cl.players[cls_lastto].statsf[stat]=fvalue;
 
