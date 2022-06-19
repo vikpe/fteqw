@@ -350,7 +350,8 @@ qboolean GLVID_ApplyGammaRamps (unsigned int gammarampsize, unsigned short *ramp
 
 void GLVID_SetCaption(const char *text)
 {
-	emscriptenfte_settitle(text);
+	// Let QTube manage title
+	// emscriptenfte_settitle(text);
 }
 
 void Sys_SendKeyEvents(void)
