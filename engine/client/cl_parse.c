@@ -6473,6 +6473,7 @@ static void CL_PrintStandardMessage(char *msgtext, int printlevel)
 static char printtext[4096];
 static void CL_ParsePrint(char *msg, int level)
 {
+	extern int cls_lastto;
 	char n;
 	if (strlen(printtext) + strlen(msg) >= sizeof(printtext))
 	{
@@ -6498,7 +6499,7 @@ static void CL_ParsePrint(char *msg, int level)
 				if (!TP_SuppressMessage(printtext))
 				{
 					body = CL_ParseChat(printtext, &plr, &msgflags);
-					if (body && !cls.demoseeking)
+					if (body && !cls.demoseeking && cl.playerview[cl.defaultnetsplit].cam_spec_track == cls_lastto)
 						CL_PrintChat(plr, body, msgflags);
 				}
 			}
@@ -7110,6 +7111,7 @@ CL_ParseServerMessage
 */
 void CLQW_ParseServerMessage (void)
 {
+	extern int cls_lastto;
 	int			cmd;
 	char		*s;
 	int			i, j;
@@ -7257,6 +7259,10 @@ void CLQW_ParseServerMessage (void)
 				memmove(s + 20, s, strlen(s) + 1);
 				memset(s, '\n', 20);
 			}
+
+			// QTube: Hide centerprint of others, and map "sequences"
+			if (cls_lastto != cl.playerview[destsplit].cam_spec_track)
+				break;
 
 #ifdef PLUGINS
 			if (Plug_CenterPrintMessage(s, destsplit))
