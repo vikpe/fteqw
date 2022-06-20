@@ -246,7 +246,7 @@ void Stats_FragMessage(int p1, int wid, int p2, qboolean teamkill)
 	char *p1c = S_COLOR_WHITE;
 	char *p2c = S_COLOR_WHITE;
 
-	if (!r_tracker_frags.ival)
+	if (!r_tracker_frags.ival || cls.demoseeking)
 		return;
 	if (r_tracker_frags.ival < 2)
 		if (p1 != localplayer && p2 != localplayer)
@@ -317,6 +317,9 @@ void Stats_FlagMessage(fragfilemsgtypes_t type, int p1, int count)
 	const char *c = S_COLOR_WHITE;
 	const char *fc = !stricmp(cl.players[p1].team, "red") ? S_COLOR_BLUE : S_COLOR_RED;
 	const char *fn = !stricmp(cl.players[p1].team, "red") ? "blue" : "red";
+
+	if (cls.demoseeking)
+		return;
 
 	if (type == ff_flagcaps) {
 		Q_snprintfz(message, sizeof(message), "%s%s captured the %s%s%s flag! (%d captures)\n", c, p1n, fc, fn, c, count);
@@ -400,7 +403,6 @@ void Stats_Evaluate(fragfilemsgtypes_t mt, int wid, int p1, int p2)
 {
 	qboolean u1;
 	qboolean u2;
-	int i;
 
 	if (mt == ff_frags || mt == ff_tkills)
 	{
