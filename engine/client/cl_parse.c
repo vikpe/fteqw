@@ -6518,7 +6518,8 @@ static void CL_ParsePrint(char *msg, int level)
 					if (!msg_filter_pickups.ival)
 						if (!msg_filter_frags.ival)
 #endif
-							CL_PrintStandardMessage(printtext, level);
+							if (!cls.demoseeking && cl.playerview[cl.defaultnetsplit].cam_spec_track == cls_lastto)
+								CL_PrintStandardMessage(printtext, level);
 			}
 //		}
 
