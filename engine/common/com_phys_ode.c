@@ -1725,7 +1725,7 @@ static qboolean QDECL World_ODE_RagMatrixToBody(rbebody_t *bodyptr, float *mat)
 	r[2][2] = mat[10];
 
 	dBodySetPosition(bodyptr->body, mat[3], mat[7], mat[11]);
-	dBodySetRotation(bodyptr->body, r[0]);
+	dBodySetQuaternion(bodyptr->body, r[0]);
 	dBodySetLinearVel(bodyptr->body, 0, 0, 0);
 	dBodySetAngularVel(bodyptr->body, 0, 0, 0);
 
@@ -2443,7 +2443,7 @@ static void World_ODE_Frame_BodyFromEntity(world_t *world, wedict_t *ed)
 			{
 				dGeomSetBody(ed->rbe.body.geom, body);
 				dBodySetPosition(body, origin[0], origin[1], origin[2]);
-				dBodySetRotation(body, r[0]);
+				dBodySetQuaternion(body, r[0]);
 				dBodySetLinearVel(body, velocity[0], velocity[1], velocity[2]);
 				dBodySetAngularVel(body, spinvelocity[0], spinvelocity[1], spinvelocity[2]);
 				dBodySetGravityMode(body, gravity);
@@ -2452,7 +2452,7 @@ static void World_ODE_Frame_BodyFromEntity(world_t *world, wedict_t *ed)
 			{
 				dGeomSetBody(ed->rbe.body.geom, body);
 				dBodySetPosition(body, origin[0], origin[1], origin[2]);
-				dBodySetRotation(body, r[0]);
+				dBodySetQuaternion(body, r[0]);
 				dBodySetLinearVel(body, velocity[0], velocity[1], velocity[2]);
 				dBodySetAngularVel(body, spinvelocity[0], spinvelocity[1], spinvelocity[2]);
 				dBodySetGravityMode(body, gravity);
@@ -2464,7 +2464,7 @@ static void World_ODE_Frame_BodyFromEntity(world_t *world, wedict_t *ed)
 			// no body... then let's adjust the parameters of the geom directly
 			dGeomSetBody(ed->rbe.body.geom, 0); // just in case we previously HAD a body (which should never happen)
 			dGeomSetPosition(ed->rbe.body.geom, origin[0], origin[1], origin[2]);
-			dGeomSetRotation(ed->rbe.body.geom, r[0]);
+			dGeomSetQuaternion(ed->rbe.body.geom, r[0]);
 		}
 	}
 
