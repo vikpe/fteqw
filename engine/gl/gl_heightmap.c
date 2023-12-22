@@ -5738,11 +5738,14 @@ void Terr_Brush_Draw(heightmap_t *hm, batch_t **batches, entity_t *e)
 		{
 			if (br->faces[j].relight && dorelight)
 			{
-				lightstyleindex_t styles[4] = {0,INVALID_LIGHTSTYLE,INVALID_LIGHTSTYLE,INVALID_LIGHTSTYLE};
+				lightstyleindex_t styles[MAXCPULIGHTMAPS] = { INVALID_LIGHTSTYLE };
 				int texsize[2] = {br->faces[j].lmextents[0]-1, br->faces[j].lmextents[1]-1};
 				vec2_t exactmins, exactmaxs;
 				int m, k;
 				vec2_t lm;
+
+				styles[0] = 0;
+
 				for (m = 0; m < br->faces[j].numpoints; m++)
 				{
 					for (k = 0; k < 2; k++)
