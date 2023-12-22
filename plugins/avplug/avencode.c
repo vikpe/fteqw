@@ -8,6 +8,7 @@
 #include "libavutil/imgutils.h"
 #include "libavutil/opt.h"
 #include "libavutil/channel_layout.h"
+#include "avcompat.h"
 
 #define TARGET_FFMPEG (LIBAVFORMAT_VERSION_MICRO >= 100)
 
@@ -108,7 +109,7 @@ static AVFrame *alloc_frame(enum AVPixelFormat pix_fmt, int width, int height)
 	picture->height = height;
 	return picture;
 }
-static AVStream *add_video_stream(struct encctx *ctx, AVCodec *codec, int fps, int width, int height)
+static AVStream *add_video_stream(struct encctx *ctx, const AVCodec *codec, int fps, int width, int height)
 {
 	AVCodecContext *c;
 	AVStream *st;
@@ -188,7 +189,11 @@ static void close_video(struct encctx *ctx)
 //frame can be null on eof.
 static void AVEnc_DoEncode(AVFormatContext *fc, AVStream *stream, AVCodecContext *codec, AVFrame *frame)
 {
-	AVPacket pkt;
+	AVPacket *pkt;
+
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 91, 100)
+	AVPacket p;
+#endif
 	int err = avcodec_send_frame(codec, frame);
 	if (err)
 	{
@@ -196,24 +201,33 @@ static void AVEnc_DoEncode(AVFormatContext *fc, AVStream *stream, AVCodecContext
 		Con_Printf("avcodec_send_frame: error: %s\n", av_make_error_string(buf, sizeof(buf), err));
 	}
 
-	av_init_packet(&pkt);
-	while (!(err=avcodec_receive_packet(codec, &pkt)))
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 91, 100)
+	av_init_packet(&p);
+	pkt = &p;
+#else
+	pkt = av_alloc_packet();
+#endif
+	while (!(err=avcodec_receive_packet(codec, pkt)))
 	{
-		av_packet_rescale_ts(&pkt, codec->time_base, stream->time_base);
-		pkt.stream_index = stream->index;
-		err = av_interleaved_write_frame(fc, &pkt);
+		av_packet_rescale_ts(pkt, codec->time_base, stream->time_base);
+		pkt->stream_index = stream->index;
+		err = av_interleaved_write_frame(fc, pkt);
 		if (err)
 		{
 			char buf[512];
 			Con_Printf("av_interleaved_write_frame: error: %s\n", av_make_error_string(buf, sizeof(buf), err));
 		}
-		av_packet_unref(&pkt);
 	}
 	if (err && err != AVERROR(EAGAIN) && err != AVERROR_EOF)
 	{
 		char buf[512];
 		Con_Printf("avcodec_receive_packet: error: %s\n", av_make_error_string(buf, sizeof(buf), err));
 	}
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(58, 91, 100)
+	av_packet_unref(&p);
+#else
+	av_packet_free(pkt);
+#endif
 }
 #endif
 
@@ -296,7 +310,7 @@ static void AVEnc_Video (void *vctx, int frameno, void *data, int bytestride, in
 #endif
 }
 
-static AVStream *add_audio_stream(struct encctx *ctx, AVCodec *codec, int *samplerate, int *bits, int channels)
+static AVStream *add_audio_stream(struct encctx *ctx, const AVCodec *codec, int *samplerate, int *bits, int channels)
 {
 	AVCodecContext *c;
 	AVStream *st;
@@ -331,8 +345,7 @@ static AVStream *add_audio_stream(struct encctx *ctx, AVCodec *codec, int *sampl
 	c->time_base.num = 1;
 	c->time_base.den = *samplerate;
 	c->sample_rate = *samplerate;
-	c->channels = channels;
-	c->channel_layout = av_get_default_channel_layout(c->channels);
+	AVCOMPAT_CTX_SET_CHANNELS(c, channels);
 	c->sample_fmt = codec->sample_fmts[0];
 
 //	if (c->sample_fmt == AV_SAMPLE_FMT_FLTP || c->sample_fmt == AV_SAMPLE_FMT_FLT)
@@ -370,7 +383,7 @@ static void AVEnc_Audio (void *vctx, void *data, int bytes)
 
 	while (bytes)
 	{
-		int i, p, chans = ctx->audio_codec->channels;
+		int i, p, chans = AVCOMPAT_CTX_GET_CHANNELS(ctx->audio_codec);
 		int blocksize = sizeof(float)*chans;
 		int count = bytes / blocksize;
 		int planesize = ctx->audio_codec->frame_size;
@@ -485,7 +498,8 @@ static void AVEnc_Audio (void *vctx, void *data, int bytes)
 		}
 
 		ctx->audio->nb_samples = ctx->audio_outcount;
-		avcodec_fill_audio_frame(ctx->audio, ctx->audio_codec->channels, ctx->audio_codec->sample_fmt, ctx->audio_outbuf, av_get_bytes_per_sample(ctx->audio_codec->sample_fmt)*ctx->audio_outcount*ctx->audio_codec->channels, 1);
+
+		avcodec_fill_audio_frame(ctx->audio, AVCOMPAT_CTX_GET_CHANNELS(ctx->audio_codec), ctx->audio_codec->sample_fmt, ctx->audio_outbuf, av_get_bytes_per_sample(ctx->audio_codec->sample_fmt)*ctx->audio_outcount*AVCOMPAT_CTX_GET_CHANNELS(ctx->audio_codec), 1);
 		ctx->audio->pts = ctx->audio_pts;
 		ctx->audio_pts += ctx->audio_outcount;
 		ctx->audio_outcount = 0;
@@ -531,9 +545,13 @@ static void AVEnc_Audio (void *vctx, void *data, int bytes)
 static void *AVEnc_Begin (char *streamname, int videorate, int width, int height, int *sndkhz, int *sndchannels, int *sndbits)
 {
 	struct encctx *ctx;
+#if LIBAVCODEC_VERSION_INT < AV_VERSION_INT(59, 37, 100)
 	AVOutputFormat *fmt = NULL;
-	AVCodec *videocodec = NULL;
-	AVCodec *audiocodec = NULL;
+#else
+	const AVOutputFormat *fmt = NULL;
+#endif
+	const AVCodec *videocodec = NULL;
+	const AVCodec *audiocodec = NULL;
 	int err;
 	char errtxt[AV_ERROR_MAX_STRING_SIZE] = {0};
 
@@ -677,7 +695,7 @@ static void *AVEnc_Begin (char *streamname, int videorate, int width, int height
 		sz = ctx->audio_codec->frame_size;
 		if (!sz)
 			sz = VARIABLE_AUDIO_FRAME_MAX_SIZE;
-		sz *= av_get_bytes_per_sample(ctx->audio_codec->sample_fmt) * ctx->audio_codec->channels;
+		sz *= av_get_bytes_per_sample(ctx->audio_codec->sample_fmt) * AVCOMPAT_CTX_GET_CHANNELS(ctx->audio_codec);
 		ctx->audio_outbuf = av_malloc(sz);
 
 #if LIBAVCODEC_VERSION_INT >= AV_VERSION_INT(57, 48, 101)

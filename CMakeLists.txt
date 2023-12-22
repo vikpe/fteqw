@@ -1429,6 +1429,7 @@ IF(FTE_PLUG_FFMPEG)
 			plugins/avplug/avaudio.c
 			plugins/avplug/avdecode.c
 			plugins/avplug/avencode.c
+			plugins/avplug/avcompat.h
 		)
 		TARGET_INCLUDE_DIRECTORIES(plug_ffmpeg PUBLIC ${AVCODEC_INCLUDE_DIR} ${AVFORMAT_INCLUDE_DIR} ${AVUTIL_INCLUDE_DIR} ${AVSWSCALE_INCLUDE_DIR})
 		TARGET_LINK_LIBRARIES(plug_ffmpeg ${SYS_LIBS} ${AVFORMAT_LIBRARY} ${AVCODEC_LIBRARY} ${AVUTIL_LIBRARY} ${AVSWSCALE_LIBRARY})

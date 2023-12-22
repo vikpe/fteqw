@@ -8,6 +8,7 @@ static plugaudiofuncs_t *audiofuncs;
 #include "libavformat/avformat.h"
 #include "libswscale/swscale.h"
 #include "libavutil/imgutils.h"
+#include "avcompat.h"
 
 #define TARGET_FFMPEG (LIBAVFORMAT_VERSION_MICRO >= 100)
 #define HAVE_DECOUPLED_API (LIBAVCODEC_VERSION_MAJOR>57 || (LIBAVCODEC_VERSION_MAJOR==57&&LIBAVCODEC_VERSION_MINOR>=36))
@@ -147,7 +148,7 @@ static void *AVDec_Create(const char *medianame)
 	struct decctx *ctx;
 
 	unsigned int             i;
-	AVCodec         *pCodec;
+	const AVCodec *pCodec;
 	qboolean useioctx = false;
 //	const char *extension = strrchr(medianame, '.');
 
@@ -357,8 +358,8 @@ static qboolean VARGS AVDec_DisplayFrame(void *vctx, qboolean nosound, qboolean 
 			while(0==avcodec_receive_frame(ctx->pACodecCtx, ctx->pAFrame))
 			{
 				int width = 2;
-				int channels = ctx->pACodecCtx->channels;
-				unsigned int auddatasize = av_samples_get_buffer_size(NULL, ctx->pACodecCtx->channels, ctx->pAFrame->nb_samples, ctx->pACodecCtx->sample_fmt, 1);
+				int channels = AVCOMPAT_CTX_GET_CHANNELS(ctx->pACodecCtx);
+				unsigned int auddatasize = av_samples_get_buffer_size(NULL, channels, ctx->pAFrame->nb_samples, ctx->pACodecCtx->sample_fmt, 1);
 				void *auddata = ctx->pAFrame->data[0];
 				switch(ctx->pACodecCtx->sample_fmt)
 				{
