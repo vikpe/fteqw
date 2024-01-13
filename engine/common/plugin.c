@@ -31,6 +31,7 @@ static struct plugin_s *q3plug;
 cvar_t plug_sbar = CVARD("plug_sbar", "3", "Controls whether plugins are allowed to draw the hud, rather than the engine (when allowed by csqc). This is typically used to permit the ezhud plugin without needing to bother unloading it.\n=0: never use hud plugins.\n&1: Use hud plugins in deathmatch.\n&2: Use hud plugins in singleplayer/coop.\n=3: Always use hud plugins (when loaded).");
 cvar_t plug_loaddefault = CVARD("plug_loaddefault", "1", "0: Load plugins only via explicit plug_load commands\n1: Load built-in plugins and those selected via the package manager\n2: Scan for misc plugins, loading all that can be found, but not built-ins.\n3: Scan for plugins, and then load any built-ins");
 
+extern qboolean Plug_EzHud_Init(void);
 extern qboolean Plug_Q3_Init(void);
 extern qboolean Plug_Bullet_Init(void);
 extern qboolean Plug_ODE_Init(void);
@@ -40,6 +41,9 @@ static struct
 	qboolean (QDECL *initfunction)(void);
 } staticplugins[] = 
 {
+#if defined(USE_INTERNAL_EZHUD)
+	{"ezhud_internal", Plug_EzHud_Init},
+#endif
 #if defined(USE_INTERNAL_BULLET)
 	{"bullet_internal", Plug_Bullet_Init},
 #endif
