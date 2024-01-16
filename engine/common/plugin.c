@@ -2017,6 +2017,7 @@ static void *QDECL PlugBI_GetEngineInterface(const char *interfacename, size_t s
 	{
 		static plugnetfuncs_t funcs =
 		{
+#ifdef HAVE_PACKET
 			Plug_Net_TCPConnect,
 			Plug_Net_TCPListen,
 			Plug_Net_Accept,
@@ -2026,7 +2027,7 @@ static void *QDECL PlugBI_GetEngineInterface(const char *interfacename, size_t s
 			Plug_Net_Close,
 			Plug_Net_SetTLSClient,
 			Plug_Net_GetTLSBinding,
-
+#endif
 			Sys_RandomBytes,
 #ifdef HAVE_DTLS
 			TLS_GetKnownCertificate,
@@ -2262,13 +2263,18 @@ static void *QDECL PlugBI_GetEngineInterface(const char *interfacename, size_t s
 			Plug_S_PrecacheSound,
 			S_StartSound,
 			S_GetChannelLevel,
+#ifdef VOICECHAT
 			S_Voip_ClientLoudness,
+#else
+			NULL,
+#endif
 			Media_NamedTrack
 		};
 		if (structsize == sizeof(funcs))
 			return &funcs;
 	}
 
+#if defined(CL_MASTER) && defined(HAVE_CLIENT)
 	if (!strcmp(interfacename, plugmasterfuncs_name))
 	{
 		static plugmasterfuncs_t funcs =
@@ -2289,6 +2295,7 @@ static void *QDECL PlugBI_GetEngineInterface(const char *interfacename, size_t s
 		if (structsize == sizeof(funcs))
 			return &funcs;
 	}
+#endif
 	if (!strcmp(interfacename, plugimagefuncs_name))
 	{
 		static plugimagefuncs_t funcs =
