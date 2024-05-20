@@ -150,10 +150,13 @@ mergeInto(LibraryManager.library,
 					console.log(event.data);
 					FTEC.loadurl(event.data.url, event.data.cmd, undefined);
 					break;
+				case 'fullscreenchange':
 				case 'resize':
 					if (FTEC.evcb.resize != 0)
 					{
-						{{{makeDynCall('vii','FTEC.evcb.resize')}}}(Module['canvas'].width, Module['canvas'].height);
+						var dpr = window.devicePixelRatio || 1;
+						var rect = Module['canvas'].getBoundingClientRect();
+						{{{makeDynCall('vii','FTEC.evcb.resize')}}}(rect.width * dpr, rect.height * dpr);
 					}
 					break;
 				case 'mousemove':
@@ -424,7 +427,7 @@ mergeInto(LibraryManager.library,
 						'keypress', 'keydown', 'keyup', 
 						'touchstart', 'touchend', 'touchcancel', 'touchleave', 'touchmove',
 						'dragenter', 'dragover', 'drop',
-						'message', 'resize',
+						'message', 'resize', 'fullscreenchange',
 						'pointerlockerror', 'pointerlockchange', 'mozpointerlockchange', 'webkitpointerlockchange',
 						'focus', 'blur'];   //try to fix alt-tab
 			events.forEach(function(event)
@@ -474,12 +477,13 @@ mergeInto(LibraryManager.library,
 //				Browser.windowedHeight = window.innerHeight;
 //			}
 //			else
-			{
+//			{
+				var dpr = window.devicePixelRatio || 1;
 				var rect = Module['canvas'].getBoundingClientRect();
-				Browser.setCanvasSize(rect.width, rect.height, false);
-			}
+				Browser.setCanvasSize(rect.width * dpr, rect.height * dpr, false);
+//			}
 			if (FTEC.evcb.resize != 0)
-				{{{makeDynCall('vii','FTEC.evcb.resize')}}}(Module['canvas'].width, Module['canvas'].height);
+				{{{makeDynCall('vii','FTEC.evcb.resize')}}}(rect.width * dpr, rect.height * dpr);
 		};
 		window.onresize();
 
