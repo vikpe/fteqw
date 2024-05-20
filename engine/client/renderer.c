@@ -1636,7 +1636,8 @@ TRACE(("dbg: R_ApplyRenderer: draw inited\n"));
 TRACE(("dbg: R_ApplyRenderer: renderer inited\n"));
 		SCR_Init();
 TRACE(("dbg: R_ApplyRenderer: screen inited\n"));
-		Sbar_Flush();
+		// QTube: Disabling here to avoid evicting images loaded by ezhud.
+		// Sbar_Flush();
 
 		IN_ReInit();
 		Media_VideoRestarted();
