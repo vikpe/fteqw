@@ -180,12 +180,14 @@ mergeInto(LibraryManager.library,
 					console.log(event.data);
 					FTEC.loadurl(event.data.url, event.data.cmd, undefined);
 					break;
-				case 'resize':
-					if (FTEC.evcb.resize != 0)
-					{
-						{{{makeDynCall('vii','FTEC.evcb.resize')}}}(Module['canvas'].width, Module['canvas'].height);
-					}
+				case 'fullscreenchange':
+				case 'resize': {
+                                        if (FTEC.evcb.resize != 0)
+                                        {
+                                                {{{makeDynCall('viif','FTEC.evcb.resize')}}}(Module['canvas'].width, Module['canvas'].height, scale);
+                                        }
 					break;
+				}
 				case 'mousemove':
 					if (FTEC.evcb.mouse != 0)
 					{
@@ -637,19 +639,18 @@ mergeInto(LibraryManager.library,
 			let scale = window.devicePixelRatio;	//urgh. haxx.
 			if (scale <= 0)
 				scale = 1;
-			//emscripten's browser library will revert sizes wrongly or something when we're fullscreen, so make sure that doesn't happen.
-//			if (Browser.isFullScreen)
-//			{
-//				Browser.windowedWidth = window.innerWidth;
-//				Browser.windowedHeight = window.innerHeight;
-//			}
-//			else
-			{
-				let rect = Module['canvas'].getBoundingClientRect();
-				Browser.setCanvasSize(rect.width*scale, rect.height*scale, false);
-			}
-			if (FTEC.evcb.resize != 0)
-				{{{makeDynCall('viif','FTEC.evcb.resize')}}}(Module['canvas'].width, Module['canvas'].height, scale);
+                        let width = window.innerWidth;
+                        let height = window.innerHeight;
+                        //emscripten's browser library will revert sizes wrongly or something when we're fullscreen, so make sure that doesn't happen.
+                        if (!(document.fullscreenElement || document.webkitFullscreenElement))
+                        {
+                                let rect = Module['canvas'].getBoundingClientRect();
+                                width = rect.width;
+                                height = rect.height;
+                        }
+                        Browser.setCanvasSize(width*scale, height*scale, false);
+                        if (FTEC.evcb.resize != 0)
+                                {{{makeDynCall('viif','FTEC.evcb.resize')}}}(width*scale, height*scale, 1);
 		};
 		window.onresize();
 
