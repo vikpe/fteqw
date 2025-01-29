@@ -237,6 +237,15 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 				return std::string(location);
 			return std::string("unknown");
 		})
+		.function("getOrigin", +[](player_info_t& self) -> vec3_t {
+			int index = &self - cl.players;
+			if (index + 1 < cl.maxlerpents && cl.lerpentssequence && cl.lerpents[index + 1].sequence == cl.lerpentssequence)
+				return (&cl.lerpents[index + 1])->origin;
+			else if (cl.lerpentssequence && cl.lerpplayers[index].sequence == cl.lerpentssequence)
+				return (&cl.lerpplayers[index])->origin;
+			else
+				throw std::out_of_range("Player index out of range");
+		})
 		.function("getUserInfo", +[](player_info_t& self) -> emscripten::val {
 			emscripten::val result = emscripten::val::object();
 			if (self.userinfovalid) {
