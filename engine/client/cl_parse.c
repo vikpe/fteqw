@@ -6954,6 +6954,200 @@ static void CL_ParseWeaponStats(void)
 #endif
 }
 
+
+static void CL_ParseKtxBackpackRemove(void) {
+	struct itemtimer_s *current, *previous;
+	unsigned int entnum;
+
+	if (Cmd_Argc() < 1) {
+		Con_DPrintf("ktx expire/bp: expected at least 1 arg, got %d\n", Cmd_Argc());
+		return;
+	}
+
+	entnum = strtoul(Cmd_Argv(0), NULL, 0);
+
+	current = cl.itemtimers;
+	previous = NULL;
+
+	while (current != NULL) {
+		if (current->entnum == entnum) {
+			if (previous == NULL) {
+				cl.itemtimers = current->next;
+			} else {
+				previous->next = current->next;
+			}
+			Z_Free(current);
+			break;
+		}
+		previous = current;
+		current = current->next;
+	}
+}
+
+static void CL_ParseKtxBackpackDrop(void)
+{
+	struct itemtimer_s *timer;
+	unsigned int entnum, rgb, items;
+	char *deathmatch;
+
+	if (Cmd_Argc() < 2)
+	{
+		Con_DPrintf("ktx drop: expected at least 2 args, got %d\n", Cmd_Argc());
+		return;
+	}
+
+	deathmatch = InfoBuf_ValueForKey(&cl.serverinfo, "deathmatch");
+	if (deathmatch != NULL && !strcmp(deathmatch, "4"))
+	{
+		// ktx doesn't emit pickup events which will cause entnum mismatch over time
+		return;
+	}
+
+	entnum = strtoul(Cmd_Argv(0), NULL, 0);
+	items = strtoul(Cmd_Argv(1), NULL, 0);
+
+	timer = Z_Malloc(sizeof(*timer));
+	timer->next = cl.itemtimers;
+	cl.itemtimers = timer;
+
+	if (items & IT_LIGHTNING) {
+		rgb = 0xffffff;
+	} else if (items & IT_ROCKET_LAUNCHER) {
+		rgb = 0xff0000;
+	} else {
+		rgb = 0xff00ff; // Shouldn't happen
+	}
+
+	timer->entnum = entnum;
+	timer->radius = 48;
+	timer->duration = 120;
+	timer->start = (float)(cl.time + timer->duration);
+	timer->end = (float)(cl.time + timer->duration);
+	timer->rgb[0] = ((rgb>>16)&0xff)/255.0f;
+	timer->rgb[1] = ((rgb>> 8)&0xff)/255.0f;
+	timer->rgb[2] = ((rgb)    &0xff)/255.0f;
+}
+
+static void CL_ParseKtxItemTimer(void)
+{
+	struct itemtimer_s *timer;
+	float duration;
+	unsigned int entnum, rgb;
+	entity_state_t *ent;
+	const char *mdl;
+	vec3_t org;
+	float start;
+
+	if (Cmd_Argc() < 2)
+	{
+		Con_DPrintf("ktx timer: expected 3 args, got %d\n", Cmd_Argc());
+		return;
+	}
+
+	duration = (float) strtod(Cmd_Argv(1), NULL);
+
+	entnum = strtoul(Cmd_Argv(0), NULL, 0);
+	if (entnum < 0 || entnum >= cl_baselines_count)
+	{
+		Con_DPrintf("ktx timer: entity index out of bounds: %d\n", entnum);
+		return;
+	}
+
+	ent = &cl_baselines[entnum];
+	if (ent->modelindex < 0 || ent->modelindex >= MAX_PRECACHE_MODELS)
+	{
+		Con_DPrintf("ktx timer: model index out of bounds: %d (ent: %d)\n", ent->modelindex, entnum);
+		return;
+	}
+
+	mdl = cl.model_name[ent->modelindex];
+	if (!mdl)
+	{
+		Con_DPrintf("ktx timer: could not find model name for index %d (ent: %d)\n", ent->modelindex, entnum);
+		return;
+	}
+
+	VectorCopy(cl_baselines[entnum].origin, org);
+
+	if (!strcmp("progs/ring.mdl", mdl))
+	{
+		rgb = 0xffe900;
+		org[2] -= 24; // nail to ground
+	}
+	else if (!strcmp("progs/invulner.mdl", mdl))
+	{
+		rgb = 0xd623f2;
+		org[2] -= 24; // nail to ground
+	}
+	else if (!strcmp("progs/quaddama.mdl", mdl))
+	{
+		rgb = 0x00a2ff;
+		org[2] -= 24; // nail to ground
+	}
+	else if (!strcmp("progs/suit.mdl", mdl))
+	{
+		rgb = 0x08fc40;
+		org[2] -= 24; // nail to ground
+	}
+	else if (!strcmp("progs/armor.mdl", mdl))
+	{
+		switch (ent->skinnum) {
+			case 2: // ra
+				rgb = 0xff0000;
+				break;
+			case 1: // ya
+				rgb = 0xffe900;
+				break;
+			default: // ga
+				rgb = 0x00ff00;
+				break;
+		}
+	}
+	else if (!strcmp("maps/b_bh100.bsp", mdl))
+	{
+		rgb = 0xff69b4;
+	}
+	else if (!strcmp("progs/g_shot.mdl", mdl) ||
+			 !strcmp("progs/g_nail.mdl", mdl) ||
+			 !strcmp("progs/g_nail2.mdl", mdl) ||
+			 !strcmp("progs/g_rock.mdl", mdl) ||
+			 !strcmp("progs/g_rock2.mdl", mdl) ||
+			 !strcmp("progs/g_light.mdl", mdl))
+	{
+		rgb = 0x00ffbc;
+	}
+	else
+	{
+		rgb = 0xffffff;
+	}
+
+	for (timer = cl.itemtimers; timer; timer = timer->next)
+	{
+		if (timer->entnum == entnum || VectorCompare(timer->origin, org))
+			break;
+	}
+
+	if (!timer)
+	{	//didn't find it.
+		timer = Z_Malloc(sizeof(*timer));
+		timer->next = cl.itemtimers;
+		cl.itemtimers = timer;
+	}
+
+	start = cl.time;
+
+	VectorCopy(org, timer->origin);
+
+	timer->entnum = entnum;
+	timer->radius = 48;
+	timer->duration = duration <= 0 ? FLT_MAX : duration;
+	timer->start = start;
+	timer->end = start + timer->duration;
+	timer->rgb[0] = ((rgb>>16)&0xff)/255.0;
+	timer->rgb[1] = ((rgb>> 8)&0xff)/255.0;
+	timer->rgb[2] = ((rgb)    &0xff)/255.0;
+}
+
 static void CL_ParseItemTimer(void)
 {
 	//it [cur/]duration x y z radius 0xRRGGBB "timername" owningent
@@ -7235,6 +7429,31 @@ static void CL_ParseStuffCmd(char *msg, int destsplit)	//this protects stuffcmds
 				else
 					Con_Printf("You have been kicked due to the file "U8("%s")" being modfied, located at "U8("%s")"\n", Cmd_Argv(1), loc.rawname);
 			}
+		}
+		else if (!strncmp(stufftext, "//ktx took ", 11))		//ktx took <entnum> <timeout> <playernum>
+		{
+			Cmd_TokenizeString(stufftext+11, false, false);
+			CL_ParseKtxItemTimer();
+		}
+		else if (!strncmp(stufftext, "//ktx timer ", 12))		//ktx timer <entnum> <timeout>
+		{
+			Cmd_TokenizeString(stufftext+12, false, false);
+			CL_ParseKtxItemTimer();
+		}
+		else if (!strncmp(stufftext, "//ktx drop", 10))         //ktx drop <entnum> <items> <player entnum>
+		{
+			Cmd_TokenizeString(stufftext+10, false, false);
+			CL_ParseKtxBackpackDrop();
+		}
+		else if (!strncmp(stufftext, "//ktx bp", 8))         //ktx bp <entnum> <player entnum>
+		{
+			Cmd_TokenizeString(stufftext+8, false, false);
+			CL_ParseKtxBackpackRemove();
+		}
+		else if (!strncmp(stufftext, "//ktx expire", 12))         //ktx expire <entnum>
+		{
+			Cmd_TokenizeString(stufftext+8, false, false);
+			CL_ParseKtxBackpackRemove();
 		}
 		else if (!strncmp(stufftext, "//it ", 5))				//it <timeout> <org xyz> <radius> <rgb> <timername> <entnum>
 		{
