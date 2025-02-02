@@ -955,7 +955,8 @@ void Cam_SetModAutoTrack(int userid)
 			return;
 		}
 	}
-	Con_Printf("//at: invalid userid %i\n", userid);
+	// QTube: Maybe fteqtv proxy changes userids?
+	// Con_Printf("//at: invalid userid %i\n", userid);
 }
 
 /*static void Cam_TrackCrosshairedPlayer(playerview_t *pv)
