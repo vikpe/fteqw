@@ -434,17 +434,29 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		return &fragstats;
 	}, allow_raw_pointers());
 
-	function("getConnectionStatus", +[]() -> std::string {
+	function("getConnectionState", +[]() -> std::string {
 		switch (cls.state) {
 			case ca_disconnected:
 				return "disconnected";
+			case ca_onserver:
+				return "onserver";
 			case ca_connected:
-				return "connecting";
-			case ca_active:
 				return "connected";
+			case ca_active:
+				return "active";
+			case ca_demostart:
+				return "demostart";
 			default:
-				return "disconnected";
+				return "";
 		}
+	});
+
+	function("getServerUrl", +[]() -> std::string {
+		return std::string(cls.serverurl);
+	});
+
+	function("getServerName", +[]() -> std::string {
+		return std::string(cls.servername);
 	});
 
 	function("getDemoTime",  +[]() -> float {
