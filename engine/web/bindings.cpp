@@ -451,12 +451,13 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		}
 	});
 
-	function("getServerUrl", +[]() -> std::string {
-		return std::string(cls.serverurl);
-	});
-
-	function("getServerName", +[]() -> std::string {
-		return std::string(cls.servername);
+	function("getFoo", +[]() -> emscripten::val {
+		emscripten::val result = emscripten::val::object();
+		result.set("cls.demoplayback", cls.demoplayback);
+		result.set("cls.demoeztv_ext", cls.demoeztv_ext);
+		result.set("cls.protocol", cls.protocol);
+		result.set("cls.lastdemoname", cls.lastdemoname);
+		return result;
 	});
 
 	function("getDemoTime",  +[]() -> float {
