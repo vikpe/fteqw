@@ -84,6 +84,7 @@ void CL_StopPlayback (void)
 		CL_FinishTimeDemo ();
 
 	TP_ExecTrigger("f_demoend", true);
+	memset(cls.qw_current_stream, 0, sizeof(cls.qw_current_stream));
 }
 
 /*
@@ -2400,6 +2401,7 @@ void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int 
 	if (filename)
 	{
 		Q_strncpyz (cls.lastdemoname, filename, sizeof(cls.lastdemoname));
+		Q_strncpyz(cls.qw_current_stream, filename, sizeof(cls.qw_current_stream));
 		cls.lastdemowassystempath = issyspath;
 		Con_Printf ("Playing demo from %s.\n", filename);
 	}
@@ -2606,6 +2608,7 @@ void CL_PlayDemo(char *demoname, qboolean usesystempath)
 		cls.demonum = -1;		// stop demo loop
 
 		TP_ExecTrigger ("f_demoend", true);
+		memset(cls.qw_current_stream, 0, sizeof(cls.qw_current_stream));
 		return;
 	}
 	Q_strncpyz (cls.lastdemoname, demoname, sizeof(cls.lastdemoname));
@@ -3071,7 +3074,7 @@ fail:
 		if (streamavailable)
 		{
 			if (*streamavailable) {
-				Q_strncpyz(cls.lastqtvstream, streamavailable, sizeof(cls.lastqtvstream));
+				Q_strncpyz(cls.qw_current_stream, streamavailable, sizeof(cls.qw_current_stream));
 				Con_Printf("streaming \"%s\" via \"%s\"\n", streamavailable, qtv->hostname);
 			}
 			else
