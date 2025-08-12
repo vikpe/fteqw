@@ -2471,6 +2471,8 @@ void CL_Disconnect (const char *reason)
 	qbyte	final[13];
 	int i;
 
+	memset(cls.qw_target_stream, 0, sizeof(cls.qw_target_stream));
+
 	if (reason)
 		Cvar_Set(&cl_disconnectreason, reason);
 
