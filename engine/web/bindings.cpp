@@ -461,18 +461,6 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		}
 	});
 
-	function("getFoo", +[]() -> emscripten::val {
-	    // LS_NONE,
-        // LS_CONNECTION,
-		// LS_SERVER,
-		// LS_CLIENT,
-		emscripten::val result = emscripten::val::object();
-		result.set("loadingStage", static_cast<int>(SCR_GetLoadingStage()));
-		result.set("currentStream", std::string(cls.qw_current_stream));
-		result.set("targetStream", std::string(cls.qw_target_stream));
-		return result;
-	});
-
 	function("getDemoTime",  +[]() -> float {
 		extern float demtime;
 		return demtime;

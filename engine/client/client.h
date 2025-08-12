@@ -543,8 +543,6 @@ typedef struct
 	float		demoseektime;
 	int			demotrack;
 	qboolean	timedemo;
-	char		qw_target_stream[MAX_OSPATH];  // for quake.world
-	char		qw_current_stream[MAX_OSPATH];  // for quake.world
 	char		lastdemoname[MAX_OSPATH];	//empty if is a qtv stream
 	qboolean	lastdemowassystempath;
 	vfsfile_t	*demoinfile;

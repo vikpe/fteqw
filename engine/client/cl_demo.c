@@ -84,7 +84,6 @@ void CL_StopPlayback (void)
 		CL_FinishTimeDemo ();
 
 	TP_ExecTrigger("f_demoend", true);
-	memset(cls.qw_current_stream, 0, sizeof(cls.qw_current_stream));
 }
 
 /*
@@ -1337,7 +1336,7 @@ static void CLQW_RecordServerData(sizebuf_t *buf, int *seq)
 
 					if (!InfoBuf_EncodeString(cl.serverinfo.keys[k].value, chunk, encdata, sizeof(encdata)))
 						break;	//shouldn't happen.
-				
+
 					if (buf->cursize > 512)
 						CL_WriteRecordDemoMessage (buf, (*seq)++);
 
@@ -1470,7 +1469,7 @@ void CL_Record_Baseline(sizebuf_t *buf, entity_state_t *state, unsigned int fitz
 		MSG_WriteCoord (buf, state->origin[j]);
 		MSG_WriteAngle (buf, state->angles[j]);
 	}
-	
+
 	if (fitzbits & FITZ_B_ALPHA)
 		MSG_WriteByte(buf, state->trans);
 	if (fitzbits & RMQFITZ_B_SCALE)
@@ -1836,10 +1835,10 @@ void CL_Record_f (void)
 	if (c == 2)	//user supplied a name
 	{
 		fname = Cmd_Argv(1);
-		
+
 		// See if the users supplied their own filename...
 		s = strrchr(fname, '.');
-		
+
 		// They did.
 		if ( s != NULL ) {
 			if (!Q_strcasecmp(s, defaultext))
@@ -1973,7 +1972,7 @@ void CL_Record_f (void)
 				MSG_WriteString(&buf, "\n");
 			}
 		}
-		
+
 		//FIXME: //at
 		//FIXME: //wps
 		//FIXME: //it
@@ -2006,7 +2005,7 @@ void CL_Record_f (void)
 				MSG_WriteByte (&buf, 0);
 				MSG_WriteByte (&buf, n);
 				CL_WriteRecordDemoMessage (&buf, seq++);
-			
+
 				if (n + 1 > 0xff)
 				{
 					MSG_WriteByte (&buf, svcfte_soundlistshort);
@@ -2401,7 +2400,6 @@ void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int 
 	if (filename)
 	{
 		Q_strncpyz (cls.lastdemoname, filename, sizeof(cls.lastdemoname));
-		Q_strncpyz(cls.qw_current_stream, filename, sizeof(cls.qw_current_stream));
 		cls.lastdemowassystempath = issyspath;
 		Con_Printf ("Playing demo from %s.\n", filename);
 	}
@@ -2608,7 +2606,6 @@ void CL_PlayDemo(char *demoname, qboolean usesystempath)
 		cls.demonum = -1;		// stop demo loop
 
 		TP_ExecTrigger ("f_demoend", true);
-		memset(cls.qw_current_stream, 0, sizeof(cls.qw_current_stream));
 		return;
 	}
 	Q_strncpyz (cls.lastdemoname, demoname, sizeof(cls.lastdemoname));
@@ -3073,10 +3070,8 @@ fail:
 
 		if (streamavailable)
 		{
-			if (*streamavailable) {
-				Q_strncpyz(cls.qw_current_stream, streamavailable, sizeof(cls.qw_current_stream));
+			if (*streamavailable)
 				Con_Printf("streaming \"%s\" via \"%s\"\n", streamavailable, qtv->hostname);
-			}
 			else
 				Con_Printf("qtv connection established to %s\n", qtv->hostname);
 			CL_PlayDemoStream(qtv->stream, NULL, false, DPB_MVD, BUFFERTIME, iseztv);
@@ -3144,8 +3139,6 @@ void CL_QTVPlay_Establish (const char *host, const char *password, const char *c
 	char msg[4096];
 	int msglen=0;
 
-	Q_strncpyz(cls.qw_target_stream, host, sizeof(cls.qw_target_stream));
-
 //	SCR_SetLoadingStage(LS_CONNECTION);
 	qtv->stream = FS_OpenTCP(host, 27599, false);
 	if (!qtv->stream)
@@ -3153,7 +3146,6 @@ void CL_QTVPlay_Establish (const char *host, const char *password, const char *c
 		SCR_SetLoadingStage(LS_NONE);
 		Con_Printf("Couldn't connect to proxy\n");
 		Z_Free(qtv);
-		memset(cls.qw_current_stream, 0, sizeof(cls.qw_current_stream));
 		return;
 	}
 
@@ -3376,4 +3368,3 @@ void CL_TimeDemo_f (void)
 	cls.td_startframe = -1;
 	cls.td_lastframe = -1;		// get a new message this frame
 }
-

@@ -2471,8 +2471,6 @@ void CL_Disconnect (const char *reason)
 	qbyte	final[13];
 	int i;
 
-	memset(cls.qw_target_stream, 0, sizeof(cls.qw_target_stream));
-
 	if (reason)
 		Cvar_Set(&cl_disconnectreason, reason);
 
@@ -7065,7 +7063,6 @@ qboolean Host_RunFile(const char *fname, int nlen, vfsfile_t *file)
 		char dpath[MAX_OSPATH];
 		FS_DisplayPath(f->fname, FS_SYSTEM, dpath,sizeof(dpath));
 		Con_TPrintf("Opening external file: %s\n", dpath);
-		Q_strncpyz(cls.qw_target_stream, dpath, sizeof(cls.qw_target_stream));
 	}
 
 	Host_DoRunFile(f);
