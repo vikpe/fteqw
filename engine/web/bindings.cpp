@@ -455,6 +455,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		emscripten::val result = emscripten::val::object();
 		result.set("SCR_GetLoadingStage", static_cast<int>(SCR_GetLoadingStage()));
 		result.set("cls.lastdemoname", std::string(cls.lastdemoname));
+		result.set("cls.lastqtvstream", std::string(cls.lastqtvstream));
 		return result;
 	});
 

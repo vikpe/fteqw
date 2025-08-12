@@ -3070,8 +3070,10 @@ fail:
 
 		if (streamavailable)
 		{
-			if (*streamavailable)
+			if (*streamavailable) {
+				Q_strncpyz(cls.lastqtvstream, streamavailable, sizeof(cls.lastqtvstream));
 				Con_Printf("streaming \"%s\" via \"%s\"\n", streamavailable, qtv->hostname);
+			}
 			else
 				Con_Printf("qtv connection established to %s\n", qtv->hostname);
 			CL_PlayDemoStream(qtv->stream, NULL, false, DPB_MVD, BUFFERTIME, iseztv);
