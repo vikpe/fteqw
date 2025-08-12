@@ -442,4 +442,9 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	function("getCvar", +[](std::string name) -> std::string {
 		return std::string(Cvar_VariableString(name.c_str()));
 	});
+
+	function("getMacroValue", +[](std::string name) -> std::string {
+		char *value = Cmd_GetMacroValue(name.c_str());
+		return value ? std::string(value) : std::string("");
+	});
 }
