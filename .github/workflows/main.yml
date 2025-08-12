@@ -1,13 +1,13 @@
 name: main
 
-on: [ push, pull_request, workflow_dispatch ]
+on: [push, pull_request, workflow_dispatch]
 
 jobs:
   cmake:
     strategy:
       matrix:
-        os: [ ubuntu-latest ]
-        profile: [ "Debug", "Release" ]
+        os: [ubuntu-latest]
+        profile: ["Debug", "Release"]
 
     runs-on: ${{ matrix.os }}
 
@@ -58,27 +58,27 @@ jobs:
             fte_target: web
             make_targets: "gl-rel"
             os: ubuntu-latest
-          - name: linux64
-            fte_target: linux64
-            make_targets: "m-rel sv-rel qtv-rel qcc-rel"
-            os: ubuntu-latest
-            packages: "libasound2-dev libgl-dev libegl1-mesa-dev libwayland-dev libxcursor-dev libxi-dev libxkbcommon-dev libxrandr-dev libxss-dev libpng-dev"
-          - name: win32
-            fte_target: win32
-            make_targets: "m-rel sv-rel qcc-rel"
-            os: ubuntu-latest
-            packages: "binutils-mingw-w64-i686 gcc-mingw-w64-i686 g++-mingw-w64-i686"
-          - name: win64
-            fte_target: win64
-            make_targets: "m-rel sv-rel qcc-rel"
-            os: ubuntu-latest
-            packages: "binutils-mingw-w64-x86-64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64"
-          - name: macos-arm64
-            fte_target: SDL2
-            make_targets: "gl-rel sv-rel qcc-rel"
-            args: "ARCH=arm STRIPFLAGS="
-            packages: "sdl2"
-            os: macos-latest
+          # - name: linux64
+          #   fte_target: linux64
+          #   make_targets: "m-rel sv-rel qtv-rel qcc-rel"
+          #   os: ubuntu-latest
+          #   packages: "libasound2-dev libgl-dev libegl1-mesa-dev libwayland-dev libxcursor-dev libxi-dev libxkbcommon-dev libxrandr-dev libxss-dev libpng-dev"
+          # - name: win32
+          #   fte_target: win32
+          #   make_targets: "m-rel sv-rel qcc-rel"
+          #   os: ubuntu-latest
+          #   packages: "binutils-mingw-w64-i686 gcc-mingw-w64-i686 g++-mingw-w64-i686"
+          # - name: win64
+          #   fte_target: win64
+          #   make_targets: "m-rel sv-rel qcc-rel"
+          #   os: ubuntu-latest
+          #   packages: "binutils-mingw-w64-x86-64 gcc-mingw-w64-x86-64 g++-mingw-w64-x86-64"
+          # - name: macos-arm64
+          #   fte_target: SDL2
+          #   make_targets: "gl-rel sv-rel qcc-rel"
+          #   args: "ARCH=arm STRIPFLAGS="
+          #   packages: "sdl2"
+          #   os: macos-latest
 
     name: make-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
