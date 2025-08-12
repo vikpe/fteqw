@@ -453,10 +453,8 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 
 	function("getFoo", +[]() -> emscripten::val {
 		emscripten::val result = emscripten::val::object();
-		result.set("cls.demoplayback", static_cast<int>(cls.demoplayback));
-		result.set("cls.demoeztv_ext", static_cast<int>(cls.demoeztv_ext));
-		result.set("cls.protocol", static_cast<int>(cls.protocol));
-		result.set("cls.lastdemoname", std::string(cls.lastdemoname ? cls.lastdemoname : ""));
+		result.set("SCR_GetLoadingStage", static_cast<int>(SCR_GetLoadingStage()));
+		result.set("cls.lastdemoname", std::string(cls.lastdemoname));
 		return result;
 	});
 
