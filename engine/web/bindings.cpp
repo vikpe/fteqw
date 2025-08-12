@@ -456,7 +456,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		result.set("cls.demoplayback", std::string(cls.demoplayback));
 		result.set("cls.demoeztv_ext", std::string(cls.demoeztv_ext));
 		result.set("cls.protocol", std::string(cls.protocol));
-		result.set("cls.lastdemoname", std::string(cls.lastDemoName));
+		result.set("cls.lastdemoname", std::string(cls.lastdemoname));
 		return result;
 	});
 
