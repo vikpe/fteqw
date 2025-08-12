@@ -210,6 +210,8 @@ void Alias_WipeStuffedAliases(void);
 void Cmd_AddMacro(char *s, char *(*f)(void), int disputableintentions);
 #define Cmd_AddMacroD(s,f,unsafe,desc) Cmd_AddMacro(s,f,unsafe)
 
+char *Cmd_GetMacroValue(const char *name);
+
 void Cmd_TokenizePunctation (char *text, char *punctuation);
 const char *Cmd_TokenizeString (const char *text, qboolean expandmacros, qboolean qctokenize);
 // Takes a null terminated string.  Does not need to be /n terminated.

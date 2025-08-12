@@ -93,7 +93,7 @@ typedef struct {
 static macro_command_t macro_commands[MAX_MACROS];
 static int macro_count = 0;
 
-static char *Cmd_GetMacroValue(const char *name)
+char *Cmd_GetMacroValue(const char *name)
 {
     for (int i = 0; i < macro_count; i++)
     {
