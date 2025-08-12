@@ -434,6 +434,19 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		return &fragstats;
 	}, allow_raw_pointers());
 
+	function("getConnectionStatus", +[]() -> std::string {
+		switch (cls.state) {
+			case ca_disconnected:
+				return "disconnected";
+			case ca_connected:
+				return "connecting";
+			case ca_active:
+				return "connected";
+			default:
+				return "disconnected";
+		}
+	});
+
 	function("getDemoTime",  +[]() -> float {
 		extern float demtime;
 		return demtime;
