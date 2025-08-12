@@ -3144,6 +3144,8 @@ void CL_QTVPlay_Establish (const char *host, const char *password, const char *c
 	char msg[4096];
 	int msglen=0;
 
+	Q_strncpyz(cls.qw_target_stream, host, sizeof(cls.qw_target_stream));
+
 //	SCR_SetLoadingStage(LS_CONNECTION);
 	qtv->stream = FS_OpenTCP(host, 27599, false);
 	if (!qtv->stream)
@@ -3151,6 +3153,7 @@ void CL_QTVPlay_Establish (const char *host, const char *password, const char *c
 		SCR_SetLoadingStage(LS_NONE);
 		Con_Printf("Couldn't connect to proxy\n");
 		Z_Free(qtv);
+		memset(cls.qw_current_stream, 0, sizeof(cls.qw_current_stream));
 		return;
 	}
 
