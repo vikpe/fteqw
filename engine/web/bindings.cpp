@@ -463,10 +463,10 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 
 	function("getDemoType", +[]() -> std::string {
         if (cls.demoplayback) {
-           	if (cls.demoeztv_ext) {
-                return "qtv";
-           	} else {
+           	if (*cls.lastdemoname) {
                 return "mvd";
+           	} else {
+                return "qtv";
             }
        	}
         return "";
