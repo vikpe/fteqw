@@ -448,17 +448,28 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		switch (cls.state) {
 			case ca_disconnected:
 				return "disconnected";
-			case ca_onserver:
-				return "onserver";
-			case ca_connected:
-				return "connected";
-			case ca_active:
-				return "active";
 			case ca_demostart:
 				return "demostart";
+			case ca_connected:
+				return "connected";
+			case ca_onserver:
+				return "onserver";
+			case ca_active:
+				return "active";
 			default:
 				return "";
 		}
+	});
+
+	function("getDemoType", +[]() -> std::string {
+        if (cls.demoplayback) {
+           	if (cls.demoeztv_ext) {
+                return "qtv";
+           	} else {
+                return "mvd";
+            }
+       	}
+        return "";
 	});
 
 	function("getDemoTime",  +[]() -> float {
