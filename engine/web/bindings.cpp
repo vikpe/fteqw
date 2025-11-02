@@ -434,14 +434,6 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		return &fragstats;
 	}, allow_raw_pointers());
 
-	.function("getAngles", +[](player_info_t& self) -> emscripten::val {
-		lerpents_t *le = get_player_lerped(&self - cl.players);
-		emscripten::val angles = emscripten::val::object();
-		angles.set("pitch", le->angles[0]);
-		angles.set("yaw", le->angles[1]);
-		return angles;
-	})
-
 	function("getConnectionInfo", +[]() -> emscripten::val {
         emscripten::val info = emscripten::val::object();
 
