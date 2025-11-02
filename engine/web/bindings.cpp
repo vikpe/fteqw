@@ -462,7 +462,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
         // phase: "connecting" | "active";
         // type: "server" | "demo" | "qtv";
         // source: string;
-        info.set("state", "connected")
+        info.set("state", "connected");
 
         if (cls.state == ca_active) {
             info.set("phase", "active");
