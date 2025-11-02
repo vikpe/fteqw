@@ -435,36 +435,26 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	}, allow_raw_pointers());
 
 	function("getConnectionState", +[]() -> std::string {
-	/*
-	    typedef enum {
-            ca_disconnected, 	// full screen console with no connection
-            ca_demostart,		// waiting to start up a demo (still disconnected but there should be a playdemo command in the cbuf somewhere so don't do other stuff)
-            ca_connected,		// netchan_t established, waiting for svc_serverdata
-            ca_onserver,		// processing data lists, donwloading, etc
-            ca_active			// everything is in, so frames can be rendered
-        } cactive_t;
-
-	 */
 		switch (cls.state) {
 			case ca_disconnected:
-				return "disconnected";
+				return "disconnected"; // full screen console with no connection
 			case ca_demostart:
-				return "demostart";
+				return "demostart"; // waiting to start up a demo (still disconnected but there should be a playdemo command in the cbuf somewhere so don't do other stuff)
 			case ca_connected:
-				return "connected";
+				return "connected"; // netchan_t established, waiting for svc_serverdata
 			case ca_onserver:
-				return "onserver";
+				return "onserver"; // processing data lists, donwloading, etc
 			case ca_active:
-				return "active";
+				return "active"; // everything is in, so frames can be rendered
 			default:
 				return "";
 		}
 	});
 
-	function("getDemoType", +[]() -> std::string {
+	function("getPlaybackType", +[]() -> std::string {
         if (cls.demoplayback) {
            	if (*cls.lastdemoname) {
-                return "mvd";
+                return "demo";
            	} else {
                 return "qtv";
             }
