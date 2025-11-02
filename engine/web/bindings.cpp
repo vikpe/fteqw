@@ -434,32 +434,55 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		return &fragstats;
 	}, allow_raw_pointers());
 
-	function("getConnectionState", +[]() -> std::string {
-		switch (cls.state) {
-			case ca_disconnected:
-				return "disconnected"; // full screen console with no connection
-			case ca_demostart:
-				return "demostart"; // waiting to start up a demo (still disconnected but there should be a playdemo command in the cbuf somewhere so don't do other stuff)
-			case ca_connected:
-				return "connected"; // netchan_t established, waiting for svc_serverdata
-			case ca_onserver:
-				return "onserver"; // processing data lists, donwloading, etc
-			case ca_active:
-				return "active"; // everything is in, so frames can be rendered
-			default:
-				return "";
-		}
-	});
+	.function("getAngles", +[](player_info_t& self) -> emscripten::val {
+		lerpents_t *le = get_player_lerped(&self - cl.players);
+		emscripten::val angles = emscripten::val::object();
+		angles.set("pitch", le->angles[0]);
+		angles.set("yaw", le->angles[1]);
+		return angles;
+	})
 
-	function("getPlaybackType", +[]() -> std::string {
+	function("getConnectionInfo", +[]() -> emscripten::val {
+        emscripten::val info = emscripten::val::object();
+
+        // ca_disconnected // full screen console with no connection
+		// ca_demostart // waiting to start up a demo (still disconnected but there should be a playdemo command in the cbuf somewhere so don't do other stuff)
+		// ca_connected // netchan_t established, waiting for svc_serverdata
+		// ca_onserver // processing data lists, donwloading, etc
+		// ca_active // everything is in, so frames can be rendered
+
+		// disconnected
+        if (cls.state == ca_disconnected) {
+            info.set("state", "disconnected");
+            return info;
+        }
+
+        // connected
+        // state: "connected";
+        // phase: "connecting" | "active";
+        // type: "server" | "demo" | "qtv";
+        // source: string;
+        info.set("state", "connected")
+
+        if (cls.state == ca_active) {
+            info.set("phase", "active");
+        } else {
+            info.set("phase", "connecting");
+        }
+
         if (cls.demoplayback) {
            	if (*cls.lastdemoname) {
-                return "demo";
+                info.set("type", "demo");
            	} else {
-                return "qtv";
+                info.set("type", "qtv");
             }
-       	}
-        return "";
+             info.set("source", "todo");
+       	} else {
+            info.set("type", "server");
+            info.set("source", "localhost");
+        }
+
+        return info;
 	});
 
 	function("getDemoTime",  +[]() -> float {
