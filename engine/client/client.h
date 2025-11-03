@@ -226,8 +226,8 @@ typedef struct player_info_s
 
 	int prevcount;
 
-#ifdef QUAKEHUD	
-	struct wstats_s 
+#ifdef QUAKEHUD
+	struct wstats_s
 	{
 		char wname[16];
 		unsigned int hit;
@@ -545,6 +545,8 @@ typedef struct
 	qboolean	timedemo;
 	char		lastdemoname[MAX_OSPATH];	//empty if is a qtv stream
 	qboolean	lastdemowassystempath;
+	char        last_qtv_stream[128]; // quake.world addon
+	// char        last_demo_url[128];   // quake.world addon
 	vfsfile_t	*demoinfile;
 	float		td_lastframe;		// to meter out one message a frame
 	int			td_startframe;		// host_framecount at start
@@ -1346,7 +1348,7 @@ void CL_DemoJump_f(void);
 void CL_DemoNudge_f(void);
 void CL_ProgressDemoTime(void);
 void CL_TimeDemo_f (void);
-typedef struct 
+typedef struct
 {
 	enum
 	{

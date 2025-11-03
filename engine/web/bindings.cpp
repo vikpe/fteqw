@@ -453,7 +453,6 @@ EMSCRIPTEN_BINDINGS(browser_api) {
         // state: "connected";
         // phase: "connecting" | "active";
         // type: "server" | "demo" | "qtv";
-        // source: string;
         info.set("state", "connected");
 
         if (cls.state == ca_active) {
@@ -468,13 +467,15 @@ EMSCRIPTEN_BINDINGS(browser_api) {
            	} else {
                 info.set("type", "qtv");
             }
-             info.set("source", "todo");
        	} else {
             info.set("type", "server");
-            info.set("source", "localhost");
         }
 
         return info;
+	});
+
+	function("getLastQtvStream", +[]() -> std::string {
+		return cls.last_qtv_stream;
 	});
 
 	function("getDemoTime",  +[]() -> float {
