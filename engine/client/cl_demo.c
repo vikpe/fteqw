@@ -3072,7 +3072,12 @@ fail:
 		{
 			if (*streamavailable) {
 				Con_Printf("streaming \"%s\" via \"%s\"\n", streamavailable, qtv->hostname);
-				Q_strncpyz (cls.last_qtv_stream, streamavailable, sizeof(cls.last_qtv_stream));
+
+				// quake.world addon
+				if (strncmp(streamavailable, "tcp:", 4) == 0)
+                    Q_strncpyz(cls.last_qtv_stream, streamavailable + 4, sizeof(cls.last_qtv_stream));
+                else
+                    Q_strncpyz(cls.last_qtv_stream, streamavailable, sizeof(cls.last_qtv_stream));
 			}
 			else
 				Con_Printf("qtv connection established to %s\n", qtv->hostname);
