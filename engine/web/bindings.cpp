@@ -465,7 +465,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
         if (cls.demoplayback) {
            	if (*cls.lastdemoname) {
                 info.set("type", "demo");
-                info.set("last_source", "todo");
+                info.set("last_source", cls.lastdemoname);
            	} else {
                 info.set("type", "qtv");
                 info.set("last_source", cls.last_qtv_stream);

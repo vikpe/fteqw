@@ -546,7 +546,6 @@ typedef struct
 	char		lastdemoname[MAX_OSPATH];	//empty if is a qtv stream
 	qboolean	lastdemowassystempath;
 	char        last_qtv_stream[128]; // quake.world addon
-	// char        last_demo_url[128];   // quake.world addon
 	vfsfile_t	*demoinfile;
 	float		td_lastframe;		// to meter out one message a frame
 	int			td_startframe;		// host_framecount at start
