@@ -323,6 +323,9 @@ mergeInto(LibraryManager.library,
 					break;
 				case 'keydown':
 				case 'keyup':
+				  if (!FTEC.pointerislocked){
+            return;
+					}
 					//122 is 'toggle fullscreen'.
 					//we don't steal that because its impossible to leave it again once used.
 					if (FTEC.evcb.key != 0 && event.keyCode != 122)
@@ -406,9 +409,9 @@ mergeInto(LibraryManager.library,
 //					console.log("Pointer lock now " + FTEC.pointerislocked);
 					break;
 					
-				case 'beforeunload':
-					event.preventDefault();
-					return 'quit this game like everything else?';
+				// case 'beforeunload':
+				// 	event.preventDefault();
+				// 	return 'quit this game like everything else?';
 				default:
 					console.log(event);
 					break;
