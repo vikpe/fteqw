@@ -311,6 +311,10 @@ mergeInto(LibraryManager.library,
 						FTEC.pointerislocked = 0;
 					break;
 				case 'keypress':
+			    if (!FTEC.pointerislocked) {
+            return;
+				  }
+
 					if (FTEC.evcb.key != 0)
 					{
 						if (event.charCode >= 122 && event.charCode <= 123)	//no f11/f12
@@ -323,7 +327,7 @@ mergeInto(LibraryManager.library,
 					break;
 				case 'keydown':
 				case 'keyup':
-				  if (!FTEC.pointerislocked){
+				  if (!FTEC.pointerislocked) {
             return;
 					}
 					//122 is 'toggle fullscreen'.
