@@ -82,7 +82,7 @@ jobs:
 
     name: make-${{ matrix.name }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 5
 
     steps:
       - name: Get number of CPU cores
