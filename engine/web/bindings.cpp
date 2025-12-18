@@ -491,4 +491,8 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		char *value = Cmd_GetMacroValue(name.c_str());
 		return value ? std::string(value) : std::string("");
 	});
+
+	function("getMapName", +[]() -> std::string {
+        return std::string(TP_MapName());
+    });
 }
