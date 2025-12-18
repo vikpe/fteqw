@@ -340,12 +340,23 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		}, allow_raw_pointers())
 		.function("getPlayers", +[](client_state_t& self) -> emscripten::val {
 			emscripten::val result = emscripten::val::array();
+
+			char *demoplayback = Cmd_GetMacroValue("demoplayback");
+			bool is_dem_playback = demoplayback && strcmp(demoplayback, "demoplayback") == 0;
+			
 			int n_player = 0;
 			for (int i = 0; i < cl.allocated_client_slots; i++) {
-				player_info_t *player = &(cl.players[i]);
-				if (player->name[0] && !player->spectator) {
-					result.set(n_player++, player);
-				}
+			    player_info_t *player = &(cl.players[i]);
+			
+			    if (!player->name[0] || player->spectator) {
+			        continue;
+			    }
+			
+			    if (is_dem_playback && player->frags == -99) {
+			        continue;
+			    }
+			
+			    result.set(n_player++, player);
 			}
 			return result;
 		}, allow_raw_pointers())
