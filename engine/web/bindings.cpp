@@ -128,19 +128,6 @@ static lerpents_t* get_player_lerped(int index) {
 	throw std::out_of_range("Player index out of range");
 }
 
-static const char *get_demo_playback_format(void)
-{
-    char *value = Cmd_GetMacroValue("demoplayback");
-    if (!value) return "unknown";
-
-    if (strcmp(value, "0") == 0)           return "none";
-    if (strcmp(value, "qwdplayback") == 0) return "qwd";
-    if (strcmp(value, "mvdplayback") == 0) return "mvd";
-    if (strcmp(value, "demplayback") == 0) return "dem";
-
-    return "unknown";
-}
-
 EMSCRIPTEN_BINDINGS(browser_api) {
 	constant("STAT_HEALTH",         (int) STAT_HEALTH        );
 	constant("STAT_WEAPONMODELI",   (int) STAT_WEAPONMODELI  );
@@ -478,7 +465,6 @@ EMSCRIPTEN_BINDINGS(browser_api) {
         if (cls.demoplayback) {
            	if (*cls.lastdemoname) {
                 info.set("type", "demo");
-                info.set("format", get_demo_playback_format());
 				info.set("last_source", cls.lastdemoname);				
            	} else {
                 info.set("type", "qtv");
