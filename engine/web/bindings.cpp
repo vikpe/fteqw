@@ -493,6 +493,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	});
 
 	function("getMapName", +[]() -> std::string {
-        return std::string(TP_MapName());
+		extern cvar_t host_mapname;
+        return std::string(host_mapname.string);
     });
 }
