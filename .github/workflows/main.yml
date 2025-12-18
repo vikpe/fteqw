@@ -5,6 +5,7 @@ on: [push]
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 5 # don't let them make us go broke!
 
     steps:
       - uses: actions/checkout@v3
