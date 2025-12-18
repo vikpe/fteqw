@@ -1,7 +1,6 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 #include "quakedef.h"
-#include "client.h"
 #include "fragstats.h"
 
 using namespace emscripten;
@@ -131,17 +130,14 @@ static lerpents_t* get_player_lerped(int index) {
 
 static const char *get_demo_playback_format(void)
 {
-    switch (cls.demoplayback)
-    {
-    case DPB_NONE:
-        return "none";
-    case DPB_QUAKEWORLD:
-        return "qwd";
-    case DPB_MVD:
-        return "mvd";
-    case DPB_NETQUAKE:
-        return "dem";
-    }
+    char *value = Cmd_GetMacroValue("demoplayback");
+    if (!value) return "unknown";
+
+    if (strcmp(value, "0") == 0)           return "none";
+    if (strcmp(value, "qwdplayback") == 0) return "qwd";
+    if (strcmp(value, "mvdplayback") == 0) return "mvd";
+    if (strcmp(value, "demplayback") == 0) return "dem";
+
     return "unknown";
 }
 
