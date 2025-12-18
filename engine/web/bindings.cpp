@@ -352,7 +352,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			        continue;
 			    }
 			
-			    if (is_dem_playback && player->frags < 1 && player->bottomcolor == 0 && player->topcolor == 0) {
+			    if (is_dem_playback && player->frags < 1 && player->rbottomcolor == 0 && player->rtopcolor == 0) {
 			        continue;
 			    }
 			
