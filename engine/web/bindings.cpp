@@ -342,7 +342,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			emscripten::val result = emscripten::val::array();
 
 			char *demoplayback = Cmd_GetMacroValue("demoplayback");
-			bool is_dem_playback = demoplayback && strcmp(demoplayback, "demoplayback") == 0;
+			bool is_dem_playback = demoplayback && strcmp(demoplayback, "demplayback") == 0;
 			
 			int n_player = 0;
 			for (int i = 0; i < cl.allocated_client_slots; i++) {
