@@ -1,6 +1,7 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 #include "quakedef.h"
+#include "client.h"
 #include "fragstats.h"
 
 using namespace emscripten;
