@@ -12,60 +12,6 @@ if (!Module.canvas) {
 	}
 }
 
-var CONTENT_TYPE_TO_EXTENSION = {
-	"application/gltf-binary": ".glb",
-	"application/x-ftemanifest": ".fmf",
-	"application/x-fteplugin": ".fmf",
-	"application/x-multiviewdemo": ".mvd",
-	"application/x-qtv": ".qtv",
-	"application/x-quake-demo": ".dem",
-	"application/x-quakeworld-demo": ".qwd",
-	"application/zip": ".zip",
-	"model/gltf+json": ".gltf",
-	"model/gltf-binary": ".glb",
-	"text/x-quaketvident": ".qtv",
-};
-
-var KNOWN_EXTENSIONS = {
-	".ase": 1,
-	".bsp": 1,
-	".cfg": 1,
-	".dem": 1,
-	".dm2": 1,
-	".dpm": 1,
-	".fmf": 1,
-	".glb": 1,
-	".gltf": 1,
-	".iqm": 1,
-	".kpf": 1,
-	".lwo": 1,
-	".map": 1,
-	".md2": 1,
-	".md3": 1,
-	".mdl": 1,
-	".mvd": 1,
-	".obj": 1,
-	".pak": 1,
-	".pk3": 1,
-	".pk4": 1,
-	".psk": 1,
-	".qtv": 1,
-	".qwd": 1,
-	".rc": 1,
-	".spr": 1,
-	".spr2": 1,
-	".vvm": 1,
-	".wad": 1,
-	".zip": 1,
-	".zym": 1,
-};
-
-function hasKnownExtension(fileName) {
-	var dot = fileName.lastIndexOf(".");
-	if (dot < 0) return false;
-	return KNOWN_EXTENSIONS[fileName.substring(dot).toLowerCase()] === 1;
-}
-
 function registerBuffer(fileName, arrayBuffer) {
 	var buf = FTEH.h[_emscriptenfte_buf_createfromarraybuf(arrayBuffer)];
 	buf.n = fileName;
@@ -75,19 +21,11 @@ function registerBuffer(fileName, arrayBuffer) {
 function loadFileFromUrl(fileName, url) {
 	addRunDependency(fileName);
 	fetch(url)
-		.then((response) => {
+		.then(function (response) {
 			if (!response.ok) throw new Error("HTTP " + response.status);
-			if (!hasKnownExtension(fileName)) {
-				var mimeType = (response.headers.get("content-type") || "")
-					.split(";")[0]
-					.trim()
-					.toLowerCase();
-				var extension = CONTENT_TYPE_TO_EXTENSION[mimeType];
-				if (extension) fileName += extension;
-			}
 			return response.arrayBuffer();
 		})
-		.then((buffer) => {
+		.then(function (buffer) {
 			registerBuffer(fileName, buffer);
 		})
 		.catch(() => {})
