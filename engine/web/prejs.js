@@ -75,7 +75,7 @@ function registerBuffer(fileName, arrayBuffer) {
 function loadFileFromUrl(fileName, url) {
 	addRunDependency(fileName);
 	fetch(url)
-		.then((response) => {
+		.then(function (response) {
 			if (!response.ok) throw new Error("HTTP " + response.status);
 			if (!hasKnownExtension(fileName)) {
 				var mimeType = (response.headers.get("content-type") || "")
@@ -87,11 +87,11 @@ function loadFileFromUrl(fileName, url) {
 			}
 			return response.arrayBuffer();
 		})
-		.then((buffer) => {
+		.then(function (buffer) {
 			registerBuffer(fileName, buffer);
 		})
-		.catch(() => {})
-		.finally(() => {
+		.catch(function () {})
+		.finally(function () {
 			removeRunDependency(fileName);
 		});
 }
@@ -99,45 +99,49 @@ function loadFileFromUrl(fileName, url) {
 function loadFileFromPromise(fileName, promise) {
 	addRunDependency(fileName);
 	promise
-		.then((buffer) => {
+		.then(function (buffer) {
 			registerBuffer(fileName, buffer);
 		})
-		.catch((reason) => {
+		.catch(function (reason) {
 			console.log(reason);
 		})
-		.finally(() => {
+		.finally(function () {
 			removeRunDependency(fileName);
 		});
 }
 
-Module.loadcachedfiles = () => {
+Module.loadcachedfiles = function () {
 	addRunDependency("loadcachedfiles");
 	try {
 		caches
 			.open("user")
-			.then((cache) => {
+			.then(function (cache) {
 				Module.cache = cache;
 				return cache.keys();
 			})
-			.then((keys) => {
-				var validKeys = keys.filter((key) => key.url.indexOf("/_/") >= 0);
+			.then(function (keys) {
+				var validKeys = keys.filter(function (key) {
+					return key.url.indexOf("/_/") >= 0;
+				});
 				return Promise.all(
-					validKeys.map((key) => {
+					validKeys.map(function (key) {
 						var fileName = key.url.substring(key.url.indexOf("/_/") + 3);
 						addRunDependency(fileName);
 						return Module.cache
 							.match(key)
-							.then((response) => response.arrayBuffer())
-							.then((buffer) => {
+							.then(function (response) {
+								return response.arrayBuffer();
+							})
+							.then(function (buffer) {
 								registerBuffer(fileName, buffer);
 							})
-							.finally(() => {
+							.finally(function () {
 								removeRunDependency(fileName);
 							});
 					}),
 				);
 			})
-			.finally(() => {
+			.finally(function () {
 				removeRunDependency("loadcachedfiles");
 			});
 	} catch (_e) {
@@ -148,7 +152,7 @@ Module.loadcachedfiles = () => {
 Module.preRun = Module.loadcachedfiles;
 
 if (Module.files !== undefined && Object.keys(Module.files).length > 0) {
-	Module.preRun = () => {
+	Module.preRun = function () {
 		Module.loadcachedfiles();
 
 		var names = Object.keys(Module.files);
@@ -216,3 +220,4 @@ if (!Module.arguments) {
 
 	// allow registerProtocolHandler to pass args via URL
 	Module.mayregisterscemes = true;
+}
