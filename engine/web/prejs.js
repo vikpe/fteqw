@@ -12,7 +12,7 @@ if (!Module.canvas) {
 	}
 }
 
-const CONTENT_TYPE_TO_EXTENSION = {
+var CONTENT_TYPE_TO_EXTENSION = {
 	"application/gltf-binary": ".glb",
 	"application/x-ftemanifest": ".fmf",
 	"application/x-fteplugin": ".fmf",
@@ -26,48 +26,48 @@ const CONTENT_TYPE_TO_EXTENSION = {
 	"text/x-quaketvident": ".qtv",
 };
 
-const KNOWN_EXTENSIONS = new Set([
-	".ase",
-	".bsp",
-	".cfg",
-	".dem",
-	".dm2",
-	".dpm",
-	".fmf",
-	".glb",
-	".gltf",
-	".iqm",
-	".kpf",
-	".lwo",
-	".map",
-	".md2",
-	".md3",
-	".mdl",
-	".mvd",
-	".obj",
-	".pak",
-	".pk3",
-	".pk4",
-	".psk",
-	".qtv",
-	".qwd",
-	".rc",
-	".spr",
-	".spr2",
-	".vvm",
-	".wad",
-	".zip",
-	".zym",
-]);
+var KNOWN_EXTENSIONS = {
+	".ase": 1,
+	".bsp": 1,
+	".cfg": 1,
+	".dem": 1,
+	".dm2": 1,
+	".dpm": 1,
+	".fmf": 1,
+	".glb": 1,
+	".gltf": 1,
+	".iqm": 1,
+	".kpf": 1,
+	".lwo": 1,
+	".map": 1,
+	".md2": 1,
+	".md3": 1,
+	".mdl": 1,
+	".mvd": 1,
+	".obj": 1,
+	".pak": 1,
+	".pk3": 1,
+	".pk4": 1,
+	".psk": 1,
+	".qtv": 1,
+	".qwd": 1,
+	".rc": 1,
+	".spr": 1,
+	".spr2": 1,
+	".vvm": 1,
+	".wad": 1,
+	".zip": 1,
+	".zym": 1,
+};
 
 function hasKnownExtension(fileName) {
-	const dot = fileName.lastIndexOf(".");
+	var dot = fileName.lastIndexOf(".");
 	if (dot < 0) return false;
-	return KNOWN_EXTENSIONS.has(fileName.substring(dot).toLowerCase());
+	return KNOWN_EXTENSIONS[fileName.substring(dot).toLowerCase()] === 1;
 }
 
 function registerBuffer(fileName, arrayBuffer) {
-	const buf = FTEH.h[_emscriptenfte_buf_createfromarraybuf(arrayBuffer)];
+	var buf = FTEH.h[_emscriptenfte_buf_createfromarraybuf(arrayBuffer)];
 	buf.n = fileName;
 	FTEH.f[fileName] = buf;
 }
@@ -76,28 +76,38 @@ function loadFileFromUrl(fileName, url) {
 	addRunDependency(fileName);
 	fetch(url)
 		.then((response) => {
-			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			if (!response.ok) throw new Error("HTTP " + response.status);
 			if (!hasKnownExtension(fileName)) {
-				const mimeType = (response.headers.get("content-type") || "")
+				var mimeType = (response.headers.get("content-type") || "")
 					.split(";")[0]
 					.trim()
 					.toLowerCase();
-				const extension = CONTENT_TYPE_TO_EXTENSION[mimeType];
+				var extension = CONTENT_TYPE_TO_EXTENSION[mimeType];
 				if (extension) fileName += extension;
 			}
 			return response.arrayBuffer();
 		})
-		.then((buffer) => registerBuffer(fileName, buffer))
+		.then((buffer) => {
+			registerBuffer(fileName, buffer);
+		})
 		.catch(() => {})
-		.finally(() => removeRunDependency(fileName));
+		.finally(() => {
+			removeRunDependency(fileName);
+		});
 }
 
 function loadFileFromPromise(fileName, promise) {
 	addRunDependency(fileName);
 	promise
-		.then((buffer) => registerBuffer(fileName, buffer))
-		.catch((reason) => console.log(reason))
-		.finally(() => removeRunDependency(fileName));
+		.then((buffer) => {
+			registerBuffer(fileName, buffer);
+		})
+		.catch((reason) => {
+			console.log(reason);
+		})
+		.finally(() => {
+			removeRunDependency(fileName);
+		});
 }
 
 Module.loadcachedfiles = () => {
@@ -110,20 +120,26 @@ Module.loadcachedfiles = () => {
 				return cache.keys();
 			})
 			.then((keys) => {
-				const validKeys = keys.filter((key) => key.url.includes("/_/"));
+				var validKeys = keys.filter((key) => key.url.indexOf("/_/") >= 0);
 				return Promise.all(
 					validKeys.map((key) => {
-						const fileName = key.url.substring(key.url.indexOf("/_/") + 3);
+						var fileName = key.url.substring(key.url.indexOf("/_/") + 3);
 						addRunDependency(fileName);
 						return Module.cache
 							.match(key)
 							.then((response) => response.arrayBuffer())
-							.then((buffer) => registerBuffer(fileName, buffer))
-							.finally(() => removeRunDependency(fileName));
+							.then((buffer) => {
+								registerBuffer(fileName, buffer);
+							})
+							.finally(() => {
+								removeRunDependency(fileName);
+							});
 					}),
 				);
 			})
-			.finally(() => removeRunDependency("loadcachedfiles"));
+			.finally(() => {
+				removeRunDependency("loadcachedfiles");
+			});
 	} catch (_e) {
 		removeRunDependency("loadcachedfiles");
 	}
@@ -135,7 +151,10 @@ if (Module.files !== undefined && Object.keys(Module.files).length > 0) {
 	Module.preRun = () => {
 		Module.loadcachedfiles();
 
-		for (const [fileName, fileData] of Object.entries(Module.files)) {
+		var names = Object.keys(Module.files);
+		for (var i = 0; i < names.length; i++) {
+			var fileName = names[i];
+			var fileData = Module.files[fileName];
 			if (typeof fileData === "string") {
 				loadFileFromUrl(fileName, fileData);
 			} else if (typeof fileData.then === "function") {
@@ -146,18 +165,25 @@ if (Module.files !== undefined && Object.keys(Module.files).length > 0) {
 		}
 	};
 } else if (!Module.manifest) {
-	const { protocol, host, pathname, hash } = window.location;
-	let manifestUrl = `${protocol}//${host}${pathname}`;
-	manifestUrl += pathname.endsWith("/") ? "index.fmf" : ".fmf";
+	var manifestUrl =
+		window.location.protocol +
+		"//" +
+		window.location.host +
+		window.location.pathname;
+	manifestUrl +=
+		window.location.pathname.charAt(window.location.pathname.length - 1) === "/"
+			? "index.fmf"
+			: ".fmf";
 	Module.manifest = manifestUrl;
 
-	if (hash !== "") Module.manifest = hash.substring(1);
+	if (window.location.hash !== "")
+		Module.manifest = window.location.hash.substring(1);
 }
 
 if (!Module.arguments) {
 	Module.arguments = [];
 
-	const COMMANDS_WITH_VALUE = [
+	var COMMANDS_WITH_VALUE = [
 		"+sv_port_rtc",
 		"+connect",
 		"+join",
@@ -165,13 +191,16 @@ if (!Module.arguments) {
 		"+qtvplay",
 	];
 
-	const queryString = decodeURIComponent(window.location.search.substring(1));
+	var queryString = decodeURIComponent(window.location.search.substring(1));
 	if (queryString !== "") {
-		const args = queryString.split(" ");
-		for (let i = 0; i < args.length; i++) {
+		var args = queryString.split(" ");
+		for (var i = 0; i < args.length; i++) {
 			if (args[i] === "-manifest") {
 				Module.manifest = undefined;
-			} else if (COMMANDS_WITH_VALUE.includes(args[i]) && i + 1 < args.length) {
+			} else if (
+				COMMANDS_WITH_VALUE.indexOf(args[i]) >= 0 &&
+				i + 1 < args.length
+			) {
 				Module.arguments.push(args[i], args[i + 1]);
 				i++;
 			} else if (!document.referrer) {
