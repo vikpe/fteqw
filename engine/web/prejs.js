@@ -12,6 +12,60 @@ if (!Module.canvas) {
 	}
 }
 
+const CONTENT_TYPE_TO_EXTENSION = {
+	"application/gltf-binary": ".glb",
+	"application/x-ftemanifest": ".fmf",
+	"application/x-fteplugin": ".fmf",
+	"application/x-multiviewdemo": ".mvd",
+	"application/x-qtv": ".qtv",
+	"application/x-quake-demo": ".dem",
+	"application/x-quakeworld-demo": ".qwd",
+	"application/zip": ".zip",
+	"model/gltf+json": ".gltf",
+	"model/gltf-binary": ".glb",
+	"text/x-quaketvident": ".qtv",
+};
+
+const KNOWN_EXTENSIONS = new Set([
+	".ase",
+	".bsp",
+	".cfg",
+	".dem",
+	".dm2",
+	".dpm",
+	".fmf",
+	".glb",
+	".gltf",
+	".iqm",
+	".kpf",
+	".lwo",
+	".map",
+	".md2",
+	".md3",
+	".mdl",
+	".mvd",
+	".obj",
+	".pak",
+	".pk3",
+	".pk4",
+	".psk",
+	".qtv",
+	".qwd",
+	".rc",
+	".spr",
+	".spr2",
+	".vvm",
+	".wad",
+	".zip",
+	".zym",
+]);
+
+function hasKnownExtension(fileName) {
+	const dot = fileName.lastIndexOf(".");
+	if (dot < 0) return false;
+	return KNOWN_EXTENSIONS.has(fileName.substring(dot).toLowerCase());
+}
+
 function registerBuffer(fileName, arrayBuffer) {
 	const buf = FTEH.h[_emscriptenfte_buf_createfromarraybuf(arrayBuffer)];
 	buf.n = fileName;
@@ -23,6 +77,14 @@ function loadFileFromUrl(fileName, url) {
 	fetch(url)
 		.then((response) => {
 			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			if (!hasKnownExtension(fileName)) {
+				const mimeType = (response.headers.get("content-type") || "")
+					.split(";")[0]
+					.trim()
+					.toLowerCase();
+				const extension = CONTENT_TYPE_TO_EXTENSION[mimeType];
+				if (extension) fileName += extension;
+			}
 			return response.arrayBuffer();
 		})
 		.then((buffer) => registerBuffer(fileName, buffer))
