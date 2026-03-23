@@ -1,166 +1,138 @@
-//Populate our filesystem from Module['files']
-FTEH = {h: [],
-		f: {}};
-FTE_SW=null;
+FTEH = { h: [], f: {} };
+FTE_SW = null;
 
-if (!Module['canvas'])
-{	//we need a canvas to throw our webgl crap at...
-	Module['canvas'] = document.getElementById('canvas');
-	if (!Module['canvas'])
-	{
+if (!Module.canvas) {
+	Module.canvas = document.getElementById("canvas");
+	if (!Module.canvas) {
 		console.log("No canvas element defined yet.");
 		Module.canvas = document.createElement("canvas");
-		Module.canvas.style.width="100%";
-		Module.canvas.style.height="100%";
-		document.body.appendChild(Module['canvas']);
+		Module.canvas.style.width = "100%";
+		Module.canvas.style.height = "100%";
+		document.body.appendChild(Module.canvas);
 	}
 }
 
-Module['loadcachedfiles'] = function()
-{	//recover any previously saved files they might have drag+dropped.
+function registerBuffer(fileName, arrayBuffer) {
+	const buf = FTEH.h[_emscriptenfte_buf_createfromarraybuf(arrayBuffer)];
+	buf.n = fileName;
+	FTEH.f[fileName] = buf;
+}
+
+Module.loadcachedfiles = () => {
 	addRunDependency("loadcachedfiles");
-	try
-	{
-		caches.open('user').then((c)=>{Module['cache']=c;return c.keys();}).then((keys)=>{
-			const cache = Module['cache'];
-			for(var r of keys)
-			{
-				const idx = r.url.indexOf("/_/")
-				if (idx < 0)
-					continue;	//wtf? that entry should not have been in this cache object.
-				const fn = r.url.substr(idx+3);
-				addRunDependency(fn);
-				const response = cache.match(r).then((response)=>{return response.arrayBuffer();}).then((buffer)=>{
-					let b = FTEH.h[_emscriptenfte_buf_createfromarraybuf(buffer)];
-					b.n = fn;
-					FTEH.f[b.n] = b;
-				}).finally(()=>{removeRunDependency(fn);});
-			}
-		}).finally(()=>{removeRunDependency("loadcachedfiles");});
-	}
-	catch(e)
-	{
+	try {
+		caches
+			.open("user")
+			.then((cache) => {
+				Module.cache = cache;
+				return cache.keys();
+			})
+			.then((keys) => {
+				for (const key of keys) {
+					const pathIndex = key.url.indexOf("/_/");
+					if (pathIndex < 0) continue;
+					const fileName = key.url.substring(pathIndex + 3);
+					addRunDependency(fileName);
+					Module.cache
+						.match(key)
+						.then((response) => response.arrayBuffer())
+						.then((buffer) => registerBuffer(fileName, buffer))
+						.finally(() => removeRunDependency(fileName));
+				}
+			})
+			.finally(() => removeRunDependency("loadcachedfiles"));
+	} catch (_e) {
 		removeRunDependency("loadcachedfiles");
 	}
 };
 
-Module['preRun'] = Module['loadcachedfiles'];
-if (typeof Module['files'] !== "undefined" && Object.keys(Module['files']).length>0)
-{
-	Module['preRun'] = function()
-	{
-		Module['loadcachedfiles']();
+Module.preRun = Module.loadcachedfiles;
 
-		Module['curfile'] = undefined;
+if (Module.files !== undefined && Object.keys(Module.files).length > 0) {
+	Module.preRun = () => {
+		Module.loadcachedfiles();
+		Module.curfile = undefined;
 
-		let files = Module['files'];
-		let names = Object.keys(files);
-		for (let i = 0; i < names.length; i++)
-		{
-			let ab = files[names[i]];
-			let n = names[i];
-			if (typeof ab == "string")
-			{	//if its a string, assume it to be a url of some kind for us to resolve.
-				addRunDependency(n);
+		for (const [fileName, fileData] of Object.entries(Module.files)) {
+			if (typeof fileData === "string") {
+				addRunDependency(fileName);
 
-				let xhr = new XMLHttpRequest();
-				xhr.responseType = "arraybuffer";
-				xhr.open("GET", ab);
-				xhr.onload = function ()
-				{
-					if (Module['curfile'] == n)
-						Module['curfile'] = undefined;
-					if (this.status >= 200 && this.status < 300)
-					{
-						let b = FTEH.h[_emscriptenfte_buf_createfromarraybuf(this.response)];
-						b.n = n;
-						FTEH.f[b.n] = b;
-						removeRunDependency(n);
+				const request = new XMLHttpRequest();
+				request.responseType = "arraybuffer";
+				request.open("GET", fileData);
+				request.onload = function () {
+					if (Module.curfile === fileName) Module.curfile = undefined;
+					if (this.status >= 200 && this.status < 300) {
+						registerBuffer(fileName, this.response);
 					}
-					else
-						removeRunDependency(n);
+					removeRunDependency(fileName);
 				};
-				xhr.onprogress = function(e)
-				{
-					if (typeof Module['curfile'] == "undefined")
-						Module['curfile'] = n;	//take it.
-					if (Module['setStatus'] && Module['curfile']==n)
-				        Module['setStatus'](n + ' (' + e.loaded + '/' + e.total + ')');
+				request.onprogress = (event) => {
+					if (Module.curfile === undefined) Module.curfile = fileName;
+					if (Module.setStatus && Module.curfile === fileName)
+						Module.setStatus(`${fileName} (${event.loaded}/${event.total})`);
 				};
-				xhr.onerror = function ()
-				{
-					if (Module['curfile'] == n)
-						Module['curfile'] = undefined;
-					removeRunDependency(n);
+				request.onerror = () => {
+					if (Module.curfile === fileName) Module.curfile = undefined;
+					removeRunDependency(fileName);
 				};
-				xhr.send();
-			}
-			else if (typeof ab.then == "function")
-			{	//a 'thenable' thing... assume it'll resolve into an arraybuffer.
-				addRunDependency(n);
-				ab.then(
-					value =>
-					{	//success
-						let b = FTEH.h[_emscriptenfte_buf_createfromarraybuf(value)];
-						b.n = n;
-						FTEH.f[b.n] = b;
-						removeRunDependency(n);
+				request.send();
+			} else if (typeof fileData.then === "function") {
+				addRunDependency(fileName);
+				fileData.then(
+					(value) => {
+						registerBuffer(fileName, value);
+						removeRunDependency(fileName);
 					},
-					reason =>
-					{	//failure
+					(reason) => {
 						console.log(reason);
-						removeRunDependency(n);
-					}
-					);
-			}
-			else
-			{	//otherwise assume array buffer.
-				let b = FTEH.h[_emscriptenfte_buf_createfromarraybuf(ab)];
-				b.n = n;
-				FTEH.f[b.n] = b;
+						removeRunDependency(fileName);
+					},
+				);
+			} else {
+				registerBuffer(fileName, fileData);
 			}
 		}
-	}
-}
-else if (!Module['manifest'])
-{
-	let man = window.location.protocol + "//" + window.location.host + window.location.pathname;
-	if (man.substr(-1) != '/')
-		man += ".fmf";
-	else
-		man += "index.fmf";
-	Module['manifest'] = man;
-	
-	if (window.location.hash != "")
-		Module['manifest'] = window.location.hash.substring(1);
+	};
+} else if (!Module.manifest) {
+	const { protocol, host, pathname, hash } = window.location;
+	let manifestUrl = `${protocol}//${host}${pathname}`;
+	manifestUrl += pathname.endsWith("/") ? "index.fmf" : ".fmf";
+	Module.manifest = manifestUrl;
+
+	if (hash !== "") Module.manifest = hash.substring(1);
 }
 
-if (!Module['arguments'])	//the html can be explicit about its args if it sets this to an empty array or w/e
-{
-	Module['arguments'] = [];
+if (!Module.arguments) {
+	Module.arguments = [];
 
-	// use query string in URL as command line
-	const qstrings = decodeURIComponent(window.location.search.substring(1));
-	if (qstrings != "")
-	{
-		const qstring = qstrings.split(" ");
-		for (let i = 0; i < qstring.length; i++)
-		{
-			if (qstring[i] == '-manifest')
-				man = undefined; //don't do double manifest args...
-			if ((qstring[i] == '+sv_port_rtc' || qstring[i] == '+connect' || qstring[i] == '+join' || qstring[i] == '+observe' || qstring[i] == '+qtvplay') && i+1 < qstring.length)
-			{
-				Module['arguments'] = Module['arguments'].concat(qstring[i+0], qstring[i+1]);
+	const COMMANDS_WITH_VALUE = [
+		"+sv_port_rtc",
+		"+connect",
+		"+join",
+		"+observe",
+		"+qtvplay",
+	];
+
+	const queryString = decodeURIComponent(window.location.search.substring(1));
+	if (queryString !== "") {
+		const args = queryString.split(" ");
+		for (let i = 0; i < args.length; i++) {
+			if (args[i] === "-manifest") {
+				Module.manifest = undefined;
+			} else if (COMMANDS_WITH_VALUE.includes(args[i]) && i + 1 < args.length) {
+				Module.arguments.push(args[i], args[i + 1]);
 				i++;
+			} else if (!document.referrer) {
+				// ignore args from referrers to protect against malicious args
+				Module.arguments.push(args[i]);
 			}
-			else if (!document.referrer)	//ignore args from referers in order to try to protect against dodgy srgs a little.
-				Module['arguments'] = Module['arguments'].concat(qstring[i]);
 		}
 	}
 
-	if (Module['manifest'] != undefined)
-		Module['arguments'] = Module['arguments'].concat(['-manifest', Module['manifest']]);
+	if (Module.manifest !== undefined)
+		Module.arguments.push("-manifest", Module.manifest);
 
-	//registerProtocolHandler needs to be able to pass it through to us... so only allow it if we're parsing args from the url.
-	Module['mayregisterscemes'] = true;
+	// allow registerProtocolHandler to pass args via URL
+	Module.mayregisterscemes = true;
 }
