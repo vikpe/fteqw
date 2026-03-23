@@ -18,6 +18,26 @@ function registerBuffer(fileName, arrayBuffer) {
 	FTEH.f[fileName] = buf;
 }
 
+function loadFileFromUrl(fileName, url) {
+	addRunDependency(fileName);
+	fetch(url)
+		.then((response) => {
+			if (!response.ok) throw new Error(`HTTP ${response.status}`);
+			return response.arrayBuffer();
+		})
+		.then((buffer) => registerBuffer(fileName, buffer))
+		.catch(() => {})
+		.finally(() => removeRunDependency(fileName));
+}
+
+function loadFileFromPromise(fileName, promise) {
+	addRunDependency(fileName);
+	promise
+		.then((buffer) => registerBuffer(fileName, buffer))
+		.catch((reason) => console.log(reason))
+		.finally(() => removeRunDependency(fileName));
+}
+
 Module.loadcachedfiles = () => {
 	addRunDependency("loadcachedfiles");
 	try {
@@ -28,17 +48,18 @@ Module.loadcachedfiles = () => {
 				return cache.keys();
 			})
 			.then((keys) => {
-				for (const key of keys) {
-					const pathIndex = key.url.indexOf("/_/");
-					if (pathIndex < 0) continue;
-					const fileName = key.url.substring(pathIndex + 3);
-					addRunDependency(fileName);
-					Module.cache
-						.match(key)
-						.then((response) => response.arrayBuffer())
-						.then((buffer) => registerBuffer(fileName, buffer))
-						.finally(() => removeRunDependency(fileName));
-				}
+				const validKeys = keys.filter((key) => key.url.includes("/_/"));
+				return Promise.all(
+					validKeys.map((key) => {
+						const fileName = key.url.substring(key.url.indexOf("/_/") + 3);
+						addRunDependency(fileName);
+						return Module.cache
+							.match(key)
+							.then((response) => response.arrayBuffer())
+							.then((buffer) => registerBuffer(fileName, buffer))
+							.finally(() => removeRunDependency(fileName));
+					}),
+				);
 			})
 			.finally(() => removeRunDependency("loadcachedfiles"));
 	} catch (_e) {
@@ -51,44 +72,12 @@ Module.preRun = Module.loadcachedfiles;
 if (Module.files !== undefined && Object.keys(Module.files).length > 0) {
 	Module.preRun = () => {
 		Module.loadcachedfiles();
-		Module.curfile = undefined;
 
 		for (const [fileName, fileData] of Object.entries(Module.files)) {
 			if (typeof fileData === "string") {
-				addRunDependency(fileName);
-
-				const request = new XMLHttpRequest();
-				request.responseType = "arraybuffer";
-				request.open("GET", fileData);
-				request.onload = function () {
-					if (Module.curfile === fileName) Module.curfile = undefined;
-					if (this.status >= 200 && this.status < 300) {
-						registerBuffer(fileName, this.response);
-					}
-					removeRunDependency(fileName);
-				};
-				request.onprogress = (event) => {
-					if (Module.curfile === undefined) Module.curfile = fileName;
-					if (Module.setStatus && Module.curfile === fileName)
-						Module.setStatus(`${fileName} (${event.loaded}/${event.total})`);
-				};
-				request.onerror = () => {
-					if (Module.curfile === fileName) Module.curfile = undefined;
-					removeRunDependency(fileName);
-				};
-				request.send();
+				loadFileFromUrl(fileName, fileData);
 			} else if (typeof fileData.then === "function") {
-				addRunDependency(fileName);
-				fileData.then(
-					(value) => {
-						registerBuffer(fileName, value);
-						removeRunDependency(fileName);
-					},
-					(reason) => {
-						console.log(reason);
-						removeRunDependency(fileName);
-					},
-				);
+				loadFileFromPromise(fileName, fileData);
 			} else {
 				registerBuffer(fileName, fileData);
 			}
