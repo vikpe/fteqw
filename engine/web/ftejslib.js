@@ -1519,7 +1519,14 @@ mergeInto(LibraryManager.library,
 			if (http.status == 200)
 			{
 				if (onload)
-					{{{makeDynCall('vii','onload')}}}(ctx, _emscriptenfte_buf_createfromarraybuf(http.response));
+				{
+					var ct = (http.getResponseHeader("content-type") || "").split(";")[0].trim();
+					var blen = lengthBytesUTF8(ct)+1;
+					var mimeptr = _malloc(blen);
+					stringToUTF8(ct, mimeptr, blen);
+					{{{makeDynCall('viii','onload')}}}(ctx, _emscriptenfte_buf_createfromarraybuf(http.response), mimeptr);
+					_free(mimeptr);
+				}
 			}
 			else
 			{

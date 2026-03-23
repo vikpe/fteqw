@@ -15,11 +15,27 @@ static void DL_Cancel(struct dl_download *dl)
 	//FIXME: clear out the callbacks somehow
 	dl->ctx = NULL;
 }
-static void DL_OnLoad(void *c, int buf)
+static void DL_OnLoad(void *c, int buf, const char *mime)
 {
 	//also fires from 404s.
 	struct dl_download *dl = c;
-	vfsfile_t *tempfile = FSWEB_OpenTempHandle(buf);
+	vfsfile_t *tempfile;
+
+	if (dl->notifystarted)
+	{
+		char *m = (mime && *mime) ? (char*)mime : NULL;
+		if (!dl->notifystarted(dl, m))
+		{
+			vfsfile_t *t = FSWEB_OpenTempHandle(buf);
+			if (t)
+				VFS_CLOSE(t);
+			dl->notifycomplete = NULL;
+			dl->status = DL_FAILED;
+			return;
+		}
+	}
+
+	tempfile = FSWEB_OpenTempHandle(buf);
 	//make sure the file is 'open'.
 	if (!dl->file)
 	{
