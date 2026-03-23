@@ -311,9 +311,9 @@ mergeInto(LibraryManager.library,
 						FTEC.pointerislocked = 0;
 					break;
 				case 'keypress':
-			    if (!FTEC.pointerislocked) {
-            return;
-				  }
+//			    if (!FTEC.pointerislocked) {
+//            return;
+//				  }
 
 					if (FTEC.evcb.key != 0)
 					{
@@ -327,9 +327,9 @@ mergeInto(LibraryManager.library,
 					break;
 				case 'keydown':
 				case 'keyup':
-				  if (!FTEC.pointerislocked) {
-            return;
-					}
+//				  if (!FTEC.pointerislocked) {
+//            return;
+//					}
 					//122 is 'toggle fullscreen'.
 					//we don't steal that because its impossible to leave it again once used.
 					if (FTEC.evcb.key != 0 && event.keyCode != 122)
