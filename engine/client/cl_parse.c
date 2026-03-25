@@ -952,7 +952,7 @@ qboolean	CL_CheckOrEnqueDownloadFile (const char *filename, const char *localnam
 #endif
 
 #ifdef FTE_TARGET_WEB
-	if (*cl_download_mapsrc.string && !strncmp(localname, "maps/", 5) && !strcmp(localname + strlen(localname)-4, ".bsp"))
+	if (*cl_download_mapsrc.string && (flags & DLLF_REQUIRED) && !strncmp(localname, "maps/", 5) && !strcmp(localname + strlen(localname)-4, ".bsp"))
 	{
 		char base[MAX_QPATH];
 		COM_FileBase(localname, base, sizeof(base));
