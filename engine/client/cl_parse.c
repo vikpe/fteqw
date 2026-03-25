@@ -1232,7 +1232,6 @@ static void Model_CheckDownloads (void)
 
 	for (i = 1; i < countof(cl.model_name) && cl.model_name[i]; i++)
 	{
-		qboolean is_world_model = (i == 1);
 		s = cl.model_name[i];
 		if (s[0] == '*')
 			continue;	// inline brush model
@@ -1245,20 +1244,7 @@ static void Model_CheckDownloads (void)
 			continue;
 #endif
 
-		CL_CheckOrEnqueDownloadFile(s, s, (is_world_model?DLLF_REQUIRED:0)|DLLF_ALLOWWEB);	//world is required to be loaded.
-
-		// try load load corresponding .loc file
-#ifdef FTE_TARGET_WEB
-		if (is_world_model && *cl_download_mapsrc.string)
-		{
-			char base[MAX_QPATH];
-			COM_FileBase(s, base, sizeof(base));
-			if (!CL_CheckDLFile(va("locs/%s.loc", base)))
-			{
-				CL_EnqueDownload(va("%s%s.loc", cl_download_mapsrc.string, base), va("locs/%s.loc", base), DLLF_REQUIRED|DLLF_IGNOREFAILED|DLLF_TRYWEB|DLLF_ALLOWWEB);
-			}
-		}
-#endif
+		CL_CheckOrEnqueDownloadFile(s, s, ((i==1)?DLLF_REQUIRED:0)|DLLF_ALLOWWEB);	//world is required to be loaded.
 		CL_CheckModelResources(s);
 	}
 
