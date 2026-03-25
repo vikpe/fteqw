@@ -770,7 +770,7 @@ static void CL_SendDownloadStartRequest(downloadlist_t *pending)
 		return;
 	}
 #endif
-	
+
 	dl = Z_Malloc(sizeof(*dl));
 	dl->filesequence = ++dlsequence;
 
@@ -1013,9 +1013,6 @@ qboolean	CL_CheckOrEnqueDownloadFile (const char *filename, const char *localnam
 			else
 #endif
 				filename = va("%s%s", cl_download_mapsrc.string, filename+5);
-#ifdef FTE_TARGET_WEB
-			CL_EnqueDownload(va("%s%s.loc", cl_download_mapsrc.string, base), va("locs/%s.loc", base), DLLF_IGNOREFAILED|DLLF_TRYWEB|DLLF_ALLOWWEB);
-#endif
 			flags |= DLLF_TRYWEB|DLLF_ALLOWWEB;
 		}
 	}
@@ -1522,7 +1519,7 @@ static int CL_LoadModels(int stage, qboolean dontactuallyload)
 
 #ifdef CSQC_DAT
 	if (atstage())
-	{		
+	{
 		SCR_SetLoadingFile("csqc init");
 		CSQC_WorldLoaded();
 
@@ -3481,7 +3478,7 @@ static void CLQW_ParseServerData (void)
 			cl.playerview[pnum].viewentity = cl.playerview[pnum].playernum+1;
 		}
 	}
-	else 
+	else
 	{
 		// parse player slot, high bit means spectator
 		pnum = MSG_ReadByte ();
@@ -3698,7 +3695,7 @@ static void CLQ2_ParseServerData (void)
 	cl.maxpitch = 89;
 	cl.servercount = svcnt;
 	Cam_AutoTrack_Update(NULL);
-	
+
 #ifdef QUAKEHUD
 	Stats_NewMap();
 #endif
@@ -5450,7 +5447,7 @@ static void CLQ2_ParseStartSoundPacket(void)
 }
 #endif
 
-//returns the player if they're not spectating. 
+//returns the player if they're not spectating.
 static int CL_TryTrackNum(playerview_t *pv)
 {
 	if (pv->spectator && pv->cam_state != CAM_FREECAM && pv->cam_spec_track >= 0)
@@ -9271,7 +9268,7 @@ static qboolean CLNQ_ParseNQPrints(char *s)
 		}
 		else if (strchr(s, ':'))
 			return cls.nqexpectingstatusresponse;
-		
+
 		cl.nqparseprint = CLNQPP_NONE;	//error of some kind...
 		cls.nqexpectingstatusresponse = false;
 	}
