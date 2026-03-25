@@ -951,18 +951,6 @@ qboolean	CL_CheckOrEnqueDownloadFile (const char *filename, const char *localnam
 		return true;
 #endif
 
-#ifdef FTE_TARGET_WEB
-	if (*cl_download_mapsrc.string && (flags & DLLF_REQUIRED) && !strncmp(localname, "maps/", 5) && !strcmp(localname + strlen(localname)-4, ".bsp"))
-	{
-		char base[MAX_QPATH];
-		COM_FileBase(localname, base, sizeof(base));
-		if (!CL_CheckDLFile(va("locs/%s.loc", base)))
-		{
-			CL_EnqueDownload(va("%s%s.loc", cl_download_mapsrc.string, base), va("locs/%s.loc", base), DLLF_IGNOREFAILED|DLLF_TRYWEB|DLLF_ALLOWWEB);
-		}
-	}
-#endif
-
 	if (!(flags & DLLF_OVERWRITE))
 	{
 		if (CL_CheckDLFile(localname))
@@ -1256,6 +1244,17 @@ static void Model_CheckDownloads (void)
 			continue;
 #endif
 
+#ifdef FTE_TARGET_WEB
+		if (i == 1 && *cl_download_mapsrc.string)
+		{
+			char base[MAX_QPATH];
+			COM_FileBase(s, base, sizeof(base));
+			if (!CL_CheckDLFile(va("locs/%s.loc", base)))
+			{
+				CL_EnqueDownload(va("%s%s.loc", cl_download_mapsrc.string, base), va("locs/%s.loc", base), DLLF_IGNOREFAILED|DLLF_TRYWEB|DLLF_ALLOWWEB);
+			}
+		}
+#endif
 		CL_CheckOrEnqueDownloadFile(s, s, ((i==1)?DLLF_REQUIRED:0)|DLLF_ALLOWWEB);	//world is required to be loaded.
 		CL_CheckModelResources(s);
 	}
