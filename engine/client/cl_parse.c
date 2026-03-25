@@ -1013,6 +1013,9 @@ qboolean	CL_CheckOrEnqueDownloadFile (const char *filename, const char *localnam
 			else
 #endif
 				filename = va("%s%s", cl_download_mapsrc.string, filename+5);
+#ifdef FTE_TARGET_WEB
+			CL_EnqueDownload(va("%s%s.loc", cl_download_mapsrc.string, base), va("locs/%s.loc", base), DLLF_IGNOREFAILED|DLLF_TRYWEB|DLLF_ALLOWWEB);
+#endif
 			flags |= DLLF_TRYWEB|DLLF_ALLOWWEB;
 		}
 	}
