@@ -2349,8 +2349,10 @@ void CL_PlayDemo_f (void)
 	if (!strncmp(Cmd_Argv(1), "ftp://", 6) || !strncmp(Cmd_Argv(1), "http://", 7) || !strncmp(Cmd_Argv(1), "https://", 7))
 	{
 		if (Cmd_ExecLevel == RESTRICT_LOCAL)
+		{
 			Host_RunFile(Cmd_Argv(1), strlen(Cmd_Argv(1)), NULL);
-//			HTTP_CL_Get(Cmd_Argv(1), COM_SkipPath(Cmd_Argv(1)), CL_PlayDownloadedDemo);
+			cls.state = ca_demostart;	//suppress menu while downloading
+		}
 		return;
 	}
 #endif
