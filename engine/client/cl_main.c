@@ -80,7 +80,7 @@ cvar_t	*hud_tracking_show;
 cvar_t	*hud_miniscores_show;
 extern cvar_t net_compress;
 
-cvar_t	cl_defaultport		= 
+cvar_t	cl_defaultport		=
 	#ifdef GAME_DEFAULTPORT	//remove the confusing port alias if we're running as a TC, as well as info about irrelevant games.
 		CVARFD("cl_defaultport", STRINGIFY(PORT_DEFAULTSERVER),			 0, "The default port used to connect to servers.")
 	#else
@@ -1989,7 +1989,7 @@ void CLQ2E_Connect_f (void)
 	CL_BeginServerConnect(server, PORT_Q2EXSERVER/*q2e servers ignore their own port cvar, so don't use the standard q2 port number here*/, true, CIM_Q2EONLY, CIS_DEFAULT);
 }
 #endif
- 
+
 #ifdef IRCCONNECT
 void CL_IRCConnect_f (void)
 {
@@ -4122,7 +4122,7 @@ void CL_ConnectionlessPacket (void)
 			if (CL_IsPendingServerAddress(&net_from))
 				CL_ConnectAbort("invalid username or password\n");
 		}
-		
+
 		Con_Printf ("f%s\n", s);
 		return;
 	}
@@ -6322,6 +6322,10 @@ unsigned int Host_GuessFileType(const char *mimetype, const char *filename)
 			return HRF_MANIFEST;
 		else if (!strcmp(mimetype, "application/x-multiviewdemo"))
 			return HRF_DEMO_MVD;
+		else if (!strcmp(mimetype, "application/x-quakedemo"))
+			return HRF_DEMO_DEM;
+		else if (!strcmp(mimetype, "application/x-quakeworlddemo"))
+			return HRF_DEMO_QWD;
 		else if (!strcmp(mimetype, "application/zip"))
 			return HRF_ARCHIVE;
 //		else if (!strcmp(mimetype, "application/x-ftebsp"))
@@ -6567,7 +6571,7 @@ void Host_DoRunFile(hrf_t *f)
 		f->flags &= ~HRF_WAITING;
 		waitingformanifest--;
 	}
-	
+
 	if (f->flags & HRF_ABORT)
 	{
 done:
@@ -6612,7 +6616,7 @@ done:
 	if (!(f->flags & HRF_FILETYPES))
 	{
 		f->flags |= Host_GuessFileType(NULL, f->fname);
-		
+
 		//if we still don't know what it is, give up.
 		if (!(f->flags & HRF_FILETYPES))
 		{
@@ -7662,7 +7666,7 @@ void CL_ExecInitialConfigs(char *resetcommand, qboolean fullvidrestart)
 	int def;
 
 	Cbuf_Execute ();	//make sure any pending console commands are done with. mostly, anyway...
-	
+
 	Cbuf_AddText("unbindall\nshowpic_removeall\n", RESTRICT_LOCAL);
 	Cbuf_AddText("alias restart_ents \"changelevel . .\"\n",RESTRICT_LOCAL);
 	Cbuf_AddText("alias restart map_restart\n",RESTRICT_LOCAL);
