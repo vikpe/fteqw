@@ -541,6 +541,7 @@ typedef struct
 		DEMOSEEK_INTERMISSION,	//stops once we reach an svc_intermission
 	} demoseeking;
 	float		demoseektime;
+	int			demoseektrack;	//player to restore after rewind seek (-1 = none)
 	int			demotrack;
 	qboolean	timedemo;
 	char		lastdemoname[MAX_OSPATH];	//empty if is a qtv stream
