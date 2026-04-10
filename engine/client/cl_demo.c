@@ -460,16 +460,15 @@ void CL_DemoJump_f(void)
 	if (newtime < 0)
 		newtime = 0;
 
-	cls.demoseektrack = -1;
-
 	if (newtime >= demtime)
 		cls.demoseektime = newtime;
 	else
 	{
 		vfsfile_t *df = cls.demoinfile;
 
-		//save tracked player before rewind (Cam_TrackNum returns -1 if not tracking)
-		cls.demoseektrack = Cam_TrackNum(&cl.playerview[0]);
+		//save tracked player before rewind, but keep existing value if a seek is already pending
+		if (cls.demoseeking == DEMOSEEK_NOT)
+			cls.demoseektrack = Cam_TrackNum(&cl.playerview[0]);
 
 		Con_Printf("Rewinding demo\n");
 		if (df->seekstyle != SS_UNSEEKABLE)
