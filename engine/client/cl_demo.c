@@ -2351,7 +2351,7 @@ void CL_PlayDemo_f (void)
 		if (Cmd_ExecLevel == RESTRICT_LOCAL)
 		{
 			Host_RunFile(Cmd_Argv(1), strlen(Cmd_Argv(1)), NULL);
-			cls.state = ca_demostart;	//suppress menu while downloading
+			cls.state = ca_demostart;
 		}
 		return;
 	}
@@ -3181,6 +3181,8 @@ void CL_QTVPlay_Establish (const char *host, const char *password, const char *c
 		Z_Free(qtv);
 		return;
 	}
+	if (cls.state == ca_disconnected)
+		cls.state = ca_demostart;
 
 	Q_strncpyz(qtv->hostname, host, sizeof(qtv->hostname));
 	Q_strncpyz(qtv->password, password, sizeof(qtv->password));
