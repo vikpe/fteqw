@@ -131,6 +131,9 @@ jobs:
         run: |
           make -j ${{ steps.cpu-cores.outputs.count }} FTE_TARGET=${{ matrix.fte_target }} ${{ matrix.make_targets }} ${{ matrix.args }} LINK_EZHUD=1 LINK_OPENSSL=1
 
+      - name: Format JS artifacts with Prettier
+        run: npx prettier@3 --write "engine/release/**/*.js"
+
       - name: Attach macOS docs
         run: |
           cat <<EOF > engine/release/fte_macos.txt
