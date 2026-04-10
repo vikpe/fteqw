@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Output
+
+- Never express emotions.
+- Answer briefly and objectively.
+- If unsure, say so. Never guess.
+- No em dashes, smart quotes, or Unicode. ASCII only.
+
 ## Project Overview
 
 FTEQW is an advanced, portable Quake engine ("swiss-army knife" for Quake game development). It supports multiple Quake-family protocols (QW, NQ, Q2, Q3, Hexen2, Half-Life) and multiple rendering backends (OpenGL, Direct3D 8/9/11, Vulkan, software, WebGL).
