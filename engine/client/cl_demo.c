@@ -31,6 +31,7 @@ static int cls_lasttype;
 
 void CL_PlayDemo(char *demoname, qboolean usesystempath);
 void CL_PlayDemoFile(vfsfile_t *f, char *demoname, qboolean issyspath);
+void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int demotype, float bufferdelay, unsigned int eztv_ext);
 
 extern cvar_t qtvcl_forceversion1;
 extern cvar_t qtvcl_eztvextensions;
@@ -473,9 +474,13 @@ void CL_DemoJump_f(void)
 		Con_Printf("Rewinding demo\n");
 		if (df->seekstyle != SS_UNSEEKABLE)
 		{
+			int demotype = cls.demoplayback;
 			VFS_SEEK(df, 0);
 			cls.demoinfile = NULL;
-			CL_PlayDemoFile(df, cls.lastdemoname, cls.lastdemowassystempath);
+			//use the known demo type directly instead of re-detecting via
+			//CL_PlayDemoFile, which fails for extensionless demos (e.g.
+			//loaded from url with mime type detection).
+			CL_PlayDemoStream(df, cls.lastdemoname, cls.lastdemowassystempath, demotype, 0, 0);
 		}
 		else
 			CL_PlayDemo(cls.lastdemoname, cls.lastdemowassystempath);
