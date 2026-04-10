@@ -455,6 +455,13 @@ void CL_DemoJump_f(void)
 	else
 	{
 		vfsfile_t *df = cls.demoinfile;
+		unsigned int i;
+		int saved_track[MAX_SPLITS];
+
+		//save the tracked player for each seat so we can restore after rewind
+		for (i = 0; i < MAX_SPLITS; i++)
+			saved_track[i] = Cam_TrackNum(&cl.playerview[i]);
+
 		Con_Printf("Rewinding demo\n");
 		if (df->seekstyle != SS_UNSEEKABLE)
 		{
@@ -464,6 +471,25 @@ void CL_DemoJump_f(void)
 		}
 		else
 			CL_PlayDemo(cls.lastdemoname, cls.lastdemowassystempath);
+
+		//restore tracked players after rewind.
+		//if a player was being tracked, re-lock to them (works for both
+		//explicit user tracking and autotrack - autotrack will re-evaluate
+		//naturally on the next frame if needed).
+		//if no player was tracked (freecam), prevent findtrack from
+		//auto-locking onto someone.
+		for (i = 0; i < MAX_SPLITS; i++)
+		{
+			if (saved_track[i] >= 0)
+			{
+				Cam_Lock(&cl.playerview[i], saved_track[i]);
+				cls.findtrack = false;
+			}
+		}
+		if (cls.findtrack)
+		{	//nobody was tracked before (freecam) - don't auto-lock
+			cls.findtrack = false;
+		}
 
 		//now fastparse it.
 		cls.demoseektime = newtime;
