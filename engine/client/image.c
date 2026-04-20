@@ -2989,7 +2989,7 @@ static qbyte *ReadRawBMPFile(qbyte *buf, int length, int *width, int *height, si
 	bmpheader_t h;
 	qbyte *data;
 
-	memcpy(&h, buf, sizeof(h));	
+	memcpy(&h, buf, sizeof(h));
 	h.SizeofBITMAPINFOHEADER = LittleLong(h.SizeofBITMAPINFOHEADER);
 	h.Width = LittleLong(h.Width);
 	h.Height = LittleLong(h.Height);
@@ -8121,7 +8121,7 @@ void Image_GenerateMips(struct pendingtextureinfo *mips, unsigned int flags)
 			Image_MipMap1X8(mips->mip[mip-1].data, mips->mip[mip-1].width, mips->mip[mip-1].height, mips->mip[mip].data, mips->mip[mip].width, mips->mip[mip].height);
 			mips->mipcount = mip+1;
 		}
-		return;	
+		return;
 	case PTI_RG8:
 	case PTI_RG8_SNORM:
 	case PTI_L8A8:
@@ -12486,7 +12486,7 @@ static qboolean Image_GenMip0(struct pendingtextureinfo *mips, unsigned int flag
 		if (/*!r_dodgymiptex.ival &&*/ mips->mip[0].width == imgwidth && mips->mip[0].height == imgheight && mips->mip[0].depth == 1)
 		{
 			unsigned int pixels =
-				(imgwidth>>0) * (imgheight>>0) + 
+				(imgwidth>>0) * (imgheight>>0) +
 				(imgwidth>>1) * (imgheight>>1) +
 				(imgwidth>>2) * (imgheight>>2) +
 				(imgwidth>>3) * (imgheight>>3);
@@ -12554,7 +12554,7 @@ static qboolean Image_GenMip0(struct pendingtextureinfo *mips, unsigned int flag
 		if (!r_dodgymiptex.ival && mips->mip[0].width == imgwidth && mips->mip[0].height == imgheight && mips->mip[0].depth == 1)
 		{	//special hack required to preserve the hand-drawn lower mips.
 			unsigned int pixels =
-				(imgwidth>>0) * (imgheight>>0) + 
+				(imgwidth>>0) * (imgheight>>0) +
 				(imgwidth>>1) * (imgheight>>1) +
 				(imgwidth>>2) * (imgheight>>2) +
 				(imgwidth>>3) * (imgheight>>3);
@@ -12733,7 +12733,7 @@ static qboolean Image_GenMip0(struct pendingtextureinfo *mips, unsigned int flag
 		//8bit opaque data
 		{
 			unsigned int pixels =
-					(imgwidth>>0) * (imgheight>>0) + 
+					(imgwidth>>0) * (imgheight>>0) +
 					(imgwidth>>1) * (imgheight>>1) +
 					(imgwidth>>2) * (imgheight>>2) +
 					(imgwidth>>3) * (imgheight>>3);
@@ -12744,7 +12744,7 @@ static qboolean Image_GenMip0(struct pendingtextureinfo *mips, unsigned int flag
 			if (!r_dodgymiptex.ival && mips->mip[0].width == imgwidth && mips->mip[0].height == imgheight && mips->mip[0].depth == 1)
 			{
 				unsigned int pixels =
-					(imgwidth>>0) * (imgheight>>0) + 
+					(imgwidth>>0) * (imgheight>>0) +
 					(imgwidth>>1) * (imgheight>>1) +
 					(imgwidth>>2) * (imgheight>>2) +
 					(imgwidth>>3) * (imgheight>>3);
@@ -13371,7 +13371,7 @@ struct pendingtextureinfo *Image_LoadMipsFromMemory(int flags, const char *iname
 		mips = Image_ReadDDSFile(flags, fname, filedata, filesize);
 #endif
 #ifdef IMAGEFMT_BLP
-	if (!mips && filedata[0] == 'B' && filedata[1] == 'L' && filedata[2] == 'P' && filedata[3] == '2') 
+	if (!mips && filedata[0] == 'B' && filedata[1] == 'L' && filedata[2] == 'P' && filedata[3] == '2')
 		mips = Image_ReadBLPFile(flags, fname, filedata, filesize);
 #endif
 	for (l = 0; !mips && l < imageloader_count; l++)
@@ -13824,7 +13824,7 @@ qboolean Image_LocateHighResTexture(image_t *tex, flocation_t *bestloc, char *be
 	int firstex = (tex->flags & IF_EXACTEXTENSION)?tex_extensions_count-1:0;
 
 	flocation_t loc;
-	
+
 	if (strncmp(tex->ident, "http:", 5) && strncmp(tex->ident, "https:", 6))
 	for(altname = tex->ident;altname;altname = nextalt)
 	{
@@ -14164,7 +14164,7 @@ static void Image_LoadHiResTextureWorker(void *ctx, void *data, size_t a, size_t
 		return;
 	}
 
-	
+
 
 	if (Image_LocateHighResTexture(tex, &loc, fname, sizeof(fname), &locflags))
 	{
@@ -14190,7 +14190,7 @@ static void Image_LoadHiResTextureWorker(void *ctx, void *data, size_t a, size_t
 						if (Image_LoadRawTexture(tex, tex->flags, d, NULL, w, h, TF_HEIGHT8))
 						{
 							BZ_Free(tex->fallbackdata);
-							tex->fallbackdata = NULL;	
+							tex->fallbackdata = NULL;
 							return;
 						}
 					}
@@ -14241,7 +14241,7 @@ static void Image_LoadHiResTextureWorker(void *ctx, void *data, size_t a, size_t
 			tex->fallbackdata = NULL;
 			return;
 		}
-		tex->fallbackdata = NULL;	
+		tex->fallbackdata = NULL;
 	}
 
 //	Sys_Printf("Texture %s failed\n", nicename);
@@ -14706,8 +14706,6 @@ void Image_ReloadTexture_f(void)
 	}
 	if (!count)
 		Con_Printf("r_reloadtexture: '%s' not in texture cache\n", ident);
-	else
-		Con_Printf("r_reloadtexture: reloading '%s' (%d)\n", ident, count);
 }
 
 void Image_List_f(void)
