@@ -73,6 +73,31 @@ function registerBuffer(fileName, arrayBuffer) {
 }
 Module.registerBuffer = registerBuffer;
 
+Module.loadTexture = async function (vfsPath, source) {
+	var identifier = vfsPath
+		.replace(/^[^/]+\//, "")
+		.replace(/\.(png|jpe?g|tga|webp|pcx)$/i, "");
+	var buf;
+	if (typeof source === "string") {
+		if (!/^https?:\/\//i.test(source))
+			throw new Error("loadTexture: URL must start with http:// or https://");
+		var res = await fetch(source);
+		if (!res.ok)
+			throw new Error("loadTexture: fetch " + source + ": " + res.status);
+		buf = await res.arrayBuffer();
+	} else if (source instanceof ArrayBuffer) {
+		buf = source;
+	} else if (ArrayBuffer.isView(source)) {
+		buf = source.buffer;
+	} else if (source instanceof Blob) {
+		buf = await source.arrayBuffer();
+	} else {
+		throw new Error("loadTexture: source must be http(s) URL, ArrayBuffer, TypedArray, or Blob");
+	}
+	registerBuffer(vfsPath, buf);
+	Module.FTEC.cbufadd("r_reloadtexture " + identifier + "\n");
+};
+
 function loadFileFromUrl(fileName, url) {
 	addRunDependency(fileName);
 	fetch(url)
