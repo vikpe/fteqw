@@ -95,7 +95,7 @@ Module.loadTexture = async function (vfsPath, source) {
 		throw new Error("loadTexture: source must be http(s) URL, ArrayBuffer, TypedArray, or Blob");
 	}
 	registerBuffer(vfsPath, buf);
-	Module.FTEC.cbufadd("r_reloadtexture " + identifier + "\n");
+	FTEC.cbufadd("r_reloadtexture " + identifier + "\n");
 };
 
 function loadFileFromUrl(fileName, url) {
