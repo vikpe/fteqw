@@ -14678,6 +14678,38 @@ void Image_Purge(void)
 }
 
 
+void Image_ReloadTexture_f(void)
+{
+	const char *ident = Cmd_Argv(1);
+	image_t *tex, *next;
+	int count = 0;
+	if (!*ident)
+	{
+		Con_Printf("usage: r_reloadtexture <identifier>\n");
+		return;
+	}
+	for (tex = imagelist; tex; tex = next)
+	{
+		next = tex->next;
+		if (tex->status == TEX_LOADING)
+			continue;
+		if (Q_strcasecmp(tex->ident, ident))
+			continue;
+		{
+			unsigned int flags = tex->flags;
+			const char *sub = tex->subpath;
+			Image_UnloadTexture(tex);
+			tex->status = TEX_NOTLOADED;
+			Image_GetTexture(tex->ident, sub, flags, NULL, NULL, 0, 0, TF_INVALID);
+			count++;
+		}
+	}
+	if (!count)
+		Con_Printf("r_reloadtexture: '%s' not in texture cache\n", ident);
+	else
+		Con_Printf("r_reloadtexture: reloading '%s' (%d)\n", ident, count);
+}
+
 void Image_List_f(void)
 {
 	flocation_t loc;
@@ -14991,6 +15023,7 @@ void Image_Init(void)
 
 	Cmd_AddCommandD("r_imagelist", Image_List_f, "Prints out a list of the currently-known textures.");
 	Cmd_AddCommandD("r_imageformats", Image_Formats_f, "Prints out a list of the usable hardware pixel formats.");
+	Cmd_AddCommandD("r_reloadtexture", Image_ReloadTexture_f, "Invalidate a cached texture and reload it from the VFS. Identifier is the engine-internal texture name (see r_imagelist).");
 #endif
 }
 

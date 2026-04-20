@@ -71,6 +71,7 @@ function registerBuffer(fileName, arrayBuffer) {
 	buf.n = fileName;
 	FTEH.f[fileName] = buf;
 }
+Module.registerBuffer = registerBuffer;
 
 function loadFileFromUrl(fileName, url) {
 	addRunDependency(fileName);
