@@ -1647,7 +1647,7 @@ mergeInto(LibraryManager.library,
 		return false;
 	},
 
-	emscriptenfte_gl_loadtexturefile : function(texid, widthptr, heightptr, dataptr, datasize, fname, dopremul, genmips)
+	emscriptenfte_gl_loadtexturefile : function(texid, widthptr, heightptr, dataptr, datasize, fname, dopremul, genmips, isreload)
 	{
 		function encode64(data) {
 			var BASE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
@@ -1674,8 +1674,11 @@ mergeInto(LibraryManager.library,
 			return ret;
 		}
 
-		//make sure the texture is defined before its loaded, so we get no errors
-		GLctx.texImage2D(GLctx.TEXTURE_2D, 0, GLctx.RGBA, 1,1,0,GLctx.RGBA, GLctx.UNSIGNED_BYTE, null);
+		//make sure the texture is defined before its loaded, so we get no errors.
+		//on reload, skip the 1x1 stub so the existing texture stays visible
+		//until img.onload uploads the new bytes (prevents a visible flicker).
+		if (!isreload)
+			GLctx.texImage2D(GLctx.TEXTURE_2D, 0, GLctx.RGBA, 1,1,0,GLctx.RGBA, GLctx.UNSIGNED_BYTE, null);
 
 		var img = new Image();
 		var gltex = GL.textures[texid];

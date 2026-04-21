@@ -779,6 +779,9 @@ qboolean GL_LoadTextureMips(texid_t tex, const struct pendingtextureinfo *mips)
 	unsigned int bb, bw, bh, bd;
 	int levels = 0, genlevels;
 	int ttype = (tex->flags & IF_TEXTYPEMASK)>>IF_TEXTYPESHIFT;
+#ifdef FTE_TARGET_WEB
+	qboolean isreload = !!tex->num;
+#endif
 
 	if (gl_config.gles)
 	{
@@ -824,7 +827,7 @@ qboolean GL_LoadTextureMips(texid_t tex, const struct pendingtextureinfo *mips)
 
 	GL_MTBind(0, targ, tex);
 
-	if (tex->num && qglTexStorage2D)
+	if (tex->num && qglTexStorage2D && encoding != PTI_WHOLEFILE)
 	{
 		qglDeleteTextures(1, &tex->num);
 		qglGenTextures(1, &tex->num);
@@ -911,7 +914,7 @@ qboolean GL_LoadTextureMips(texid_t tex, const struct pendingtextureinfo *mips)
 #ifdef FTE_TARGET_WEB
 	if (encoding == PTI_WHOLEFILE)
 	{
-		emscriptenfte_gl_loadtexturefile(tex->num, &tex->width, &tex->height, mips->mip[0].data, mips->mip[0].datasize, tex->ident, !!(tex->flags & IF_PREMULTIPLYALPHA), !(tex->flags & IF_NOMIPMAP));
+		emscriptenfte_gl_loadtexturefile(tex->num, &tex->width, &tex->height, mips->mip[0].data, mips->mip[0].datasize, tex->ident, !!(tex->flags & IF_PREMULTIPLYALPHA), !(tex->flags & IF_NOMIPMAP), isreload);
 		return true;
 	}
 #endif

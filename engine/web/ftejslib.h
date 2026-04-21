@@ -38,7 +38,7 @@ NORETURN void emscriptenfte_abortmainloop(const char *caller, int fatal);
 
 //we're trying to avoid including libpng+libjpeg+libogg in javascript due to it being redundant bloat.
 //to use such textures/sounds, we can just 'directly' load them via webgl
-void emscriptenfte_gl_loadtexturefile(int gltexid, int *width, int *height, void *data, int datasize, const char *fname, int premul, int genmips);
+void emscriptenfte_gl_loadtexturefile(int gltexid, int *width, int *height, void *data, int datasize, const char *fname, int premul, int genmips, int isreload);
 void emscriptenfte_al_loadaudiofile(int al_buf, void *data, int datasize);
 int emscriptenfte_pcm_loadaudiofile(void *ctx, void(*callbackfunc)(void *ctx, void *dataptr, int frames, int channels, float rate), void *dataptr, size_t datasize, int snd_speed);
 
