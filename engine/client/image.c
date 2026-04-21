@@ -14696,11 +14696,10 @@ void Image_ReloadTexture_f(void)
 		if (Q_strcasecmp(tex->ident, ident))
 			continue;
 		{
-			unsigned int flags = tex->flags;
-			const char *sub = tex->subpath;
-			Image_UnloadTexture(tex);
-			tex->status = TEX_NOTLOADED;
-			Image_GetTexture(tex->ident, sub, flags, NULL, NULL, 0, 0, TF_INVALID);
+			unsigned int origflags = tex->flags;
+			tex->flags |= IF_NOWORKER;
+			Image_LoadHiResTextureWorker(tex, NULL, 0, 0);
+			tex->flags = origflags;
 			count++;
 		}
 	}
