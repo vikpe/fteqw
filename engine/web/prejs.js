@@ -74,9 +74,6 @@ function registerBuffer(fileName, arrayBuffer) {
 Module.registerBuffer = registerBuffer;
 
 async function loadTexture_(vfsPath, source) {
-	var identifier = vfsPath
-		.replace(/^[^/]+\//, "")
-		.replace(/\.(png|jpe?g|tga|webp|pcx)$/i, "");
 	var buf;
 	if (typeof source === "string") {
 		if (!/^https?:\/\//i.test(source))
@@ -95,7 +92,7 @@ async function loadTexture_(vfsPath, source) {
 		throw new Error("loadTexture: source must be http(s) URL, ArrayBuffer, TypedArray, or Blob");
 	}
 	registerBuffer(vfsPath, buf);
-	FTEC.cbufadd("r_reloadtexture " + identifier + "\n");
+	FTEC.cbufadd("r_reloadtexture " + vfsPath + "\n");
 }
 
 var loadTextureThrottleState = {};
