@@ -73,7 +73,7 @@ function registerBuffer(fileName, arrayBuffer) {
 }
 Module.registerBuffer = registerBuffer;
 
-async function loadTexture_(vfsPath, source) {
+async function loadTexture_(identifier, filePath, source) {
 	var buf;
 	if (typeof source === "string") {
 		if (!/^https?:\/\//i.test(source))
@@ -91,16 +91,16 @@ async function loadTexture_(vfsPath, source) {
 	} else {
 		throw new Error("loadTexture: source must be http(s) URL, ArrayBuffer, TypedArray, or Blob");
 	}
-	registerBuffer(vfsPath, buf);
-	FTEC.cbufadd("r_reloadtexture " + vfsPath + "\n");
+	registerBuffer(identifier, buf);
+	FTEC.cbufadd("r_reloadtexture " + filePath + "\n");
 }
 
 var loadTextureThrottleState = {};
-Module.loadTexture = function (vfsPath, source, intervalMs) {
+Module.loadTexture = function (identifier, filePath, source, intervalMs) {
 	intervalMs = intervalMs || 50;
 	var state =
-		loadTextureThrottleState[vfsPath] ||
-		(loadTextureThrottleState[vfsPath] = { lastRun: 0, timer: null, latest: null });
+		loadTextureThrottleState[identifier] ||
+		(loadTextureThrottleState[identifier] = { lastRun: 0, timer: null, latest: null });
 	state.latest = source;
 	if (state.timer) return;
 	var wait = Math.max(0, intervalMs - (Date.now() - state.lastRun));
@@ -109,7 +109,7 @@ Module.loadTexture = function (vfsPath, source, intervalMs) {
 		state.latest = null;
 		state.timer = null;
 		state.lastRun = Date.now();
-		loadTexture_(vfsPath, src);
+		loadTexture_(identifier, filePath, src);
 	}, wait);
 };
 
