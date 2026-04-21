@@ -66,10 +66,10 @@ function hasKnownExtension(fileName) {
 	return KNOWN_EXTENSIONS[fileName.substring(dot).toLowerCase()] === 1;
 }
 
-function registerBuffer(fileName, arrayBuffer) {
+function registerBuffer(filePath, arrayBuffer) {
 	var buf = FTEH.h[_emscriptenfte_buf_createfromarraybuf(arrayBuffer)];
-	buf.n = fileName;
-	FTEH.f[fileName] = buf;
+	buf.n = filePath;
+	FTEH.f[filePath] = buf;
 }
 Module.registerBuffer = registerBuffer;
 
