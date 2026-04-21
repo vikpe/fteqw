@@ -73,7 +73,7 @@ function registerBuffer(fileName, arrayBuffer) {
 }
 Module.registerBuffer = registerBuffer;
 
-Module.loadTexture = async function (vfsPath, source) {
+async function loadTexture_(vfsPath, source) {
 	var identifier = vfsPath
 		.replace(/^[^/]+\//, "")
 		.replace(/\.(png|jpe?g|tga|webp|pcx)$/i, "");
@@ -96,6 +96,24 @@ Module.loadTexture = async function (vfsPath, source) {
 	}
 	registerBuffer(vfsPath, buf);
 	FTEC.cbufadd("r_reloadtexture " + identifier + "\n");
+}
+
+var loadTextureThrottleState = {};
+Module.loadTexture = function (vfsPath, source, intervalMs) {
+	intervalMs = intervalMs || 50;
+	var state =
+		loadTextureThrottleState[vfsPath] ||
+		(loadTextureThrottleState[vfsPath] = { lastRun: 0, timer: null, latest: null });
+	state.latest = source;
+	if (state.timer) return;
+	var wait = Math.max(0, intervalMs - (Date.now() - state.lastRun));
+	state.timer = setTimeout(function () {
+		var src = state.latest;
+		state.latest = null;
+		state.timer = null;
+		state.lastRun = Date.now();
+		loadTexture_(vfsPath, src);
+	}, wait);
 };
 
 function loadFileFromUrl(fileName, url) {
