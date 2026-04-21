@@ -91,8 +91,8 @@ async function loadTexture_(identifier, filePath, source) {
 	} else {
 		throw new Error("loadTexture: source must be http(s) URL, ArrayBuffer, TypedArray, or Blob");
 	}
-	registerBuffer(identifier, buf);
-	FTEC.cbufadd("r_reloadtexture " + filePath + "\n");
+	registerBuffer(filePath, buf);
+	FTEC.cbufadd("r_reloadtexture " + identifier + "\n");
 }
 
 var loadTextureThrottleState = {};
