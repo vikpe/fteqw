@@ -70,6 +70,9 @@ var float  minimap_world_top_z = 0;   // BSP maxs.z, set in MinimapAutoBounds
 var float  minimap_loaded      = 0;
 var string minimap_loaded_for  = "";
 
+// Forward declarations for callees of MinimapLoad.
+void() MinimapComputeAutoColors;
+
 void() MinimapResetState =
 {
     minimap_num_volumes = 0;
@@ -412,14 +415,15 @@ vector(string path) MinimapAverageImageColor =
 // cl_enemyskin and store their average color.
 void() MinimapComputeAutoColors =
 {
+    vector c;
     string ts = cvar_string("cl_teamskin");
     if (ts != "") {
-        vector c = MinimapAverageImageColor(sprintf("skins/%s", ts));
+        c = MinimapAverageImageColor(sprintf("skins/%s", ts));
         if (c.x >= 0) minimap_auto_color_team = c;
     }
     string es = cvar_string("cl_enemyskin");
     if (es != "") {
-        vector c = MinimapAverageImageColor(sprintf("skins/%s", es));
+        c = MinimapAverageImageColor(sprintf("skins/%s", es));
         if (c.x >= 0) minimap_auto_color_enemy = c;
     }
     debug("minimap: auto team color %v, enemy color %v",
