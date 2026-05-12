@@ -50,6 +50,7 @@ var vector autocvar_minimap_center_override  = '0 0 0';
 var float  autocvar_minimap_player_radius           = 6;
 var float  autocvar_minimap_player_dir_len          = 14;
 var float  autocvar_minimap_player_alpha_occluded   = 0.5;
+var float  autocvar_minimap_player_label_size       = 0;
 var vector autocvar_minimap_player_color_team       = '0 1 0';
 var vector autocvar_minimap_player_color_enemy      = '1 0 0';
 var vector autocvar_minimap_player_color_self       = '1 1 0';
@@ -59,6 +60,7 @@ var int    minimap_num_volumes = 0;
 var vector minimap_center      = '0 0 0';
 var float  minimap_ortho       = 2048;
 var float  minimap_height      = 4096;
+var float  minimap_world_top_z = 0;   // BSP maxs.z, set in MinimapAutoBounds
 var float  minimap_loaded      = 0;
 var string minimap_loaded_for  = "";
 
@@ -83,6 +85,7 @@ void() MinimapAutoBounds =
         minimap_center.x = (tmp.mins.x + tmp.maxs.x) * 0.5;
         minimap_center.y = (tmp.mins.y + tmp.maxs.y) * 0.5;
         minimap_center.z = tmp.mins.z;
+        minimap_world_top_z = tmp.maxs.z;
 
         float ext = max(tmp.maxs.x - tmp.mins.x, tmp.maxs.y - tmp.mins.y);
         minimap_ortho = ext * 0.5 + 64;
@@ -213,19 +216,85 @@ void(float mode, float vw, float vh, __out vector vmin, __out vector vsize) Mini
     }
 };
 
-// Inline shader for the player direction triangle. rgbgen+alphagen vertex
-// lets R_PolygonVertex's color/alpha drive the gradient.
-void() MinimapRegisterShaders =
+// Strip non-ASCII bytes and QW color codes (^X) from a player name. Returns
+// only printable ASCII (32..126), with ^^ unescaped to a single ^.
+string(string raw) MinimapNormalizeName =
 {
-    shaderforname("minimap_dir", R"({
-    nopicmip
-    {
-        map $whiteimage
-        rgbgen vertex
-        alphagen vertex
-        blendfunc blend
+    string out = "";
+    float n = strlen(raw);
+    for (float i = 0; i < n; i++) {
+        float c = str2chr(raw, i);
+        if (c == '^' && i + 1 < n) {
+            float nxt = str2chr(raw, i + 1);
+            if (nxt == '^') {
+                out = strcat(out, "^");
+                i++;
+                continue;
+            }
+            i++;  // skip color code marker AND the following char
+            continue;
+        }
+        if (c >= 32 && c <= 126) {
+            out = strcat(out, chr2str(c));
+        }
     }
-})");
+    return out;
+};
+
+// Cache of normalized names for the current frame, indexed by player number
+// (0..maxclients-1). Empty string for inactive slots.
+#define MINIMAP_MAX_PLAYERS 32
+var string minimap_label_name[MINIMAP_MAX_PLAYERS];
+
+void() MinimapBuildPlayerLabels =
+{
+    float plyr_mdl = getmodelindex("progs/player.mdl");
+    for (int i = 0; i < MINIMAP_MAX_PLAYERS; i++) {
+        minimap_label_name[i] = "";
+        if (i >= maxclients) {
+            continue;
+        }
+        float entnum = i + 1;
+        float active = getentity(entnum, GE_ACTIVE);
+        if (!active) {
+            continue;
+        }
+        float modidx = getentity(entnum, GE_MODELINDEX);
+        if (modidx != plyr_mdl) {
+            continue;
+        }
+        string raw = getplayerkeyvalue(i, "name");
+        minimap_label_name[i] = MinimapNormalizeName(raw);
+    }
+};
+
+// Returns the shortest prefix of player `pi`'s normalized name that no other
+// active player's normalized name starts with. Falls back to the full name on
+// exact collision.
+string(float pi) MinimapShortestUniquePrefix =
+{
+    string mine = minimap_label_name[pi];
+    float my_len = strlen(mine);
+    if (my_len == 0) {
+        return "";
+    }
+    for (float n = 1; n <= my_len; n++) {
+        string my_prefix = substring(mine, 0, n);
+        float unique = 1;
+        for (int j = 0; j < MINIMAP_MAX_PLAYERS; j++) {
+            if (j == pi) continue;
+            string other = minimap_label_name[j];
+            if (other == "") continue;
+            if (substring(other, 0, n) == my_prefix) {
+                unique = 0;
+                break;
+            }
+        }
+        if (unique) {
+            return my_prefix;
+        }
+    }
+    return mine;
 };
 
 // 2D ring approximated by line segments.
@@ -240,28 +309,6 @@ void(vector pos, float radius, vector color, float alpha) MinimapDrawRing =
         drawline(1, prev, p, color, alpha);
         prev = p;
     }
-};
-
-// Filled triangle from tip back to base, alpha fading from `tip_alpha` at the
-// tip to 0 at the base. screen_yaw is in radians (0 = up the screen, CW+).
-void(vector tip_pos, float screen_yaw, float length, float halfwidth, vector color, float tip_alpha) MinimapDrawDirectionTriangle =
-{
-    // forward (toward tip) and right vectors in screen space.
-    // Note: screen Y points DOWN, so a "yaw=0 = up" mapping means dy = -cos.
-    float fx = sin(screen_yaw);
-    float fy = -cos(screen_yaw);
-    float rx = -fy;
-    float ry =  fx;
-
-    vector base_center = [tip_pos.x - fx * length, tip_pos.y - fy * length, 0];
-    vector base_l = [base_center.x + rx * halfwidth, base_center.y + ry * halfwidth, 0];
-    vector base_r = [base_center.x - rx * halfwidth, base_center.y - ry * halfwidth, 0];
-
-    R_BeginPolygon("minimap_dir", 0, 1);
-    R_PolygonVertex(tip_pos, '0 0 0', color, tip_alpha);
-    R_PolygonVertex(base_l,  '0 0 0', color, 0.0);
-    R_PolygonVertex(base_r,  '0 0 0', color, 0.0);
-    R_EndPolygon();
 };
 
 // Pick a color for a player relative to the local POV.
@@ -280,11 +327,15 @@ vector(float pnum) MinimapPlayerColor =
 
 void(vector cam_origin) MinimapDrawPlayers =
 {
-    float radius     = autocvar_minimap_player_radius;
-    float dir_len    = autocvar_minimap_player_dir_len;
-    float dir_half   = radius * 0.85;
-    float alpha_occ  = autocvar_minimap_player_alpha_occluded;
+    // Hard-coded fallbacks ensure markers render even when cvars are left at
+    // 0 (e.g. from a stale config).
+    float radius     = autocvar_minimap_player_radius        > 0 ? autocvar_minimap_player_radius        : 6;
+    float dir_len    = autocvar_minimap_player_dir_len       > 0 ? autocvar_minimap_player_dir_len       : 14;
+    float alpha_occ  = autocvar_minimap_player_alpha_occluded > 0 ? autocvar_minimap_player_alpha_occluded : 0.5;
     float plyr_mdl   = getmodelindex("progs/player.mdl");
+    vector label_size = '8 8 0';
+
+    MinimapBuildPlayerLabels();
 
     // Highlight the player the main view is tracking when there is one.
     // Skipped in FULL mode since there is no main view to correlate with.
@@ -306,10 +357,17 @@ void(vector cam_origin) MinimapDrawPlayers =
         float  pnum   = i - 1;
 
         // 2D overlay is drawn after renderscene without depth test, so the
-        // marker is always visible. Trace from camera to head height to fade
-        // the alpha when the player is behind geometry.
-        vector head = [origin.x, origin.y, origin.z + 24];
-        traceline(cam_origin, head, MOVE_NOMONSTERS, world);
+        // marker is always visible. Trace from above the player down to the
+        // head to fade the alpha when occluded. The trace must start inside
+        // the BSP hull: the minimap camera typically sits above worldmaxs.z
+        // (outside the world) where Q1BSP traces don't enter any leaf and
+        // return fraction=1 without hitting solid walls (water entities are
+        // still detected because their submodel is tested separately).
+        float trace_z   = minimap_world_top_z - 1;
+        if (cam_origin.z < trace_z) trace_z = cam_origin.z;
+        vector trace_from = [origin.x, origin.y, trace_z];
+        vector head       = [origin.x, origin.y, origin.z + 24];
+        traceline(trace_from, head, MOVE_NOMONSTERS, world);
         float alpha = (trace_fraction < 1) ? alpha_occ : 1.0;
 
         vector screen = project(origin);
@@ -321,16 +379,32 @@ void(vector cam_origin) MinimapDrawPlayers =
 
         MinimapDrawRing(screen, radius, color, alpha);
 
-        // Convert world yaw into a screen yaw. With camera looking straight
-        // down (pitch 90, yaw 0), screen up corresponds to world +X. World
-        // yaw 0 (looking toward +X) therefore points up on screen, world yaw
-        // 90 (toward +Y) points right.
-        float world_yaw = angles.y;
-        float screen_yaw = world_yaw * M_PI / 180.0;
-        vector tip = [screen.x + sin(screen_yaw) * (radius + dir_len),
-                      screen.y - cos(screen_yaw) * (radius + dir_len),
-                      0];
-        MinimapDrawDirectionTriangle(tip, screen_yaw, dir_len, dir_half, color, alpha);
+        // Look direction line from the player center. With camera looking
+        // straight down (pitch 90, yaw 0), AngleVectors gives right=(0,-1,0)
+        // and up=(1,0,0), so world +X projects to screen up and world +Y to
+        // screen left. World yaw therefore maps to screen direction
+        //   dx = -sin(yaw), dy = -cos(yaw)   (screen Y points down).
+        float world_yaw = angles.y * M_PI / 180.0;
+        float dx = -sin(world_yaw);
+        float dy = -cos(world_yaw);
+        vector dir_end = [screen.x + dx * dir_len, screen.y + dy * dir_len, 0];
+        drawline(1, screen, dir_end, color, alpha);
+
+        // Label is either a fixed-length prefix (when minimap_player_label_size > 0)
+        // or the shortest prefix unique to this player.
+        string label;
+        if (autocvar_minimap_player_label_size > 0) {
+            label = substring(minimap_label_name[pnum], 0, autocvar_minimap_player_label_size);
+        } else {
+            label = MinimapShortestUniquePrefix(pnum);
+        }
+        if (label != "") {
+            float lw = stringwidth(label, 0, label_size);
+            vector label_pos = [screen.x - lw * 0.5,
+                                screen.y + radius + 2,
+                                0];
+            drawstring(label_pos, label, label_size, color, alpha, 0);
+        }
     }
 };
 
@@ -442,6 +516,8 @@ void() MinimapRegisterDescriptions =
         "Ring/triangle color for opposing-team players.");
     MinimapDescribeCvar("minimap_player_color_self",
         "Ring/triangle color for the local player.");
+    MinimapDescribeCvar("minimap_player_label_size",
+        "Fixed number of characters to show in each player label. 0 = auto (shortest prefix unique among all current players).");
 };
 
 float() MinimapCmdHelp =
