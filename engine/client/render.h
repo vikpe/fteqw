@@ -249,6 +249,12 @@ typedef struct {
 } rtname_t;
 #define R_MAX_RENDERTARGETS 8
 
+#define MAX_CULL_VOLUMES 32
+typedef struct {
+	vec3_t mins;
+	vec3_t maxs;
+} cullvolume_t;
+
 #ifndef R_MAX_RECURSE
 #define R_MAX_RECURSE	6
 #endif
@@ -325,11 +331,30 @@ typedef struct refdef_s
 
 	vec4_t		userdata[16];		/*for custom glsl*/
 
+	cullvolume_t	cullvolumes[MAX_CULL_VOLUMES];	/*AABBs - any world node fully inside one of these is skipped during the BSP walk*/
+	int			numcullvolumes;
+
 	qboolean	warndraw;			/*buggy gamecode likes drawing outside of te drawing logic*/
 } refdef_t;
 
 extern	refdef_t	r_refdef;
 extern vec3_t	r_origin, vpn, vright, vup;
+
+static inline qboolean R_NodeCulledByVolumes(const float *nodemins, const float *nodemaxs)
+{
+	int i;
+	const cullvolume_t *v;
+	if (!r_refdef.numcullvolumes)
+		return false;
+	for (i = 0, v = r_refdef.cullvolumes; i < r_refdef.numcullvolumes; i++, v++)
+	{
+		if (nodemins[0] >= v->mins[0] && nodemaxs[0] <= v->maxs[0] &&
+			nodemins[1] >= v->mins[1] && nodemaxs[1] <= v->maxs[1] &&
+			nodemins[2] >= v->mins[2] && nodemaxs[2] <= v->maxs[2])
+			return true;
+	}
+	return false;
+}
 
 extern	struct texture_s	*r_notexture_mip;
 

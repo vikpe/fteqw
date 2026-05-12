@@ -2291,6 +2291,10 @@ nogameaccess:
 		r[1] = r_refdef.projectionoffset[1];
 		break;
 
+	case VF_CULLVOLUMES_COUNT:
+		*r = r_refdef.numcullvolumes;
+		break;
+
 	case VF_SCREENVSIZE:
 		r[0] = vid.width;
 		r[1] = vid.height;
@@ -2596,6 +2600,27 @@ void QCBUILTIN PF_R_SetViewFlag(pubprogfuncs_t *prinst, struct globalvars_s *pr_
 	case VF_PROJECTIONOFFSET:
 		r_refdef.projectionoffset[0] = p[0];
 		r_refdef.projectionoffset[1] = p[1];
+		break;
+
+	case VF_CULLVOLUME:
+		{
+			int idx = (int)p[0];
+			if (idx < 0 || idx >= MAX_CULL_VOLUMES || prinst->callargc < 4)
+				break;
+			VectorCopy(G_VECTOR(OFS_PARM2), r_refdef.cullvolumes[idx].mins);
+			VectorCopy(G_VECTOR(OFS_PARM3), r_refdef.cullvolumes[idx].maxs);
+			if (idx >= r_refdef.numcullvolumes)
+				r_refdef.numcullvolumes = idx + 1;
+		}
+		break;
+
+	case VF_CULLVOLUMES_COUNT:
+		{
+			int n = (int)*p;
+			if (n < 0) n = 0;
+			if (n > MAX_CULL_VOLUMES) n = MAX_CULL_VOLUMES;
+			r_refdef.numcullvolumes = n;
+		}
 		break;
 
 	case VF_RT_DESTCOLOUR0:

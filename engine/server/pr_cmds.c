@@ -13927,6 +13927,8 @@ void PR_DumpPlatform_f(void)
 		{"VF_USERDATA",			"const float", CS|MENU, D("Pointer (and byte size) to an array of vec4s. This data is then globally visible to all glsl via the w_user uniform."), VF_USERDATA},
 		{"VF_SKYROOM_CAMERA",	"const float", CS, D("Controls the camera position of the skyroom (which will be drawn underneath transparent sky surfaces). This should move slightly with the real camera, but not so much that the skycamera enters walls. Requires a skyshader with a blend mode on the first pass (or no passes)."), VF_SKYROOM_CAMERA},
 		{"VF_PROJECTIONOFFSET",	"const float", CS|MENU, D("vec2 horizontal+vertical offset for the projection matrix, for weird off-centre rendering."), VF_PROJECTIONOFFSET},
+		{"VF_CULLVOLUME",		"const float", CS, D("setviewprop(VF_CULLVOLUME, index, mins, maxs). Marks an AABB; world BSP nodes fully inside any active volume are skipped by the renderer. The active count auto-extends. Cleared on clearscene. Disables the temporal scene cache while any volume is active. Intended for top-down minimap passes that need to hide roofs."), VF_CULLVOLUME},
+		{"VF_CULLVOLUMES_COUNT","const float", CS, D("setviewprop(VF_CULLVOLUMES_COUNT, count). Overrides the active cull-volume count. Set to 0 to disable culling without clearing volume slot contents."), VF_CULLVOLUMES_COUNT},
 
 		{"DRAWFLAG_NORMAL",		"const float", CS|MENU, D("Args for drawpic/drawfill/beginpolygon. Not to be confused with the hexen2-compatibility feature."), DRAWFLAG_NORMAL},
 		{"DRAWFLAG_ADD",		"const float", CS|MENU, D("Forces additive blending, overriding any shader settings."), DRAWFLAG_ADD},

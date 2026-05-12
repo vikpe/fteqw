@@ -848,6 +848,8 @@ typedef enum
 	VF_PIXELPSCALE		= 223,	//[dpi_x, dpi_y, dpi_y/dpi_x]
 	VF_PROJECTIONOFFSET	= 224,	//allows for off-axis projections.
 	VF_VRBASEORIENTATION= 225,	//specifies the worldspace coords+angles of the VR room space.
+	VF_CULLVOLUME		= 226,	//(idx, mins, maxs) marks an AABB; world BSP nodes fully inside any active volume are skipped. count auto-extends. cleared on clearscene.
+	VF_CULLVOLUMES_COUNT= 227,	//(count) explicit count override. 0 disables.
 	//WARNING: update fteqcc when new entries are added.
 
 

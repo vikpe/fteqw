@@ -77,3 +77,38 @@ jobs:
             engine/release/fte*
             !engine/release/*.db
           compression-level: 9
+
+  powercam:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/cache@v4
+        id: fteqcc-cache
+        with:
+          path: /usr/local/bin/fteqcc64
+          key: ${{ runner.os }}-fteqcc-2024-06-30
+
+      - name: Fetch fteqcc
+        run: |
+          curl -o fteqcc_linux64.zip https://www.fteqcc.org/dl/fteqcc_linux64.zip
+          sudo unzip -d /usr/local/bin fteqcc_linux64.zip fteqcc64
+          sudo chmod +x /usr/local/bin/fteqcc64
+        if: steps.fteqcc-cache.outputs.cache-hit != 'true'
+
+      - name: Get version
+        id: version
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+
+      - name: Compile powercam
+        working-directory: powercam
+        run: make FTEQCC=fteqcc64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: powercam-${{ steps.version.outputs.short_sha }}
+          path: |
+            powercam/csaddon.*
+          compression-level: 9

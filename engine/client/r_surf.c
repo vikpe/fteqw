@@ -3040,7 +3040,7 @@ void Surf_DrawWorld (void)
 			webo_blocklightmapupdates = false;
 		}
 
-		if (!r_temporalscenecache.ival)
+		if (!r_temporalscenecache.ival || r_refdef.numcullvolumes)
 			;
 		else if (!r_refdef.recurse && currentmodel->type == mod_brush)
 		{

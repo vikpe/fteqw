@@ -1789,6 +1789,9 @@ start:
 	if (node->visframe != q1_visframecount)
 		return;
 
+	if (R_NodeCulledByVolumes(node->minmaxs, node->minmaxs + 3))
+		return;
+
 	for (c = 0, clipplane = r_refdef.frustum; c < r_refdef.frustum_numworldplanes; c++, clipplane++)
 	{
 		if (!(clipflags & (1 << c)))
@@ -1896,6 +1899,9 @@ static void Q1BSP_OrthoRecursiveWorldNode (mnode_t *node, unsigned int clipflags
 		return;		// solid
 
 	if (node->visframe != q1_visframecount)
+		return;
+
+	if (R_NodeCulledByVolumes(node->minmaxs, node->minmaxs + 3))
 		return;
 
 	for (c = 0, clipplane = r_refdef.frustum; c < r_refdef.frustum_numworldplanes; c++, clipplane++)

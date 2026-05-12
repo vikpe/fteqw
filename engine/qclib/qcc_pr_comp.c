@@ -7270,6 +7270,8 @@ static void QCC_VerifyArgs_setviewprop (const char *funcname, QCC_ref_t **arglis
 //		{"VF_PIXELPSCALE",		223, ev_vector},
 		{"VF_PROJECTIONOFFSET",	224, ev_vector},
 		{"VF_VRBASEORIENTATION",225, ev_vector, ev_vector},
+		{"VF_CULLVOLUME",		226, ev_float, ev_vector, ev_vector},
+		{"VF_CULLVOLUMES_COUNT",227, ev_float},
 
 		{"VF_DP_MAINVIEW",			400, ev_float},
 //		{"VF_DP_MINFPS_QUALITY",	401, ev_float},
