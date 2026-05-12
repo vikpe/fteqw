@@ -672,28 +672,53 @@ float() MinimapScanPickupCeiling =
 {
     float region_pad     = 256;   // half-width of the cull column around each pickup, in QU
     float ceiling_margin = 8;     // QU above the detected ceiling to start culling
-    int   found = 0;
+    float min_items      = 10;    // skip auto-cull entirely if the map has fewer than this many pickups
     int   added = 0;
     int   pad_outdoor = 0;
 
+    // First pass: count pickups. Stops us adding partial cull volumes on
+    // tiny / training / non-DM maps whose pickup geometry isn't a useful
+    // signal for "where the play floor is".
+    int found = 0;
     float n = getentity(0, GE_MAXENTS);
-    for (float i = 1; i < n && minimap_num_volumes < MINIMAP_MAX_CULL_VOLUMES; i++) {
+    for (float i = 1; i < n; i++) {
         float active = getentity(i, GE_ACTIVE);
         if (!active) continue;
         float midx = getentity(i, GE_MODELINDEX);
         if (midx == 0) continue;
         string mname = modelnameforindex(midx);
+        if (MinimapIsPickupModel(mname)) found++;
+    }
+    if (!found) {
+        // Entities probably not yet networked - retry next frame.
+        return 0;
+    }
+    if (found < min_items) {
+        // Map has too few pickups to derive a sensible ceiling. Mark known
+        // so we don't keep rescanning every frame.
+        minimap_auto_pickup_known = 1;
+        debug("minimap: only %d pickups (< %d required), skipping auto-cull",
+              (float)found, min_items);
+        return 1;
+    }
+
+    // Second pass: actually trace and add cull volumes.
+    for (float j = 1; j < n && minimap_num_volumes < MINIMAP_MAX_CULL_VOLUMES; j++) {
+        float active = getentity(j, GE_ACTIVE);
+        if (!active) continue;
+        float midx = getentity(j, GE_MODELINDEX);
+        if (midx == 0) continue;
+        string mname = modelnameforindex(midx);
         if (!MinimapIsPickupModel(mname)) continue;
 
-        vector org = getentity(i, GE_ORIGIN);
-        found++;
+        vector org = getentity(j, GE_ORIGIN);
 
         // Brushmodel pickups (maps/b_*.bsp) have their origin below the
         // visible floor - tracing straight up from origin would hit the
         // floor surface itself, not the ceiling. Start above the entity's
         // bounding-box top (or a safe player-head offset if absmax is
         // missing) so the trace only sees what is genuinely above.
-        vector amax = getentity(i, GE_ABSMAX);
+        vector amax = getentity(j, GE_ABSMAX);
         float start_z = (amax.z > org.z + 1) ? amax.z + 1 : org.z + 56;
         traceline([org.x, org.y, start_z],
                   [org.x, org.y, start_z + 100000],
@@ -723,9 +748,6 @@ float() MinimapScanPickupCeiling =
         if (ceil_z > minimap_auto_pickup_max_z) {
             minimap_auto_pickup_max_z = ceil_z;
         }
-    }
-    if (!found) {
-        return 0;
     }
     minimap_auto_pickup_known = 1;
     debug("minimap: scanned %d pickups (%d added cull volumes, %d outdoor)",
