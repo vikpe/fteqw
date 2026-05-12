@@ -3,17 +3,9 @@ name: main
 on: [push, pull_request, workflow_dispatch]
 
 jobs:
-  make:
-    strategy:
-      matrix:
-        include:
-          - name: web
-            fte_target: web
-            make_targets: "gl-rel"
-            os: ubuntu-latest
-
-    name: make-${{ matrix.name }}
-    runs-on: ${{ matrix.os }}
+  web:
+    name: make-web
+    runs-on: ubuntu-latest
     timeout-minutes: 5
 
     steps:
@@ -30,34 +22,27 @@ jobs:
         id: cache
         with:
           path: engine/libs-*
-          key: ${{ runner.os }}-${{ matrix.fte_target }}-${{ hashFiles('makelibs_versions') }}
+          key: ${{ runner.os }}-web-${{ hashFiles('makelibs_versions') }}
 
       - uses: mymindstorm/setup-emsdk@v14
         with:
           version: "2.0.12"
           actions-cache-folder: "emsdk-cache-2.0.12"
           cache-key: "emsdk-2.0.12"
-        if: matrix.fte_target == 'web'
 
       - name: Verify emscripten
         run: emcc -v
-        if: matrix.fte_target == 'web'
-
-      - name: Install dependencies (linux)
-        run: sudo apt-get -qq update && sudo apt-get -qq install --no-install-recommends ${{ matrix.packages }}
-        if: matrix.packages != '' && matrix.os == 'ubuntu-latest'
 
       - name: Build dependencies
         working-directory: engine
-        run: make FTE_TARGET=${{ matrix.fte_target }} makelibs ${{ matrix.args }}
+        run: make FTE_TARGET=web makelibs
         if: steps.cache.outputs.cache-hit != 'true'
 
       - uses: ammaraskar/gcc-problem-matcher@0.3.0
 
-      - name: Build ${{ matrix.name }}
+      - name: Build web
         working-directory: engine
-        run: |
-          make -j ${{ steps.cpu-cores.outputs.count }} FTE_TARGET=${{ matrix.fte_target }} ${{ matrix.make_targets }} ${{ matrix.args }} LINK_EZHUD=1 LINK_OPENSSL=1
+        run: make -j ${{ steps.cpu-cores.outputs.count }} FTE_TARGET=web gl-rel LINK_EZHUD=1 LINK_OPENSSL=1
 
       - name: Debug release contents
         run: ls -R engine/release
@@ -72,7 +57,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: fteqw-${{ matrix.name }}-${{ steps.version.outputs.short_sha }}
+          name: fteqw-web-${{ steps.version.outputs.short_sha }}
           path: |
             engine/release/fte*
             !engine/release/*.db
