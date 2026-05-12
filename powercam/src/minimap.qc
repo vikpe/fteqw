@@ -163,6 +163,27 @@ float() MinimapLoad =
     return 1;
 };
 
+// Returns 1 if the main player view should render, filling vmin/vsize with
+// its viewport rect. Returns 0 when the minimap is in FULL mode (main view
+// is hidden).
+float(float vw, float vh, __out vector vmin, __out vector vsize) MinimapMainViewport =
+{
+    float mode = autocvar_minimap_mode;
+    if (mode == MINIMAP_SPLIT) {
+        vmin  = '0 0 0';
+        vsize = [vw * 0.5, vh, 0];
+        return 1;
+    }
+    if (mode == MINIMAP_FULL) {
+        vmin  = '0 0 0';
+        vsize = '0 0 0';
+        return 0;
+    }
+    vmin  = '0 0 0';
+    vsize = [vw, vh, 0];
+    return 1;
+};
+
 void(float mode, float vw, float vh, __out vector vmin, __out vector vsize) MinimapViewport =
 {
     switch (mode) {
@@ -207,13 +228,20 @@ void(float vwidth, float vheight) MinimapRender =
     vector vmin, vsize;
     MinimapViewport(mode, vwidth, vheight, vmin, vsize);
 
+    // In orthographic mode VF_FOV sets fov_x/fov_y as world-unit extents
+    // (the renderer feeds them straight into the ortho matrix as -fov/2..+fov/2).
+    // VF_AFOV instead treats the value as an FOV angle capped at 170 degrees,
+    // which produces a ~170-unit viewport regardless of intent.
+    float fov_x = ortho * 2;
+    float fov_y = fov_x * (vsize.y / vsize.x);
+
     clearscene();
     setviewprop(VF_DRAWWORLD,      1);
     setviewprop(VF_VIEWENTITY,     0);
     setviewprop(VF_DRAWENGINESBAR, 0);
     setviewprop(VF_DRAWCROSSHAIR,  0);
     setviewprop(VF_PERSPECTIVE,    0);
-    setviewprop(VF_AFOV,           ortho);
+    setviewprop(VF_FOV,            [fov_x, fov_y, 0]);
     setviewprop(VF_ORIGIN,         [center.x, center.y, center.z + hoff]);
     setviewprop(VF_ANGLES,         '90 0 0');
     setviewprop(VF_MIN,            vmin);
@@ -252,11 +280,33 @@ float() MinimapCmdStatus =
     return 1;
 };
 
+// Adds a description to a cvar without disturbing its current value.
+// Uses the engine's `set NAME "VALUE" // DESC` syntax, with $-expansion to
+// echo the current value back. Cvars are created by the autocvar_*
+// declarations before this runs, so the expansion resolves correctly.
+void(string name, string desc) MinimapDescribeCvar =
+{
+    localcmd(sprintf("set %s \"$%s\" // %s\n", name, name, desc));
+};
+
+void() MinimapRegisterDescriptions =
+{
+    MinimapDescribeCvar("minimap_mode",
+        "Minimap display mode. 0=off, 1=picture-in-picture (top right), 2=split screen (right half), 3=full screen.");
+    MinimapDescribeCvar("minimap_ortho",
+        "Orthographic half-extent in Quake units per side. 0 = use value from .cull file or auto-derived from worldmodel bounds.");
+    MinimapDescribeCvar("minimap_height_offset",
+        "Camera Z offset above the reference center. 0 = use value from .cull file or auto-derived (highest geometry at center + 512 margin).");
+    MinimapDescribeCvar("minimap_center_override",
+        "Camera XY position and reference Z, as a vector. '0 0 0' = use value from .cull file or worldmodel midpoint.");
+};
+
 float() MinimapCmdHelp =
 {
     println("Minimap Commands");
-    println(" * reload  - Reload maps/<mapname>.cull");
-    println(" * status  - Print current state");
+    println(" * reload  - Reparse maps/<mapname>.cull and recompute auto bounds");
+    println(" * status  - Print current mode, map, volume count, and view params");
+    println(" * help    - Show this command list");
     println("Cvars:");
     println(" * minimap_mode             0=off 1=pip 2=split 3=full");
     println(" * minimap_ortho            half-extent in QU; 0 = use file value");

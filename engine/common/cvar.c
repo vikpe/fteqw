@@ -1413,6 +1413,16 @@ cvar_t *Cvar_Get2(const char *name, const char *defaultvalue, int flags, const c
 
 	if (var)
 	{
+		//autocvars are registered (without a description) when QC progs load,
+		//so by the time gamecode tries to declare one via `set NAME ... // desc`
+		//we hit this path. Adopt the description rather than dropping it.
+		if (description && *description && !var->description)
+		{
+			size_t len = strlen(description) + 1;
+			char *desc = Z_Malloc(len);
+			memcpy(desc, description, len);
+			var->description = desc;
+		}
 #ifdef HAVE_CLIENT
 		if ((flags & CVAR_USERINFO) && !(var->flags & CVAR_USERINFO))
 		{

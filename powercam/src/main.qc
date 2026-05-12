@@ -259,7 +259,8 @@ float(string cmd) CSQC_ConsoleCommand =
 void(float apilevel, string enginename, float engineversion) CSQC_Init =
 {
     registercommand("pip");
-    registercommand("minimap");
+    registercommand("minimap", "Top-down minimap. Subcommands: reload, status, help");
+    MinimapRegisterDescriptions();
 };
 
 void(entity ent) PipResetPlayer =
@@ -379,17 +380,26 @@ void() CSQC_ServerInfoChanged =
 
 void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 {
-    clearscene();
-    setviewprop(VF_VIEWENTITY, 0);
-    addentities(MASK_ENGINE | MASK_VIEWMODEL);
-    setviewprop(VF_DRAWENGINESBAR, 1);
-    setviewprop(VF_DRAWCROSSHAIR, 1);
-    renderscene();
-    clearscene();
+    vector main_min, main_size;
+    float draw_main = MinimapMainViewport(vwidth, vheight, main_min, main_size);
 
-    addentities(MASK_XRAY);
-    setviewprop(VF_DRAWWORLD, 0);
-    renderscene();
+    if (draw_main) {
+        clearscene();
+        setviewprop(VF_VIEWENTITY, 0);
+        setviewprop(VF_MIN, main_min);
+        setviewprop(VF_SIZE, main_size);
+        addentities(MASK_ENGINE | MASK_VIEWMODEL);
+        setviewprop(VF_DRAWENGINESBAR, 1);
+        setviewprop(VF_DRAWCROSSHAIR, 1);
+        renderscene();
+        clearscene();
+
+        setviewprop(VF_MIN, main_min);
+        setviewprop(VF_SIZE, main_size);
+        addentities(MASK_XRAY);
+        setviewprop(VF_DRAWWORLD, 0);
+        renderscene();
+    }
 
     if (time < camera_start) {
         SelectNextCamera();
@@ -397,19 +407,22 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
         return;
     }
 
-    if (!autocvar_pip_enabled) {
+    if (!autocvar_pip_enabled || !draw_main) {
         MinimapRender(vwidth, vheight);
         return;
     }
 
     vector font_size = '8 8 0';
 
+    // Anchor PiP to the player view rect so it stays over the player camera
+    // (e.g. left half in split mode), not over the minimap.
     float aspect_ratio = vheight / vwidth;
-    float width = vwidth / 4.0;
+    float width = main_size.x / 4.0;
     float height = width * aspect_ratio;
 
     float margin = width / 10.0;
-    float x_offset = vwidth - margin - width;
+    float x_offset = main_min.x + main_size.x - margin - width;
+    float y_anchor = main_min.y;
 
     float delta = 0.0;
     float slide_offset = 0;
@@ -434,13 +447,14 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     }
 
     if (delta > 0.0) {
-        slide_offset = (width + x_offset) * delta;
+        // slide PiP off the right edge of the player viewport
+        slide_offset = main_size.x * delta;
     }
 
 
     // Item type colored background
     float bg_offset_x = x_offset + slide_offset - margin / 4;
-    float bg_offset_y = margin - margin / 4;
+    float bg_offset_y = y_anchor + margin - margin / 4;
     float bg_width = width + margin / 2;
     float bg_height = height + margin / 2 + font_size.y;
     float bg_alpha = 0.5;
@@ -448,7 +462,7 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 
     // Black contrasting inner border
     float border_offset_x = x_offset + slide_offset - margin / 16;
-    float border_offset_y = margin - margin / 16;
+    float border_offset_y = y_anchor + margin - margin / 16;
     float border_width = width + margin / 8;
     float border_height = height + margin / 8;
     vector border_color = [0, 0, 0];
@@ -465,7 +479,7 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     setviewprop(VF_DRAWCROSSHAIR, 0);
     setviewprop(VF_ORIGIN, item->camera->origin);
     setviewprop(VF_MIN_X, x_offset + slide_offset);
-    setviewprop(VF_MIN_Y, margin);
+    setviewprop(VF_MIN_Y, y_anchor + margin);
     setviewprop(VF_SIZE_X, width);
     setviewprop(VF_SIZE_Y, height);
     setviewprop(VF_ANGLES, item->camera->angles);
@@ -493,7 +507,7 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     }
 
     float txt_offset_x = x_offset + slide_offset;
-    float txt_offset_y = margin + height + margin / 8;
+    float txt_offset_y = y_anchor + margin + height + margin / 8;
     vector txt_color = [0.7, 0.7, 0.7];
     float txt_alpha = 1;
     drawsetcliparea(txt_offset_x, txt_offset_y, width, font_size.y);
