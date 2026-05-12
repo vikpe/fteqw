@@ -51,9 +51,15 @@ var float  autocvar_minimap_player_radius           = 6;
 var float  autocvar_minimap_player_dir_len          = 14;
 var float  autocvar_minimap_player_alpha_occluded   = 0.5;
 var float  autocvar_minimap_player_label_size       = 0;
-var vector autocvar_minimap_player_color_team       = '0 1 0';
-var vector autocvar_minimap_player_color_enemy      = '1 0 0';
+// Set to '0 0 0' as a sentinel for "use auto-derived color from cl_teamskin /
+// cl_enemyskin image average". A non-zero value overrides.
+var vector autocvar_minimap_player_color_team       = '0 0 0';
+var vector autocvar_minimap_player_color_enemy      = '0 0 0';
 var vector autocvar_minimap_player_color_self       = '1 1 0';
+
+// Average skin colors computed at world load, with sensible fallbacks.
+var vector minimap_auto_color_team  = '0 1 0';
+var vector minimap_auto_color_enemy = '1 0 0';
 
 var minimap_volume_t minimap_volumes[MINIMAP_MAX_CULL_VOLUMES];
 var int    minimap_num_volumes = 0;
@@ -153,6 +159,7 @@ float() MinimapLoad =
     }
 
     MinimapAutoBounds();
+    MinimapComputeAutoColors();
 
     string fname = sprintf("maps/%s.cull", mapname);
     filestream fh = fopen(fname, FILE_READ);
@@ -216,24 +223,19 @@ void(float mode, float vw, float vh, __out vector vmin, __out vector vsize) Mini
     }
 };
 
-// Strip non-ASCII bytes and QW color codes (^X) from a player name. Returns
-// only printable ASCII (32..126), with ^^ unescaped to a single ^.
+// Strip markup (color codes, bronze/qchar range) and keep only printable
+// ASCII. strdecolorize is the engine's qchar/markup flattener (#477,
+// DP_QC_STRINGCOLORFUNCTIONS) - it uses the same COM_ParseFunString +
+// COM_DeFunString pipeline as SV_FixupName, so qchars in 0xe000..0xe0FF are
+// folded to their ASCII equivalents and ^X codes are removed. We then drop
+// any remaining bytes outside printable ASCII (real Unicode, control chars).
 string(string raw) MinimapNormalizeName =
 {
+    string clean = strdecolorize(raw);
     string out = "";
-    float n = strlen(raw);
+    float n = strlen(clean);
     for (float i = 0; i < n; i++) {
-        float c = str2chr(raw, i);
-        if (c == '^' && i + 1 < n) {
-            float nxt = str2chr(raw, i + 1);
-            if (nxt == '^') {
-                out = strcat(out, "^");
-                i++;
-                continue;
-            }
-            i++;  // skip color code marker AND the following char
-            continue;
-        }
+        float c = str2chr(clean, i);
         if (c >= 32 && c <= 126) {
             out = strcat(out, chr2str(c));
         }
@@ -297,6 +299,55 @@ string(float pi) MinimapShortestUniquePrefix =
     return mine;
 };
 
+// Map STAT_ACTIVEWEAPON to a short label, only for the weapons that matter
+// for analysis (GL/RL/LG). Lower-tier weapons return "" so the label is
+// omitted.
+string(float w) MinimapWeaponLabel =
+{
+    switch ((int)w) {
+    case 16:   return "GL";
+    case 32:   return "RL";
+    case 64:   return "LG";
+    default:   return "";
+    }
+};
+
+// Per-weapon label color. Matches the Quake color-code convention used by
+// the scoreboard (engine/client/sbar.c:3661-3663): LG = cyan ^5, RL = the
+// red/orange ^1, GL = green ^2.
+vector(float w) MinimapWeaponColor =
+{
+    switch ((int)w) {
+    case 16:   return '0.3 1 0.3';    // GL  - green
+    case 32:   return '1 0.5 0.2';    // RL  - orange
+    case 64:   return '0.3 0.8 1';    // LG  - cyan
+    default:   return '1 1 1';
+    }
+};
+
+// Health bar fill color: cyan for mega-overheal, green/yellow/red on the way
+// down. Matches the rough convention from autoid.
+vector(float health) MinimapHealthColor =
+{
+    if (health > 100) return '0.4 0.6 1';
+    if (health > 50)  return '0 1 0';
+    if (health > 25)  return '1 1 0';
+    return '1 0 0';
+};
+
+// Returns the index of the cull volume containing `p`, or -1 if none.
+float(vector p) MinimapPointInCullVolume =
+{
+    for (int i = 0; i < minimap_num_volumes; i++) {
+        if (p.x >= minimap_volumes[i].mins.x && p.x <= minimap_volumes[i].maxs.x &&
+            p.y >= minimap_volumes[i].mins.y && p.y <= minimap_volumes[i].maxs.y &&
+            p.z >= minimap_volumes[i].mins.z && p.z <= minimap_volumes[i].maxs.z) {
+            return i;
+        }
+    }
+    return -1;
+};
+
 // 2D ring approximated by line segments.
 void(vector pos, float radius, vector color, float alpha) MinimapDrawRing =
 {
@@ -311,7 +362,8 @@ void(vector pos, float radius, vector color, float alpha) MinimapDrawRing =
     }
 };
 
-// Pick a color for a player relative to the local POV.
+// Pick a color for a player relative to the local POV. '0 0 0' cvars fall back
+// to the auto-derived skin-average colors.
 vector(float pnum) MinimapPlayerColor =
 {
     if (pnum == player_localnum) {
@@ -319,10 +371,59 @@ vector(float pnum) MinimapPlayerColor =
     }
     string pov_team = getplayerkeyvalue(player_localnum, "team");
     string his_team = getplayerkeyvalue(pnum, "team");
-    if (pov_team == his_team && pov_team != "") {
-        return autocvar_minimap_player_color_team;
+    float same_team = (pov_team == his_team && pov_team != "");
+    vector c = same_team ? autocvar_minimap_player_color_team : autocvar_minimap_player_color_enemy;
+    if (c == '0 0 0') {
+        return same_team ? minimap_auto_color_team : minimap_auto_color_enemy;
     }
-    return autocvar_minimap_player_color_enemy;
+    return c;
+};
+
+// Reads an image file and returns its average RGB color, ignoring fully
+// transparent pixels. Returns '-1 -1 -1' if the file can't be read or is empty.
+vector(string path) MinimapAverageImageColor =
+{
+    int width, height, fmt;
+    int *data = r_readimage(path, width, height, fmt);
+    if (!data) {
+        return '-1 -1 -1';
+    }
+    float rs = 0, gs = 0, bs = 0;
+    int count = 0;
+    int total = width * height;
+    for (int i = 0; i < total; i++) {
+        int p = data[i];
+        int a = (p >> 24) & 255;
+        if (a == 0) continue;
+        rs += p & 255;
+        gs += (p >> 8) & 255;
+        bs += (p >> 16) & 255;
+        count++;
+    }
+    memfree(data);
+    if (count == 0) {
+        return '-1 -1 -1';
+    }
+    float inv = 1.0 / (count * 255);
+    return [rs * inv, gs * inv, bs * inv];
+};
+
+// Look up the team/enemy skin images via the engine cvars cl_teamskin /
+// cl_enemyskin and store their average color.
+void() MinimapComputeAutoColors =
+{
+    string ts = cvar_string("cl_teamskin");
+    if (ts != "") {
+        vector c = MinimapAverageImageColor(sprintf("skins/%s", ts));
+        if (c.x >= 0) minimap_auto_color_team = c;
+    }
+    string es = cvar_string("cl_enemyskin");
+    if (es != "") {
+        vector c = MinimapAverageImageColor(sprintf("skins/%s", es));
+        if (c.x >= 0) minimap_auto_color_enemy = c;
+    }
+    debug("minimap: auto team color %v, enemy color %v",
+          minimap_auto_color_team, minimap_auto_color_enemy);
 };
 
 void(vector cam_origin) MinimapDrawPlayers =
@@ -332,7 +433,6 @@ void(vector cam_origin) MinimapDrawPlayers =
     float radius     = autocvar_minimap_player_radius        > 0 ? autocvar_minimap_player_radius        : 6;
     float dir_len    = autocvar_minimap_player_dir_len       > 0 ? autocvar_minimap_player_dir_len       : 14;
     float alpha_occ  = autocvar_minimap_player_alpha_occluded > 0 ? autocvar_minimap_player_alpha_occluded : 0.5;
-    float plyr_mdl   = getmodelindex("progs/player.mdl");
     vector label_size = '8 8 0';
 
     MinimapBuildPlayerLabels();
@@ -344,12 +444,11 @@ void(vector cam_origin) MinimapDrawPlayers =
     float highlight_alpha    = 0.6;
 
     for (int i = 1; i <= maxclients; i++) {
-        float active = getentity(i, GE_ACTIVE);
-        if (!active) {
-            continue;
-        }
-        float modidx = getentity(i, GE_MODELINDEX);
-        if (modidx != plyr_mdl) {
+        // The local POV player's entity may not show up in GE_ACTIVE / model
+        // checks (engine hides own model). Detect players via their userinfo
+        // name instead, which is set for every connected slot regardless.
+        string pname = getplayerkeyvalue(i - 1, "name");
+        if (pname == "") {
             continue;
         }
         vector origin = getentity(i, GE_ORIGIN);
@@ -357,18 +456,33 @@ void(vector cam_origin) MinimapDrawPlayers =
         float  pnum   = i - 1;
 
         // 2D overlay is drawn after renderscene without depth test, so the
-        // marker is always visible. Trace from above the player down to the
-        // head to fade the alpha when occluded. The trace must start inside
-        // the BSP hull: the minimap camera typically sits above worldmaxs.z
-        // (outside the world) where Q1BSP traces don't enter any leaf and
-        // return fraction=1 without hitting solid walls (water entities are
-        // still detected because their submodel is tested separately).
-        float trace_z   = minimap_world_top_z - 1;
-        if (cam_origin.z < trace_z) trace_z = cam_origin.z;
-        vector trace_from = [origin.x, origin.y, trace_z];
-        vector head       = [origin.x, origin.y, origin.z + 24];
-        traceline(trace_from, head, MOVE_NOMONSTERS, world);
-        float alpha = (trace_fraction < 1) ? alpha_occ : 1.0;
+        // marker is always visible. Trace from player head straight UP to
+        // detect a ceiling/floor above them. Starting at the player avoids
+        // the "camera is in the outer void" problem. Hits inside a minimap
+        // cull volume don't count - that's geometry the minimap intentionally
+        // sees through, so we advance the trace past the volume and retry.
+        vector head = [origin.x, origin.y, origin.z + 24];
+        vector sky  = [origin.x, origin.y, origin.z + 100000];
+        vector trace_from = head;
+        float alpha = 1.0;
+        float steps = 8;
+        while (steps > 0) {
+            steps--;
+            traceline(trace_from, sky, MOVE_NOMONSTERS, world);
+            if (trace_fraction >= 1) {
+                break;  // exited cleanly
+            }
+            if (trace_endpos.z >= minimap_world_top_z - 32) {
+                break;  // hit BSP outer boundary, treat as visible
+            }
+            float vol = MinimapPointInCullVolume(trace_endpos);
+            if (vol < 0) {
+                alpha = alpha_occ;  // genuine occlusion
+                break;
+            }
+            // Hit a culled surface. Resume above the volume's top.
+            trace_from = [trace_endpos.x, trace_endpos.y, minimap_volumes[vol].maxs.z + 1];
+        }
 
         vector screen = project(origin);
         vector color  = MinimapPlayerColor(pnum);
@@ -398,12 +512,33 @@ void(vector cam_origin) MinimapDrawPlayers =
         } else {
             label = MinimapShortestUniquePrefix(pnum);
         }
+        float text_y = screen.y + radius + 2;
         if (label != "") {
             float lw = stringwidth(label, 0, label_size);
-            vector label_pos = [screen.x - lw * 0.5,
-                                screen.y + radius + 2,
-                                0];
+            vector label_pos = [screen.x - lw * 0.5, text_y, 0];
             drawstring(label_pos, label, label_size, color, alpha, 0);
+            text_y += label_size.y + 1;
+        }
+
+        // Health bar + active weapon, mirroring the autoid display from the
+        // player view. getplayerstat works for any player in MVD playback.
+        float health = getplayerstat(pnum, STAT_HEALTH, EV_FLOAT);
+        if (health > 0) {
+            float bar_w = 24;
+            float bar_h = 2;
+            vector bar_pos = [screen.x - bar_w * 0.5, text_y, 0];
+            drawfill(bar_pos, [bar_w, bar_h], '0 0 0', alpha * 0.6);
+            float frac = health > 100 ? 1 : health / 100;
+            drawfill(bar_pos, [bar_w * frac, bar_h], MinimapHealthColor(health), alpha);
+            text_y += bar_h + 2;
+
+            float weapon = getplayerstat(pnum, STAT_ACTIVEWEAPON, EV_FLOAT);
+            string wlabel = MinimapWeaponLabel(weapon);
+            if (wlabel != "") {
+                float ww = stringwidth(wlabel, 0, label_size);
+                vector wpos = [screen.x - ww * 0.5, text_y, 0];
+                drawstring(wpos, wlabel, label_size, MinimapWeaponColor(weapon), alpha, 0);
+            }
         }
     }
 };
@@ -511,9 +646,9 @@ void() MinimapRegisterDescriptions =
     MinimapDescribeCvar("minimap_player_alpha_occluded",
         "Alpha applied to player markers when the player is occluded from the minimap camera. Visible players are drawn at alpha 1. Default 0.5.");
     MinimapDescribeCvar("minimap_player_color_team",
-        "Ring/triangle color for same-team players.");
+        "Ring/triangle color for same-team players. '0 0 0' = average color of the cl_teamskin image.");
     MinimapDescribeCvar("minimap_player_color_enemy",
-        "Ring/triangle color for opposing-team players.");
+        "Ring/triangle color for opposing-team players. '0 0 0' = average color of the cl_enemyskin image.");
     MinimapDescribeCvar("minimap_player_color_self",
         "Ring/triangle color for the local player.");
     MinimapDescribeCvar("minimap_player_label_size",
