@@ -358,6 +358,7 @@ void() CSQC_WorldLoaded =
         deltalisten("progs/invulner.mdl", PipPowerupSpawnListener, RSES_NOLERP);
     }
 
+    MinimapRegisterShaders();
     MinimapLoad();
 };
 
