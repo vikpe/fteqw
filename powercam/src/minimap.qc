@@ -55,15 +55,15 @@ var float  autocvar_minimap_player_radius           = 7;
 var float  autocvar_minimap_player_alpha_occluded   = 0.8;
 var float  autocvar_minimap_player_label_name_length       = 4;
 var float  autocvar_minimap_player_label_font_size  = 6;
-// Set to '0 0 0' as a sentinel for "use auto-derived color from cl_teamskin /
-// cl_enemyskin image average". A non-zero value overrides.
+// '0 0 0' = sentinel for "use the built-in default" (green for team, red
+// for enemy). Any non-zero value overrides.
 var vector autocvar_minimap_player_color_team       = '0 0 0';
 var vector autocvar_minimap_player_color_enemy      = '0 0 0';
 var vector autocvar_minimap_player_color_self       = '1 1 0';
 
-// Average skin colors computed at world load, with sensible fallbacks.
-var vector minimap_auto_color_team  = '0 1 0';
-var vector minimap_auto_color_enemy = '1 0 0';
+// Built-in defaults used when the team/enemy color cvars are left at '0 0 0'.
+var vector minimap_default_color_team  = '0 1 0';
+var vector minimap_default_color_enemy = '1 0 0';
 
 var minimap_volume_t minimap_volumes[MINIMAP_MAX_CULL_VOLUMES];
 var int    minimap_num_volumes = 0;
@@ -81,11 +81,9 @@ var float  minimap_loaded      = 0;
 // anything above that is roof/upper geometry the minimap should see through.
 var float  minimap_auto_pickup_max_z = -99999;
 var float  minimap_auto_pickup_known = 0;
-var float  minimap_auto_ceil_margin  = 128;   // QU above tallest pickup before culling kicks in
 var string minimap_loaded_for  = "";
 
-// Forward declarations for callees of MinimapLoad.
-void() MinimapComputeAutoColors;
+// Forward declarations.
 float(vector p) MinimapPointInCullVolume;
 
 void() MinimapResetState =
@@ -271,7 +269,6 @@ float() MinimapLoad =
 
     MinimapAutoBounds();
     MinimapNarrowToLocFile();
-    MinimapComputeAutoColors();
 
     string fname = sprintf("maps/%s.cull", mapname);
     filestream fh = fopen(fname, FILE_READ);
@@ -697,15 +694,10 @@ float() MinimapScanPickupCeiling =
         // bounding-box top (or a safe player-head offset if absmax is
         // missing) so the trace only sees what is genuinely above.
         vector amax = getentity(i, GE_ABSMAX);
-        float start_z;
-        if (amax.z > org.z + 1) {
-            start_z = amax.z + 1;
-        } else {
-            start_z = org.z + 56;   // ~player head height
-        }
-        vector start = [org.x, org.y, start_z];
-        vector hi    = [org.x, org.y, start_z + 100000];
-        traceline(start, hi, MOVE_NORMAL | MOVE_NOMONSTERS, world);
+        float start_z = (amax.z > org.z + 1) ? amax.z + 1 : org.z + 56;
+        traceline([org.x, org.y, start_z],
+                  [org.x, org.y, start_z + 100000],
+                  MOVE_NORMAL | MOVE_NOMONSTERS, world);
         if (trace_fraction == 1) {
             // Open sky above (no roof) - no auto-cull needed for this pickup.
             pad_outdoor++;
@@ -857,113 +849,33 @@ void(vector pos, float radius, vector color, float alpha, float thickness) Minim
     }
 };
 
-// Pick a color for a player relative to the local POV. '0 0 0' cvars fall back
-// to the auto-derived skin-average colors.
+// Pick a color for a player relative to the tracked POV. While spectating,
+// player_localnum points at the spectator slot (no team), so all players
+// would read as "enemy". player_localentnum is the entity the engine is
+// actually viewing through - the tracked player. Team coloring keys off
+// that player's team instead, so teammates of whoever you're tracking
+// render as team-colored.
+//
+// Mirrors the engine's TP_PlayerTeam / cl.teamplay pattern (zqtp.c:328,
+// cl_cam.c:446): same-team only counts in teamplay mode. In FFA every
+// non-self player is an enemy regardless of userinfo team strings.
 vector(float pnum) MinimapPlayerColor =
 {
-    if (pnum == player_localnum) {
+    float pov_pnum = (player_localentnum > 0) ? (player_localentnum - 1) : player_localnum;
+    if (pnum == pov_pnum) {
         return autocvar_minimap_player_color_self;
     }
-    string pov_team = getplayerkeyvalue(player_localnum, "team");
-    string his_team = getplayerkeyvalue(pnum, "team");
-    float same_team = (pov_team == his_team && pov_team != "");
+    float same_team = 0;
+    if (serverkeyfloat("teamplay") > 0) {
+        string pov_team = getplayerkeyvalue(pov_pnum, "team");
+        string his_team = getplayerkeyvalue(pnum, "team");
+        same_team = (pov_team == his_team && pov_team != "");
+    }
     vector c = same_team ? autocvar_minimap_player_color_team : autocvar_minimap_player_color_enemy;
     if (c == '0 0 0') {
-        return same_team ? minimap_auto_color_team : minimap_auto_color_enemy;
+        return same_team ? minimap_default_color_team : minimap_default_color_enemy;
     }
     return c;
-};
-
-// Reads an image file and returns its average RGB color, ignoring fully
-// transparent pixels. Returns '-1 -1 -1' if the file can't be read or is empty.
-vector(string path) MinimapAverageImageColor =
-{
-    int width, height, fmt;
-    int *data = r_readimage(path, width, height, fmt);
-    if (!data) {
-        debug("minimap: r_readimage('%s') failed", path);
-        return '-1 -1 -1';
-    }
-    debug("minimap: r_readimage('%s') -> %dx%d", path, (float)width, (float)height);
-    float rs = 0, gs = 0, bs = 0;
-    int count = 0;
-    int total = width * height;
-    for (int i = 0; i < total; i++) {
-        int p = data[i];
-        int a = (p >> 24) & 255;
-        if (a == 0) continue;
-        rs += p & 255;
-        gs += (p >> 8) & 255;
-        bs += (p >> 16) & 255;
-        count++;
-    }
-    memfree(data);
-    if (count == 0) {
-        return '-1 -1 -1';
-    }
-    float inv = 1.0 / (count * 255);
-    return [rs * inv, gs * inv, bs * inv];
-};
-
-// Strip any extension the cvar might carry (the engine itself accepts
-// "name" or "name.pcx" in cl_teamskin/cl_enemyskin), then probe the formats
-// FTE supports. The engine reads skins as "skins/<name>.pcx" (skin.c:362);
-// modern setups may use .png replacements alongside the .pcx.
-//
-// r_readimage goes through FS_LoadMallocFile which iterates search paths,
-// but on web/Emscripten builds the file may only be reachable through the
-// explicit gamedir prefix (e.g. "qw/skins/team.pcx"), so we try both.
-vector(string base) MinimapLoadSkinAverage =
-{
-    string clean = base;
-    float dot = strstrofs(clean, ".", 0);
-    if (dot >= 0) {
-        clean = substring(clean, 0, dot);
-    }
-
-    string gamedir = cvar_string("fs_game");
-    if (gamedir == "") gamedir = cvar_string("game");
-
-    string prefixes[2];
-    prefixes[0] = "skins";
-    prefixes[1] = (gamedir != "") ? sprintf("%s/skins", gamedir) : "";
-
-    string exts[4];
-    exts[0] = "png";
-    exts[1] = "jpg";
-    exts[2] = "tga";
-    exts[3] = "pcx";
-
-    vector c;
-    for (int pi = 0; pi < 2; pi++) {
-        if (prefixes[pi] == "") continue;
-        for (int ei = 0; ei < 4; ei++) {
-            c = MinimapAverageImageColor(sprintf("%s/%s.%s", prefixes[pi], clean, exts[ei]));
-            if (c.x >= 0) return c;
-        }
-    }
-    return '-1 -1 -1';
-};
-
-// Look up the team/enemy skin images via the engine cvars cl_teamskin /
-// cl_enemyskin and store their average color.
-void() MinimapComputeAutoColors =
-{
-    vector c;
-    string ts = cvar_string("cl_teamskin");
-    debug("minimap: cl_teamskin='%s'", ts);
-    if (ts != "") {
-        c = MinimapLoadSkinAverage(ts);
-        if (c.x >= 0) minimap_auto_color_team = c;
-    }
-    string es = cvar_string("cl_enemyskin");
-    debug("minimap: cl_enemyskin='%s'", es);
-    if (es != "") {
-        c = MinimapLoadSkinAverage(es);
-        if (c.x >= 0) minimap_auto_color_enemy = c;
-    }
-    debug("minimap: auto team color %v, enemy color %v",
-          minimap_auto_color_team, minimap_auto_color_enemy);
 };
 
 void(vector cam_origin) MinimapDrawPlayers =
@@ -1307,6 +1219,11 @@ void(float vwidth, float vheight) MinimapRender =
     cvar_set("scr_autoid", "0");
     cvar_set("scr_autoid_team", "0");
 
+    // Top-down minimap doesn't need the skybox - it just adds bright clutter
+    // around the map. r_fastsky=1 short-circuits the sky pass to a flat color.
+    float prev_fastsky = cvar("r_fastsky");
+    cvar_set("r_fastsky", "1");
+
     clearscene();
     setviewprop(VF_DRAWWORLD,      1);
     setviewprop(VF_VIEWENTITY,     0);
@@ -1345,6 +1262,7 @@ void(float vwidth, float vheight) MinimapRender =
     cvar_set("r_novis", ftos(prev_novis));
     cvar_set("scr_autoid", ftos(prev_autoid));
     cvar_set("scr_autoid_team", ftos(prev_autoid_team));
+    cvar_set("r_fastsky", ftos(prev_fastsky));
 
     // Overlay players (project() reads the view state we just set).
     MinimapDrawPlayers(cam_origin);
@@ -1426,9 +1344,9 @@ void() MinimapRegisterDescriptions =
     MinimapDescribeCvar("minimap_player_alpha_occluded",
         "Alpha applied to a player model that the minimap camera can't see directly (drawn through walls/roofs via a doppelganger pass). Visible players use the engine's normal rendering. Default 0.8.");
     MinimapDescribeCvar("minimap_player_color_team",
-        "Ring/triangle color for same-team players. '0 0 0' = average color of the cl_teamskin image.");
+        "Ring/triangle color for same-team players. '0 0 0' = default green.");
     MinimapDescribeCvar("minimap_player_color_enemy",
-        "Ring/triangle color for opposing-team players. '0 0 0' = average color of the cl_enemyskin image.");
+        "Ring/triangle color for opposing-team players. '0 0 0' = default red.");
     MinimapDescribeCvar("minimap_player_color_self",
         "Ring/triangle color for the local player.");
     MinimapDescribeCvar("minimap_player_label_name_length",
