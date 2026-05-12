@@ -52,9 +52,8 @@ var float  autocvar_minimap_ortho            = 0;
 var float  autocvar_minimap_height_offset    = 0;
 var vector autocvar_minimap_center_override  = '0 0 0';
 var float  autocvar_minimap_player_radius           = 7;
-var float  autocvar_minimap_player_dir_len          = 14;
 var float  autocvar_minimap_player_alpha_occluded   = 0.5;
-var float  autocvar_minimap_player_label_size       = 4;
+var float  autocvar_minimap_player_label_name_length       = 4;
 var float  autocvar_minimap_player_label_font_size  = 6;
 // Set to '0 0 0' as a sentinel for "use auto-derived color from cl_teamskin /
 // cl_enemyskin image average". A non-zero value overrides.
@@ -72,6 +71,8 @@ var vector minimap_center      = '0 0 0';
 var float  minimap_ortho       = 2048;
 var float  minimap_height      = 4096;
 var float  minimap_world_top_z = 0;   // BSP maxs.z, set in MinimapAutoBounds
+var float  minimap_world_dx    = 0;   // BSP width  (maxs.x - mins.x)
+var float  minimap_world_dy    = 0;   // BSP depth  (maxs.y - mins.y)
 var float  minimap_loaded      = 0;
 var string minimap_loaded_for  = "";
 
@@ -100,8 +101,13 @@ void() MinimapAutoBounds =
         minimap_center.y = (tmp.mins.y + tmp.maxs.y) * 0.5;
         minimap_center.z = tmp.mins.z;
         minimap_world_top_z = tmp.maxs.z;
+        minimap_world_dx = tmp.maxs.x - tmp.mins.x;
+        minimap_world_dy = tmp.maxs.y - tmp.mins.y;
 
-        float ext = max(tmp.maxs.x - tmp.mins.x, tmp.maxs.y - tmp.mins.y);
+        // Legacy single-extent value retained for .cull file overrides and
+        // the loc-file narrowing helper; the actual viewport-aspect-aware
+        // scale is now computed in MinimapRender.
+        float ext = max(minimap_world_dx, minimap_world_dy);
         minimap_ortho = ext * 0.5 + 64;
 
         // probe highest geometry directly above the center; fall back to maxs.z
@@ -195,6 +201,11 @@ float() MinimapNarrowToLocFile =
     minimap_center.x = (minx + maxx) * 0.5;
     minimap_center.y = (miny + maxy) * 0.5;
     minimap_ortho = new_ortho;
+    // Also feed the tighter bounds into the world extents so MinimapRender's
+    // scale calc uses them. Otherwise the render keeps padding 15% around the
+    // full BSP and you get ugly empty borders on maps that .loc has tightened.
+    minimap_world_dx = maxx - minx;
+    minimap_world_dy = maxy - miny;
     debug("minimap: locs/%s.loc narrowed bounds (%g points), center %v, ortho %g",
           mapname, count, minimap_center, minimap_ortho);
     return 1;
@@ -680,7 +691,6 @@ void(vector cam_origin) MinimapDrawPlayers =
     // Hard-coded fallbacks ensure markers render even when cvars are left at
     // 0 (e.g. from a stale config).
     float radius     = autocvar_minimap_player_radius        > 0 ? autocvar_minimap_player_radius        : 7;
-    float dir_len    = autocvar_minimap_player_dir_len       > 0 ? autocvar_minimap_player_dir_len       : 14;
     float alpha_occ  = autocvar_minimap_player_alpha_occluded > 0 ? autocvar_minimap_player_alpha_occluded : 0.5;
     // Name labels use a cvar-controlled font size; weapon labels are fixed
     // at the same reduced size. Both default to 6 (25% smaller than 8).
@@ -825,12 +835,12 @@ void(vector cam_origin) MinimapDrawPlayers =
         R_EndPolygon();
 
         // Label is either a fixed-length visible-char prefix (when
-        // minimap_player_label_size > 0) or the shortest prefix unique to
+        // minimap_player_label_name_length > 0) or the shortest prefix unique to
         // this player. Both forms keep any ^X markup in front of each kept
         // char so drawstring can recolor them.
         string label;
-        if (autocvar_minimap_player_label_size > 0) {
-            label = MinimapColoredPrefix(minimap_label_name[pnum], autocvar_minimap_player_label_size);
+        if (autocvar_minimap_player_label_name_length > 0) {
+            label = MinimapColoredPrefix(minimap_label_name[pnum], autocvar_minimap_player_label_name_length);
         } else {
             label = MinimapShortestUniquePrefix(pnum);
         }
@@ -955,12 +965,39 @@ void(float vwidth, float vheight) MinimapRender =
     vector vmin, vsize;
     MinimapViewport(mode, vwidth, vheight, vmin, vsize);
 
-    // In orthographic mode VF_FOV sets fov_x/fov_y as world-unit extents
-    // (the renderer feeds them straight into the ortho matrix as -fov/2..+fov/2).
-    // VF_AFOV instead treats the value as an FOV angle capped at 170 degrees,
-    // which produces a ~170-unit viewport regardless of intent.
-    float fov_x = ortho * 2;
-    float fov_y = fov_x * (vsize.y / vsize.x);
+    // VF_FOV in orthographic mode is "world units across the viewport".
+    // Scale = world units per screen pixel. Computed to fit the world AABB
+    // into the viewport along both axes (uniform scale, no stretching).
+    //
+    // Padding is shape-aware: square-ish maps (in any non-square viewport)
+    // already get implicit slack on one axis from the aspect mismatch, so
+    // we taper padding down toward small values. Elongated maps don't have
+    // that extra slack and use the full 0.15.
+    float largest  = (minimap_world_dx > minimap_world_dy) ? minimap_world_dx : minimap_world_dy;
+    float smallest = (minimap_world_dx < minimap_world_dy) ? minimap_world_dx : minimap_world_dy;
+    float aspect   = (smallest > 0) ? (largest / smallest) : 1;
+    float pad_factor;
+    if (aspect >= 2)
+        pad_factor = 0.10;
+    else
+        pad_factor = 0.05 + (aspect - 1) * 0.05;  // square -> 0.05, 2:1 -> 0.10
+    float pad     = largest * pad_factor;
+    float need_x  = (minimap_world_dx + pad * 2) / vsize.x;
+    float need_y  = (minimap_world_dy + pad * 2) / vsize.y;
+    float scale   = (need_x > need_y) ? need_x : need_y;
+    if (ortho > 0) {
+        float ortho_scale = (ortho * 2) / vsize.x;
+        if (ortho_scale > scale) scale = ortho_scale;
+    }
+    float fov_x   = vsize.x * scale;
+    float fov_y   = vsize.y * scale;
+
+    // PVS-culling is keyed to the player's position. With the camera lifted
+    // far above the map the player's PVS doesn't cover the visible
+    // orthographic frustum, so leaves outside it (and the entities in them)
+    // would be culled. Disable PVS for the minimap pass and restore after.
+    float prev_novis = cvar("r_novis");
+    cvar_set("r_novis", "1");
 
     clearscene();
     setviewprop(VF_DRAWWORLD,      1);
@@ -985,6 +1022,8 @@ void(float vwidth, float vheight) MinimapRender =
     // engine's normal "hide self in first-person" suppression is bypassed.
     addentities(MASK_ENGINE | MASK_LOCAL);
     renderscene();
+
+    cvar_set("r_novis", ftos(prev_novis));
 
     // Overlay players (project() reads the view state we just set).
     vector cam_origin = [center.x, center.y, center.z + hoff];
@@ -1035,8 +1074,6 @@ void() MinimapRegisterDescriptions =
         "Camera XY position and reference Z, as a vector. '0 0 0' = use value from .cull file or worldmodel midpoint.");
     MinimapDescribeCvar("minimap_player_radius",
         "Radius of the player marker ring on the minimap, in screen pixels.");
-    MinimapDescribeCvar("minimap_player_dir_len",
-        "Length of the look-direction triangle extending out from the player ring, in screen pixels.");
     MinimapDescribeCvar("minimap_player_alpha_occluded",
         "Alpha applied to player markers when the player is occluded from the minimap camera. Visible players are drawn at alpha 1. Default 0.5.");
     MinimapDescribeCvar("minimap_player_color_team",
@@ -1045,7 +1082,7 @@ void() MinimapRegisterDescriptions =
         "Ring/triangle color for opposing-team players. '0 0 0' = average color of the cl_enemyskin image.");
     MinimapDescribeCvar("minimap_player_color_self",
         "Ring/triangle color for the local player.");
-    MinimapDescribeCvar("minimap_player_label_size",
+    MinimapDescribeCvar("minimap_player_label_name_length",
         "Fixed number of characters to show in each player label. Default 4. Set to 0 for auto (shortest prefix unique among all current players).");
     MinimapDescribeCvar("minimap_player_label_font_size",
         "Font size in pixels for the player name label above each marker. Default 6.");
