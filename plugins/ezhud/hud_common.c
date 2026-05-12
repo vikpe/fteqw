@@ -849,7 +849,8 @@ void SCR_HUD_DrawGameClock(hud_t *hud)
         *hud_gameclock_style,
         *hud_gameclock_blink,
 		*hud_gameclock_countdown,
-		*hud_gameclock_scale
+		*hud_gameclock_scale,
+		*hud_gameclock_color
 //		*hud_gameclock_offset
 		;
 
@@ -860,6 +861,7 @@ void SCR_HUD_DrawGameClock(hud_t *hud)
         hud_gameclock_blink = HUD_FindVar(hud, "blink");
 		hud_gameclock_countdown = HUD_FindVar(hud, "countdown");
 		hud_gameclock_scale = HUD_FindVar(hud, "scale");
+		hud_gameclock_color = HUD_FindVar(hud, "color");
 //		hud_gameclock_offset = HUD_FindVar(hud, "offset");
 //		gameclockoffset = &hud_gameclock_offset->ival;
     }
@@ -875,8 +877,9 @@ void SCR_HUD_DrawGameClock(hud_t *hud)
 
 	if (cl.countdown)
 	{
-		// "Countdown" placeholder during the pre-match countdown. SCR_DrawBigClock
-		// only knows digits + ':' so force the small-clock path for letters.
+		// "Countdown" placeholder during the pre-match countdown. Force the
+		// small-clock path (the big clock only knows digits + ':') and tint
+		// brown via Colour4f so we don't need bronze-charset shenanigans.
 		t = "Countdown";
 		big = 0;
 	}
@@ -891,10 +894,15 @@ void SCR_HUD_DrawGameClock(hud_t *hud)
 
     if (HUD_PrepareDraw(hud, width, height, &x, &y))
     {
+        // 0..255 RGB byte triplet, matching the convention used by
+        // hud_*_frame_color and friends (parsed via StringToRGB).
+        byte *rgb = StringToRGB(hud_gameclock_color->string);
+        drawfuncs->Colour4f(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1);
         if (big)
             SCR_DrawBigClock(x, y, hud_gameclock_style->value, hud_gameclock_blink->value, hud_gameclock_scale->value, t);
         else
             SCR_DrawSmallClock(x, y, hud_gameclock_style->value, hud_gameclock_blink->value, hud_gameclock_scale->value, t);
+        drawfuncs->Colour4f(1, 1, 1, 1);
     }
 }
 
@@ -8091,6 +8099,7 @@ void CommonDraw_Init(void)
         "blink",    "1",
 		"countdown","0",
 		"offset","0",
+		"color",    "178 115 51",
         NULL);
 
 	HUD_Register("notify", NULL, "Shows last console lines",
