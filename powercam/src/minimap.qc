@@ -31,6 +31,10 @@
 const float VF_CULLVOLUME        = 226;
 const float VF_CULLVOLUMES_COUNT = 227;
 
+// VF_CULLVOLUME (226) is an engine-side extension fteqcc doesn't know about;
+// silence the spurious "unknown argument" warning on setproperty calls.
+#pragma warning disable F333
+
 #define MINIMAP_OFF   0
 #define MINIMAP_PIP   1
 #define MINIMAP_SPLIT 2
@@ -43,14 +47,15 @@ typedef struct {
     vector maxs;
 } minimap_volume_t;
 
-var float  autocvar_minimap_mode             = MINIMAP_OFF;
+var float  autocvar_minimap_mode             = MINIMAP_SPLIT;
 var float  autocvar_minimap_ortho            = 0;
 var float  autocvar_minimap_height_offset    = 0;
 var vector autocvar_minimap_center_override  = '0 0 0';
-var float  autocvar_minimap_player_radius           = 6;
+var float  autocvar_minimap_player_radius           = 7;
 var float  autocvar_minimap_player_dir_len          = 14;
 var float  autocvar_minimap_player_alpha_occluded   = 0.5;
-var float  autocvar_minimap_player_label_size       = 0;
+var float  autocvar_minimap_player_label_size       = 4;
+var float  autocvar_minimap_player_label_font_size  = 6;
 // Set to '0 0 0' as a sentinel for "use auto-derived color from cl_teamskin /
 // cl_enemyskin image average". A non-zero value overrides.
 var vector autocvar_minimap_player_color_team       = '0 0 0';
@@ -114,6 +119,74 @@ void() MinimapAutoBounds =
     remove(tmp);
 };
 
+// Optionally narrow the minimap projection to the convex hull of points in
+// locs/<mapname>.loc. Useful when the BSP outer hull encloses outlier
+// brushes that aren't part of the playable area. Two .loc formats are
+// supported:
+//   - QW classic: "X Y Z name..."         (XYZ in 1/8 quake units, atoi'd)
+//   - FTE comma:  "minX,minY,minZ,maxX,maxY,maxZ,name"
+// Returns 1 if bounds were narrowed.
+float() MinimapNarrowToLocFile =
+{
+    string fname = sprintf("locs/%s.loc", mapname);
+    filestream fh = fopen(fname, FILE_READ);
+    if (fh < 0) {
+        return 0;
+    }
+
+    float minx =  99999, miny =  99999;
+    float maxx = -99999, maxy = -99999;
+    float count = 0;
+
+    string line;
+    while ((line = fgets(fh))) {
+        if (line == "") continue;
+
+        if (strstrofs(line, ",", 0) >= 0) {
+            // FTE AABB format - six comma-separated coords
+            float nt = tokenizebyseparator(line, ",");
+            if (nt < 6) continue;
+            float a = stof(argv(0)), b = stof(argv(1));
+            float c = stof(argv(3)), d = stof(argv(4));
+            if (a < minx) minx = a;
+            if (c < minx) minx = c;
+            if (a > maxx) maxx = a;
+            if (c > maxx) maxx = c;
+            if (b < miny) miny = b;
+            if (d < miny) miny = d;
+            if (b > maxy) maxy = b;
+            if (d > maxy) maxy = d;
+            count++;
+            continue;
+        }
+
+        // QW classic: integer eighths, space-separated
+        float n = tokenize_console(line);
+        if (n < 4) continue;
+        if (argv(0) == "" || !(stof(argv(0)) != 0 || argv(0) == "0")) continue;
+        float x = stof(argv(0)) / 8;
+        float y = stof(argv(1)) / 8;
+        if (x < minx) minx = x;
+        if (y < miny) miny = y;
+        if (x > maxx) maxx = x;
+        if (y > maxy) maxy = y;
+        count++;
+    }
+    fclose(fh);
+
+    if (count == 0 || maxx <= minx) {
+        return 0;
+    }
+
+    minimap_center.x = (minx + maxx) * 0.5;
+    minimap_center.y = (miny + maxy) * 0.5;
+    float ext = max(maxx - minx, maxy - miny);
+    minimap_ortho = ext * 0.5 + 64;
+    debug("minimap: locs/%s.loc narrowed bounds (%g points), center %v, ortho %g",
+          mapname, count, minimap_center, minimap_ortho);
+    return 1;
+};
+
 float(string line) MinimapParseLine =
 {
     float n = tokenize_console(line);
@@ -162,6 +235,7 @@ float() MinimapLoad =
     }
 
     MinimapAutoBounds();
+    MinimapNarrowToLocFile();
     MinimapComputeAutoColors();
 
     string fname = sprintf("maps/%s.cull", mapname);
@@ -226,36 +300,86 @@ void(float mode, float vw, float vh, __out vector vmin, __out vector vsize) Mini
     }
 };
 
-// Strip markup (color codes, bronze/qchar range) and keep only printable
-// ASCII. strdecolorize is the engine's qchar/markup flattener (#477,
-// DP_QC_STRINGCOLORFUNCTIONS) - it uses the same COM_ParseFunString +
-// COM_DeFunString pipeline as SV_FixupName, so qchars in 0xe000..0xe0FF are
-// folded to their ASCII equivalents and ^X codes are removed. We then drop
-// any remaining bytes outside printable ASCII (real Unicode, control chars).
+// Sanitize a player name for display via drawstring: keep printable ASCII,
+// QW ^X color codes, and any chars Quake's font can render (high-bit bronze
+// bytes when utf8_enable is off; qchar codepoints 0xE000..0xE0FF when on).
+// Both ranges are accepted unconditionally - whichever the engine actually
+// uses depends on utf8_enable, the other range will simply be empty in
+// practice.
 string(string raw) MinimapNormalizeName =
 {
-    string clean = strdecolorize(raw);
     string out = "";
-    float n = strlen(clean);
-    for (float i = 0; i < n; i++) {
-        float c = str2chr(clean, i);
-        if (c >= 32 && c <= 126) {
+    float n = strlen(raw);
+    float i;
+    for (i = 0; i < n; i++) {
+        float c = str2chr(raw, i);
+        // ^X is a 2-byte color marker; keep both bytes verbatim (^^ -> literal ^).
+        if (c == '^' && i + 1 < n) {
+            float nxt = str2chr(raw, i + 1);
+            out = strcat(out, chr2str(c));
+            out = strcat(out, chr2str(nxt));
+            i++;
+            continue;
+        }
+        // Quake's font has renderable glyphs across the full byte range:
+        //   16..17    brackets [ ]
+        //   18..27    gold numbers 0-9
+        //   33..126   standard ASCII
+        //   144..145  brackets [ ] (high-bit duplicate)
+        //   146..155  gold numbers 0-9 (high-bit duplicate)
+        //   161..254  brown ASCII a-z, A-Z, 0-9, punctuation
+        // We accept bytes 16..255 (drop only the few leading control-range
+        // chars that all render as blank) and the full UTF-8 qchar range
+        // 0xE000..0xE0FF used when utf8_enable is on.
+        if ((c >= 16 && c <= 255) || (c >= 0xE000 && c <= 0xE0FF)) {
             out = strcat(out, chr2str(c));
         }
     }
     return out;
 };
 
-// Cache of normalized names for the current frame, indexed by player number
-// (0..maxclients-1). Empty string for inactive slots.
+// Returns the first `n_visible` characters of a colored name, copying any ^X
+// markup verbatim alongside the kept chars so drawstring still recolors them.
+string(string colored, float n_visible) MinimapColoredPrefix =
+{
+    string out = "";
+    float len = strlen(colored);
+    float visible = 0;
+    float i;
+    for (i = 0; i < len; i++) {
+        if (visible >= n_visible) {
+            break;
+        }
+        float c = str2chr(colored, i);
+        if (c == '^' && i + 1 < len) {
+            float nxt = str2chr(colored, i + 1);
+            out = strcat(out, chr2str(c));
+            out = strcat(out, chr2str(nxt));
+            i++;
+            if (nxt == '^') {
+                visible++;  // ^^ unescapes to a single visible '^'
+            }
+            continue;
+        }
+        out = strcat(out, chr2str(c));
+        visible++;
+    }
+    return out;
+};
+
+// Per-frame cache of player names. We keep two versions:
+//   _name  - sanitized, retains ^X color codes & bronze chars (for drawing)
+//   _plain - markup-stripped variant (for prefix uniqueness comparisons)
 #define MINIMAP_MAX_PLAYERS 32
 var string minimap_label_name[MINIMAP_MAX_PLAYERS];
+var string minimap_label_plain[MINIMAP_MAX_PLAYERS];
 
 void() MinimapBuildPlayerLabels =
 {
     float plyr_mdl = getmodelindex("progs/player.mdl");
     for (int i = 0; i < MINIMAP_MAX_PLAYERS; i++) {
-        minimap_label_name[i] = "";
+        minimap_label_name[i]  = "";
+        minimap_label_plain[i] = "";
         if (i >= maxclients) {
             continue;
         }
@@ -269,26 +393,28 @@ void() MinimapBuildPlayerLabels =
             continue;
         }
         string raw = getplayerkeyvalue(i, "name");
-        minimap_label_name[i] = MinimapNormalizeName(raw);
+        minimap_label_name[i]  = MinimapNormalizeName(raw);
+        minimap_label_plain[i] = strdecolorize(minimap_label_name[i]);
     }
 };
 
-// Returns the shortest prefix of player `pi`'s normalized name that no other
-// active player's normalized name starts with. Falls back to the full name on
-// exact collision.
+// Returns the shortest visible-character prefix of player `pi`'s name that no
+// other active player's name starts with. Comparison uses the decolored plain
+// form so two players named e.g. "^1Foo" and "^2Foo" still need disambiguation,
+// but the returned string keeps its color markup for drawstring.
 string(float pi) MinimapShortestUniquePrefix =
 {
-    string mine = minimap_label_name[pi];
-    float my_len = strlen(mine);
+    string mine_plain = minimap_label_plain[pi];
+    float my_len = strlen(mine_plain);
     if (my_len == 0) {
         return "";
     }
     for (float n = 1; n <= my_len; n++) {
-        string my_prefix = substring(mine, 0, n);
+        string my_prefix = substring(mine_plain, 0, n);
         float unique = 1;
         for (int j = 0; j < MINIMAP_MAX_PLAYERS; j++) {
             if (j == pi) continue;
-            string other = minimap_label_name[j];
+            string other = minimap_label_plain[j];
             if (other == "") continue;
             if (substring(other, 0, n) == my_prefix) {
                 unique = 0;
@@ -296,35 +422,40 @@ string(float pi) MinimapShortestUniquePrefix =
             }
         }
         if (unique) {
-            return my_prefix;
+            return MinimapColoredPrefix(minimap_label_name[pi], n);
         }
     }
-    return mine;
+    return minimap_label_name[pi];
 };
 
-// Map STAT_ACTIVEWEAPON to a short label, only for the weapons that matter
-// for analysis (GL/RL/LG). Lower-tier weapons return "" so the label is
-// omitted.
-string(float w) MinimapWeaponLabel =
+// STAT_ITEMS bits we surface on the minimap.
+#define MM_IT_GRENADE_LAUNCHER 16
+#define MM_IT_ROCKET_LAUNCHER  32
+#define MM_IT_LIGHTNING        64
+#define MM_IT_ARMOR1           8192    // Green Armor   (max 100)
+#define MM_IT_ARMOR2           16384   // Yellow Armor  (max 150)
+#define MM_IT_ARMOR3           32768   // Red Armor     (max 200)
+
+// Color matching the Quake color-code convention used by the scoreboard
+// (engine/client/sbar.c:3661-3663): LG = cyan ^5, RL = red/orange ^1,
+// GL = green ^2.
+vector(float weapon_bit) MinimapWeaponColor =
 {
-    switch ((int)w) {
-    case 16:   return "GL";
-    case 32:   return "RL";
-    case 64:   return "LG";
-    default:   return "";
+    switch ((int)weapon_bit) {
+    case MM_IT_GRENADE_LAUNCHER: return '0.3 1 0.3';
+    case MM_IT_ROCKET_LAUNCHER:  return '1 0.5 0.2';
+    case MM_IT_LIGHTNING:        return '0.3 0.8 1';
+    default:                     return '1 1 1';
     }
 };
 
-// Per-weapon label color. Matches the Quake color-code convention used by
-// the scoreboard (engine/client/sbar.c:3661-3663): LG = cyan ^5, RL = the
-// red/orange ^1, GL = green ^2.
-vector(float w) MinimapWeaponColor =
+string(float weapon_bit) MinimapWeaponName =
 {
-    switch ((int)w) {
-    case 16:   return '0.3 1 0.3';    // GL  - green
-    case 32:   return '1 0.5 0.2';    // RL  - orange
-    case 64:   return '0.3 0.8 1';    // LG  - cyan
-    default:   return '1 1 1';
+    switch ((int)weapon_bit) {
+    case MM_IT_GRENADE_LAUNCHER: return "GL";
+    case MM_IT_ROCKET_LAUNCHER:  return "RL";
+    case MM_IT_LIGHTNING:        return "LG";
+    default:                     return "";
     }
 };
 
@@ -336,6 +467,47 @@ vector(float health) MinimapHealthColor =
     if (health > 50)  return '0 1 0';
     if (health > 25)  return '1 1 0';
     return '1 0 0';
+};
+
+// One-time shader registration. "minimap_fill" is a simple 2D fill shader
+// with per-vertex color and alpha - identical to the one PF_CL_drawline
+// uses (engine/client/pr_menu.c:1074-1083). Used to render thick lines as
+// quads since drawline's width parameter is ignored by the engine.
+void() MinimapRegisterShaders =
+{
+    // The defaultfill GLSL program reads the full 4-component vertex color
+    // (engine/gl/r_bishaders.h:4471-4491) and writes it straight to
+    // gl_FragColor, so rgbgen/alphagen directives are redundant - and seem to
+    // suppress alpha output on some paths. Keep the shader minimal: just
+    // alpha-blended fill via the program and vertex colors.
+    shaderforname("minimap_fill_v3", R"({
+    program defaultfill
+    {
+        map $whiteimage
+        blendfunc blend
+    }
+})");
+};
+
+// Draw a line of arbitrary thickness as a screen-space quad. Width is in
+// pixels, applied perpendicular to the segment direction.
+void(vector a, vector b, float width, vector color, float alpha) MinimapDrawThickLine =
+{
+    float dx = b.x - a.x;
+    float dy = b.y - a.y;
+    float len = sqrt(dx * dx + dy * dy);
+    if (len <= 0) {
+        return;
+    }
+    float nx = -dy / len * width * 0.5;
+    float ny =  dx / len * width * 0.5;
+
+    R_BeginPolygon("minimap_fill_v3", 0, 1);
+    R_PolygonVertex([a.x + nx, a.y + ny, 0], '0 0 0', color, alpha);
+    R_PolygonVertex([a.x - nx, a.y - ny, 0], '0 0 0', color, alpha);
+    R_PolygonVertex([b.x - nx, b.y - ny, 0], '0 0 0', color, alpha);
+    R_PolygonVertex([b.x + nx, b.y + ny, 0], '0 0 0', color, alpha);
+    R_EndPolygon();
 };
 
 // Returns the index of the cull volume containing `p`, or -1 if none.
@@ -351,17 +523,65 @@ float(vector p) MinimapPointInCullVolume =
     return -1;
 };
 
-// 2D ring approximated by line segments.
-void(vector pos, float radius, vector color, float alpha) MinimapDrawRing =
+// Filled disc with a radial gradient: alpha goes from `center_alpha` at the
+// middle to `edge_alpha` at the rim, color is constant. Rendered as a
+// triangle fan rooted at the center.
+void(vector pos, float radius, vector color, float center_alpha, float edge_alpha) MinimapDrawDisc =
 {
-    float N = 20;
+    float N = 32;
     float two_pi = M_PI * 2;
-    vector prev = [pos.x + radius, pos.y, 0];
-    for (int i = 1; i <= N; i++) {
-        float a = ((float)i / N) * two_pi;
+    R_BeginPolygon("minimap_fill_v3", 0, 1);
+    R_PolygonVertex(pos, '0 0 0', color, center_alpha);
+    int i;
+    for (i = 0; i <= N; i++) {
+        float a = ((float)(i % N) / N) * two_pi;
         vector p = [pos.x + cos(a) * radius, pos.y + sin(a) * radius, 0];
-        drawline(1, prev, p, color, alpha);
-        prev = p;
+        R_PolygonVertex(p, '0 0 0', color, edge_alpha);
+    }
+    R_EndPolygon();
+};
+
+// 2D ring. For thickness == 1 we use line segments (cheap). For thicker
+// rings we draw an annulus as a sequence of quads sharing inner/outer
+// vertices with their neighbors - no butt-joint gaps and no overlap, unlike
+// stacking thick-line segments end-to-end.
+void(vector pos, float radius, vector color, float alpha, float thickness) MinimapDrawRing =
+{
+    float N = 32;
+    float two_pi = M_PI * 2;
+
+    if (thickness <= 1) {
+        vector prev = [pos.x + radius, pos.y, 0];
+        int j;
+        for (j = 1; j <= N; j++) {
+            float a = ((float)j / N) * two_pi;
+            vector p = [pos.x + cos(a) * radius, pos.y + sin(a) * radius, 0];
+            drawline(1, prev, p, color, alpha);
+            prev = p;
+        }
+        return;
+    }
+
+    float inner = radius - thickness * 0.5;
+    float outer = radius + thickness * 0.5;
+    int i;
+    for (i = 0; i < N; i++) {
+        float a0 = ((float)i       / N) * two_pi;
+        float a1 = ((float)(i + 1) / N) * two_pi;
+        float c0 = cos(a0), s0 = sin(a0);
+        float c1 = cos(a1), s1 = sin(a1);
+
+        vector p_in_0  = [pos.x + c0 * inner, pos.y + s0 * inner, 0];
+        vector p_out_0 = [pos.x + c0 * outer, pos.y + s0 * outer, 0];
+        vector p_in_1  = [pos.x + c1 * inner, pos.y + s1 * inner, 0];
+        vector p_out_1 = [pos.x + c1 * outer, pos.y + s1 * outer, 0];
+
+        R_BeginPolygon("minimap_fill_v3", 0, 1);
+        R_PolygonVertex(p_in_0,  '0 0 0', color, alpha);
+        R_PolygonVertex(p_out_0, '0 0 0', color, alpha);
+        R_PolygonVertex(p_out_1, '0 0 0', color, alpha);
+        R_PolygonVertex(p_in_1,  '0 0 0', color, alpha);
+        R_EndPolygon();
     }
 };
 
@@ -411,6 +631,18 @@ vector(string path) MinimapAverageImageColor =
     return [rs * inv, gs * inv, bs * inv];
 };
 
+// r_readimage doesn't auto-try extensions; skin filenames in cl_teamskin
+// etc. are just the base name. Probe the common formats FTE supports.
+vector(string base) MinimapLoadSkinAverage =
+{
+    vector c;
+    c = MinimapAverageImageColor(sprintf("skins/%s.png", base));  if (c.x >= 0) return c;
+    c = MinimapAverageImageColor(sprintf("skins/%s.jpg", base));  if (c.x >= 0) return c;
+    c = MinimapAverageImageColor(sprintf("skins/%s.tga", base));  if (c.x >= 0) return c;
+    c = MinimapAverageImageColor(sprintf("skins/%s.pcx", base));  if (c.x >= 0) return c;
+    return '-1 -1 -1';
+};
+
 // Look up the team/enemy skin images via the engine cvars cl_teamskin /
 // cl_enemyskin and store their average color.
 void() MinimapComputeAutoColors =
@@ -418,12 +650,12 @@ void() MinimapComputeAutoColors =
     vector c;
     string ts = cvar_string("cl_teamskin");
     if (ts != "") {
-        c = MinimapAverageImageColor(sprintf("skins/%s", ts));
+        c = MinimapLoadSkinAverage(ts);
         if (c.x >= 0) minimap_auto_color_team = c;
     }
     string es = cvar_string("cl_enemyskin");
     if (es != "") {
-        c = MinimapAverageImageColor(sprintf("skins/%s", es));
+        c = MinimapLoadSkinAverage(es);
         if (c.x >= 0) minimap_auto_color_enemy = c;
     }
     debug("minimap: auto team color %v, enemy color %v",
@@ -434,18 +666,29 @@ void(vector cam_origin) MinimapDrawPlayers =
 {
     // Hard-coded fallbacks ensure markers render even when cvars are left at
     // 0 (e.g. from a stale config).
-    float radius     = autocvar_minimap_player_radius        > 0 ? autocvar_minimap_player_radius        : 6;
+    float radius     = autocvar_minimap_player_radius        > 0 ? autocvar_minimap_player_radius        : 7;
     float dir_len    = autocvar_minimap_player_dir_len       > 0 ? autocvar_minimap_player_dir_len       : 14;
     float alpha_occ  = autocvar_minimap_player_alpha_occluded > 0 ? autocvar_minimap_player_alpha_occluded : 0.5;
-    vector label_size = '8 8 0';
+    // Name labels use a cvar-controlled font size; weapon labels are fixed
+    // at the same reduced size. Both default to 6 (25% smaller than 8).
+    float name_fs = autocvar_minimap_player_label_font_size > 0
+                    ? autocvar_minimap_player_label_font_size : 6;
+    vector label_size  = [name_fs, name_fs, 0];
+    vector weapon_size = '6 6 0';
+
+    // Hide HUD-style indicators (health/armor/powerups/weapons) while the
+    // match isn't ongoing. The server's status string only contains "min left"
+    // once the round is actually running (standby/countdown have other text).
+    float match_active = strstrofs(serverkey("status"), "min left", 0) >= 0;
 
     MinimapBuildPlayerLabels();
 
     // Highlight the player the main view is tracking when there is one.
     // Skipped in FULL mode since there is no main view to correlate with.
     float highlight_enabled  = autocvar_minimap_mode != MINIMAP_FULL;
-    float highlight_radius   = radius * (1.7 + sin(time * 4) * 0.1);
-    float highlight_alpha    = 0.6;
+    float highlight_radius   = radius + 4;
+    float highlight_alpha    = 1;
+    vector highlight_color   = '0 1 1';  // #00ffff
 
     for (int i = 1; i <= maxclients; i++) {
         // The local POV player's entity may not show up in GE_ACTIVE / model
@@ -491,57 +734,157 @@ void(vector cam_origin) MinimapDrawPlayers =
         vector screen = project(origin);
         vector color  = MinimapPlayerColor(pnum);
 
-        if (highlight_enabled && i == player_localentnum) {
-            MinimapDrawRing(screen, highlight_radius, color, highlight_alpha);
-        }
+        // One ring per player: tracked POV gets a cyan, 1.25x scaled,
+        // 3-px-thick outline with a halo-style gradient disc extending 3x
+        // further. Everyone else gets a regular team-colored ring.
+        float is_tracked   = highlight_enabled && i == player_localentnum;
+        float ring_radius  = radius;
+        float disc_radius  = ring_radius;
+        vector ring_color  = is_tracked ? highlight_color : color;
+        float ring_thick   = is_tracked ? 1.5 : 1;
 
-        MinimapDrawRing(screen, radius, color, alpha);
+        // Tracked: fuller alpha at center (gradient still fades out to the
+        // ring edge) so the disc reads as more "filled in" without growing
+        // past the outline.
+        float disc_center_alpha = is_tracked ? 1 : 0.5;
+        MinimapDrawDisc(screen, disc_radius, ring_color, disc_center_alpha, 0);
+        MinimapDrawRing(screen, ring_radius, ring_color, 1, ring_thick);
 
-        // Look direction line from the player center. With camera looking
-        // straight down (pitch 90, yaw 0), AngleVectors gives right=(0,-1,0)
-        // and up=(1,0,0), so world +X projects to screen up and world +Y to
-        // screen left. World yaw therefore maps to screen direction
+        // Active powerups (server sets EF_BLUE for Quad, EF_RED for Pent;
+        // both may be set). Icons are drawn later, to the left of the bars.
+        // Suppressed entirely outside of an ongoing match.
+        float effects = getentity(i, GE_EFFECTS);
+        float has_quad = match_active && ((int)effects & EF_BLUE);
+        float has_pent = match_active && ((int)effects & EF_RED);
+
+        // Look direction arrowhead sitting on the ring's edge. With camera
+        // looking straight down (pitch 90, yaw 0), AngleVectors gives
+        // right=(0,-1,0) and up=(1,0,0), so world +X projects to screen up
+        // and world +Y to screen left. World yaw maps to screen direction
         //   dx = -sin(yaw), dy = -cos(yaw)   (screen Y points down).
         float world_yaw = angles.y * M_PI / 180.0;
         float dx = -sin(world_yaw);
         float dy = -cos(world_yaw);
-        vector dir_end = [screen.x + dx * dir_len, screen.y + dy * dir_len, 0];
-        drawline(1, screen, dir_end, color, alpha);
+        float tri_size  = ring_radius * 0.4 + 1;
+        float half_base = tri_size * 0.5;
+        float base_dist = ring_radius;
+        vector tip = [screen.x + dx * (base_dist + tri_size),
+                      screen.y + dy * (base_dist + tri_size), 0];
+        vector b1  = [screen.x + dx * base_dist - dy * half_base,
+                      screen.y + dy * base_dist + dx * half_base, 0];
+        vector b2  = [screen.x + dx * base_dist + dy * half_base,
+                      screen.y + dy * base_dist - dx * half_base, 0];
+        R_BeginPolygon("minimap_fill_v3", 0, 1);
+        R_PolygonVertex(tip, '0 0 0', ring_color, 1);
+        R_PolygonVertex(b1,  '0 0 0', ring_color, 1);
+        R_PolygonVertex(b2,  '0 0 0', ring_color, 1);
+        R_EndPolygon();
 
-        // Label is either a fixed-length prefix (when minimap_player_label_size > 0)
-        // or the shortest prefix unique to this player.
+        // Label is either a fixed-length visible-char prefix (when
+        // minimap_player_label_size > 0) or the shortest prefix unique to
+        // this player. Both forms keep any ^X markup in front of each kept
+        // char so drawstring can recolor them.
         string label;
         if (autocvar_minimap_player_label_size > 0) {
-            label = substring(minimap_label_name[pnum], 0, autocvar_minimap_player_label_size);
+            label = MinimapColoredPrefix(minimap_label_name[pnum], autocvar_minimap_player_label_size);
         } else {
             label = MinimapShortestUniquePrefix(pnum);
         }
-        float text_y = screen.y + radius + 2;
-        if (label != "") {
-            float lw = stringwidth(label, 0, label_size);
-            vector label_pos = [screen.x - lw * 0.5, text_y, 0];
-            drawstring(label_pos, label, label_size, color, alpha, 0);
-            text_y += label_size.y + 1;
+        // Name label centered on the player marker; powerup icons sit to its
+        // left as a prefix (do not shift the name).
+        float icon_count = (has_quad ? 1 : 0) + (has_pent ? 1 : 0);
+        float icon_h = label_size.y;
+        float icon_w = icon_h;
+        float icon_gap = icon_count > 0 ? 2 : 0;
+        // usecolours=1 makes stringwidth ignore markup so layout matches what
+        // drawstring actually paints.
+        float lw = (label != "") ? stringwidth(label, 1, label_size) : 0;
+        float top    = screen.y - radius - label_size.y - 2;
+        float name_x = screen.x - lw * 0.5;
+        float ix     = name_x - (icon_w * icon_count + icon_gap);
+        if (has_quad) {
+            drawpic([ix, top, 0], "sb_quad",
+                    [icon_w, icon_h, 0], '1 1 1', 1, 0);
+            ix += icon_w;
         }
+        if (has_pent) {
+            drawpic([ix, top, 0], "sb_invuln",
+                    [icon_w, icon_h, 0], '1 1 1', 1, 0);
+        }
+        if (label != "") {
+            // Pass white so drawstring uses the charset's native colors:
+            // plain ASCII = white, qchars in bronze, ^X markup applied
+            // per-character. Tinting via the rgb arg would override every
+            // unmarked char with the team color.
+            drawstring([name_x, top, 0], label, label_size, '1 1 1', 1, 0);
+        }
+        float text_y = screen.y + radius + 2;
 
-        // Health bar + active weapon, mirroring the autoid display from the
-        // player view. getplayerstat works for any player in MVD playback.
+        // Health bar, armor bar, owned-weapon labels - mirroring autoid.
+        // getplayerstat works for any player in MVD playback. Hidden during
+        // standby/countdown (match not actually started yet).
         float health = getplayerstat(pnum, STAT_HEALTH, EV_FLOAT);
-        if (health > 0) {
-            float bar_w = 24;
-            float bar_h = 2;
-            vector bar_pos = [screen.x - bar_w * 0.5, text_y, 0];
-            drawfill(bar_pos, [bar_w, bar_h], '0 0 0', alpha * 0.6);
-            float frac = health > 100 ? 1 : health / 100;
-            drawfill(bar_pos, [bar_w * frac, bar_h], MinimapHealthColor(health), alpha);
-            text_y += bar_h + 2;
+        if (match_active && health > 0) {
+            float bar_w = 17;
+            float bar_h = 1;
+            float bar_gap = 1;
+            float bar_left = screen.x - bar_w * 0.5;
+            float bar_top  = text_y;
+            float bar_group_h = bar_h * 2 + bar_gap;
 
-            float weapon = getplayerstat(pnum, STAT_ACTIVEWEAPON, EV_FLOAT);
-            string wlabel = MinimapWeaponLabel(weapon);
-            if (wlabel != "") {
-                float ww = stringwidth(wlabel, 0, label_size);
-                vector wpos = [screen.x - ww * 0.5, text_y, 0];
-                drawstring(wpos, wlabel, label_size, MinimapWeaponColor(weapon), alpha, 0);
+            // Health bar.
+            vector hpos = [bar_left, text_y, 0];
+            drawfill(hpos, [bar_w, bar_h], '0 0 0', 0.6);
+            float hfrac = health > 100 ? 1 : health / 100;
+            drawfill(hpos, [bar_w * hfrac, bar_h], MinimapHealthColor(health), 1);
+            text_y += bar_h + bar_gap;
+
+            // Read items once - used for both armor type and weapon labels.
+            // STAT_ITEMS is queried as EV_INTEGER (csplat.qc:1841) since
+            // runes/items2 are packed into the upper bits.
+            int items = getplayerstat(pnum, STAT_ITEMS, EV_INTEGER);
+
+            // Armor bar. Type comes from the IT_ARMOR* item bit, max from
+            // standard Q1 values (GA 100, YA 150, RA 200). Show percent of
+            // that max.
+            float armor = getplayerstat(pnum, STAT_ARMOR, EV_FLOAT);
+            float armor_max = 0;
+            vector armor_color = '0 0 0';
+            if (items & MM_IT_ARMOR3) {
+                armor_max = 200; armor_color = '1 0 0';
+            } else if (items & MM_IT_ARMOR2) {
+                armor_max = 150; armor_color = '1 1 0';
+            } else if (items & MM_IT_ARMOR1) {
+                armor_max = 100; armor_color = '0 1 0';
+            }
+            if (armor_max > 0 && armor > 0) {
+                vector apos = [bar_left, text_y, 0];
+                drawfill(apos, [bar_w, bar_h], '0 0 0', 0.6);
+                float afrac = armor / armor_max;
+                if (afrac > 1) afrac = 1;
+                drawfill(apos, [bar_w * afrac, bar_h], armor_color, 1);
+            }
+
+            // Best-weapon indicator to the right of the bar stack, vertically
+            // centered on the bar group. Priority: RLG (both) > RL > LG > GL.
+            // For the combo, R uses the RL color and LG uses the LG color,
+            // drawn as two adjacent strings.
+            float has_rl = items & MM_IT_ROCKET_LAUNCHER;
+            float has_lg = items & MM_IT_LIGHTNING;
+            float has_gl = items & MM_IT_GRENADE_LAUNCHER;
+            float wx  = bar_left + bar_w + 3;
+            float wy  = bar_top + bar_group_h * 0.5 - weapon_size.y * 0.5;
+            if (has_rl && has_lg) {
+                vector wpos1 = [wx, wy, 0];
+                drawstring(wpos1, "R", weapon_size, MinimapWeaponColor(MM_IT_ROCKET_LAUNCHER), 1, 0);
+                vector wpos2 = [wx + stringwidth("R", 0, weapon_size), wy, 0];
+                drawstring(wpos2, "LG", weapon_size, MinimapWeaponColor(MM_IT_LIGHTNING), 1, 0);
+            } else if (has_rl) {
+                drawstring([wx, wy, 0], "RL", weapon_size, MinimapWeaponColor(MM_IT_ROCKET_LAUNCHER), 1, 0);
+            } else if (has_lg) {
+                drawstring([wx, wy, 0], "LG", weapon_size, MinimapWeaponColor(MM_IT_LIGHTNING), 1, 0);
+            } else if (has_gl) {
+                drawstring([wx, wy, 0], "GL", weapon_size, MinimapWeaponColor(MM_IT_GRENADE_LAUNCHER), 1, 0);
             }
         }
     }
@@ -593,7 +936,10 @@ void(float vwidth, float vheight) MinimapRender =
                     minimap_volumes[i].maxs);
     }
 
-    addentities(MASK_ENGINE);
+    // MASK_LOCAL pulls in the POV player. PipResetPlayer sets the local
+    // player's drawmask to MASK_LOCAL (and 0 for everyone else), so the
+    // engine's normal "hide self in first-person" suppression is bypassed.
+    addentities(MASK_ENGINE | MASK_LOCAL);
     renderscene();
 
     // Overlay players (project() reads the view state we just set).
@@ -625,12 +971,12 @@ float() MinimapCmdStatus =
 };
 
 // Adds a description to a cvar without disturbing its current value.
-// Uses the engine's `set NAME "VALUE" // DESC` syntax, with $-expansion to
-// echo the current value back. Cvars are created by the autocvar_*
-// declarations before this runs, so the expansion resolves correctly.
+// Reads the current value at call time (rather than via $-expansion at
+// command-execution time) so the value can never be lost - even if the
+// expansion context somehow lacks the cvar, we already captured its string.
 void(string name, string desc) MinimapDescribeCvar =
 {
-    localcmd(sprintf("set %s \"$%s\" // %s\n", name, name, desc));
+    localcmd(sprintf("set %s \"%s\" // %s\n", name, cvar_string(name), desc));
 };
 
 void() MinimapRegisterDescriptions =
@@ -656,7 +1002,9 @@ void() MinimapRegisterDescriptions =
     MinimapDescribeCvar("minimap_player_color_self",
         "Ring/triangle color for the local player.");
     MinimapDescribeCvar("minimap_player_label_size",
-        "Fixed number of characters to show in each player label. 0 = auto (shortest prefix unique among all current players).");
+        "Fixed number of characters to show in each player label. Default 4. Set to 0 for auto (shortest prefix unique among all current players).");
+    MinimapDescribeCvar("minimap_player_label_font_size",
+        "Font size in pixels for the player name label above each marker. Default 6.");
 };
 
 float() MinimapCmdHelp =

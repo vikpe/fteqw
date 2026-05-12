@@ -19,8 +19,7 @@
 #define RSES_NOTRAILS 4
 #define RSES_NOLIGHTS 8
 
-#define MASK_XRAY  (1<<3)
-#define MASK_LOCAL (1<<4)
+// MASK_XRAY / MASK_LOCAL are defined in progs.src so minimap.qc can use them.
 
 var float match_start_time = -1;
 var int camera_index = -1;
@@ -358,6 +357,7 @@ void() CSQC_WorldLoaded =
         deltalisten("progs/invulner.mdl", PipPowerupSpawnListener, RSES_NOLERP);
     }
 
+    MinimapRegisterShaders();
     MinimapLoad();
 };
 
@@ -447,22 +447,25 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     }
 
     if (delta > 0.0) {
-        // slide PiP off the right edge of the player viewport
-        slide_offset = main_size.x * delta;
+        // Slide PiP vertically (off the top of the player viewport). Sliding
+        // horizontally crosses into the minimap area in split mode and ends
+        // up rendering over it, since the PiP renderscene can't be clipped
+        // by a 2D scissor.
+        slide_offset = (height + margin) * delta;
     }
 
 
     // Item type colored background
-    float bg_offset_x = x_offset + slide_offset - margin / 4;
-    float bg_offset_y = y_anchor + margin - margin / 4;
+    float bg_offset_x = x_offset - margin / 4;
+    float bg_offset_y = y_anchor + margin - margin / 4 - slide_offset;
     float bg_width = width + margin / 2;
     float bg_height = height + margin / 2 + font_size.y;
     float bg_alpha = 0.5;
     drawfill([bg_offset_x, bg_offset_y], [bg_width, bg_height], camera_bg_color, bg_alpha);
 
     // Black contrasting inner border
-    float border_offset_x = x_offset + slide_offset - margin / 16;
-    float border_offset_y = y_anchor + margin - margin / 16;
+    float border_offset_x = x_offset - margin / 16;
+    float border_offset_y = y_anchor + margin - margin / 16 - slide_offset;
     float border_width = width + margin / 8;
     float border_height = height + margin / 8;
     vector border_color = [0, 0, 0];
@@ -478,8 +481,8 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     setviewprop(VF_DRAWENGINESBAR, 0);
     setviewprop(VF_DRAWCROSSHAIR, 0);
     setviewprop(VF_ORIGIN, item->camera->origin);
-    setviewprop(VF_MIN_X, x_offset + slide_offset);
-    setviewprop(VF_MIN_Y, y_anchor + margin);
+    setviewprop(VF_MIN_X, x_offset);
+    setviewprop(VF_MIN_Y, y_anchor + margin - slide_offset);
     setviewprop(VF_SIZE_X, width);
     setviewprop(VF_SIZE_Y, height);
     setviewprop(VF_ANGLES, item->camera->angles);
@@ -506,8 +509,8 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
         text = sprintf("%s spawned!", camera_item_name);
     }
 
-    float txt_offset_x = x_offset + slide_offset;
-    float txt_offset_y = y_anchor + margin + height + margin / 8;
+    float txt_offset_x = x_offset;
+    float txt_offset_y = y_anchor + margin + height + margin / 8 - slide_offset;
     vector txt_color = [0.7, 0.7, 0.7];
     float txt_alpha = 1;
     drawsetcliparea(txt_offset_x, txt_offset_y, width, font_size.y);
