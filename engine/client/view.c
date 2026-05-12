@@ -1828,14 +1828,17 @@ static void SCR_DrawAutoID(vec3_t org, player_info_t *pl, qboolean isteam)
 		{1, 0.4, 0, 1},
 		{1, 1, 1, 1}
 	};
+	//Pairs of {dim, full} per armor tier: GA (green), YA (yellow), RA (red).
+	//R2D_ImageColours expects 0-1 floats; the old 0-255 byte values clamped
+	//to white-ish saturation.
 	static vec4_t armourcolours[] =
 	{
-		{25, 170, 0, 0.2},
-		{25, 170, 0, 1},
-		{225, 220, 0, 0.2},
-		{225, 220, 0, 1},
-		{255, 0, 0, 0.2},
-		{255, 0, 0, 1}
+		{0, 0.4, 0, 1},
+		{0, 1,   0, 1},
+		{0.4, 0.4, 0, 1},
+		{1,   1,   0, 1},
+		{0.4, 0, 0, 1},
+		{1,   0, 0, 1}
 	};
 
 	extern cvar_t tp_name_sg,tp_name_ssg,tp_name_ng,tp_name_sng,tp_name_gl,tp_name_rl,tp_name_lg;
