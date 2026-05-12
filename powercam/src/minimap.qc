@@ -47,12 +47,12 @@ var float  autocvar_minimap_mode             = MINIMAP_OFF;
 var float  autocvar_minimap_ortho            = 0;
 var float  autocvar_minimap_height_offset    = 0;
 var vector autocvar_minimap_center_override  = '0 0 0';
-var float  autocvar_minimap_player_radius    = 6;
-var float  autocvar_minimap_player_dir_len   = 14;
-var float  autocvar_minimap_player_visible   = 0;  // 1 = always draw circle, 0 = only when occluded
-var vector autocvar_minimap_player_color_team   = '0 1 0';
-var vector autocvar_minimap_player_color_enemy  = '1 0 0';
-var vector autocvar_minimap_player_color_self   = '1 1 0';
+var float  autocvar_minimap_player_radius           = 6;
+var float  autocvar_minimap_player_dir_len          = 14;
+var float  autocvar_minimap_player_alpha_occluded   = 0.5;
+var vector autocvar_minimap_player_color_team       = '0 1 0';
+var vector autocvar_minimap_player_color_enemy      = '1 0 0';
+var vector autocvar_minimap_player_color_self       = '1 1 0';
 
 var minimap_volume_t minimap_volumes[MINIMAP_MAX_CULL_VOLUMES];
 var int    minimap_num_volumes = 0;
@@ -233,20 +233,18 @@ void(vector pos, float radius, vector color, float alpha) MinimapDrawRing =
 {
     float N = 20;
     float two_pi = M_PI * 2;
-    vector prev;
-    for (int i = 0; i <= N; i++) {
+    vector prev = [pos.x + radius, pos.y, 0];
+    for (int i = 1; i <= N; i++) {
         float a = ((float)i / N) * two_pi;
         vector p = [pos.x + cos(a) * radius, pos.y + sin(a) * radius, 0];
-        if (i > 0) {
-            drawline(1, prev, p, color, alpha);
-        }
+        drawline(1, prev, p, color, alpha);
         prev = p;
     }
 };
 
-// Filled triangle from tip back to base, alpha fading from 1 at the tip to 0
-// at the base. screen_yaw is in radians (0 = up the screen, increasing CW).
-void(vector tip_pos, float screen_yaw, float length, float halfwidth, vector color) MinimapDrawDirectionTriangle =
+// Filled triangle from tip back to base, alpha fading from `tip_alpha` at the
+// tip to 0 at the base. screen_yaw is in radians (0 = up the screen, CW+).
+void(vector tip_pos, float screen_yaw, float length, float halfwidth, vector color, float tip_alpha) MinimapDrawDirectionTriangle =
 {
     // forward (toward tip) and right vectors in screen space.
     // Note: screen Y points DOWN, so a "yaw=0 = up" mapping means dy = -cos.
@@ -260,7 +258,7 @@ void(vector tip_pos, float screen_yaw, float length, float halfwidth, vector col
     vector base_r = [base_center.x - rx * halfwidth, base_center.y - ry * halfwidth, 0];
 
     R_BeginPolygon("minimap_dir", 0, 1);
-    R_PolygonVertex(tip_pos, '0 0 0', color, 1.0);
+    R_PolygonVertex(tip_pos, '0 0 0', color, tip_alpha);
     R_PolygonVertex(base_l,  '0 0 0', color, 0.0);
     R_PolygonVertex(base_r,  '0 0 0', color, 0.0);
     R_EndPolygon();
@@ -282,38 +280,46 @@ vector(float pnum) MinimapPlayerColor =
 
 void(vector cam_origin) MinimapDrawPlayers =
 {
-    float radius   = autocvar_minimap_player_radius;
-    float dir_len  = autocvar_minimap_player_dir_len;
-    float dir_half = radius * 0.85;
-    float always   = autocvar_minimap_player_visible;
-    float plyr_mdl = getmodelindex("progs/player.mdl");
+    float radius     = autocvar_minimap_player_radius;
+    float dir_len    = autocvar_minimap_player_dir_len;
+    float dir_half   = radius * 0.85;
+    float alpha_occ  = autocvar_minimap_player_alpha_occluded;
+    float plyr_mdl   = getmodelindex("progs/player.mdl");
+
+    // Highlight the player the main view is tracking when there is one.
+    // Skipped in FULL mode since there is no main view to correlate with.
+    float highlight_enabled  = autocvar_minimap_mode != MINIMAP_FULL;
+    float highlight_radius   = radius * (1.7 + sin(time * 4) * 0.1);
+    float highlight_alpha    = 0.6;
 
     for (int i = 1; i <= maxclients; i++) {
-        if (!getentity(i, GE_ACTIVE)) {
+        float active = getentity(i, GE_ACTIVE);
+        if (!active) {
             continue;
         }
-        if (getentity(i, GE_MODELINDEX) != plyr_mdl) {
+        float modidx = getentity(i, GE_MODELINDEX);
+        if (modidx != plyr_mdl) {
             continue;
         }
         vector origin = getentity(i, GE_ORIGIN);
         vector angles = getentity(i, GE_ANGLES);
         float  pnum   = i - 1;
 
-        // visibility test: trace from camera to head height.
+        // 2D overlay is drawn after renderscene without depth test, so the
+        // marker is always visible. Trace from camera to head height to fade
+        // the alpha when the player is behind geometry.
         vector head = [origin.x, origin.y, origin.z + 24];
         traceline(cam_origin, head, MOVE_NOMONSTERS, world);
-        float occluded = (trace_fraction < 1);
-
-        if (!occluded && !always) {
-            // player visible through the world; the rendered model already
-            // appears at the right spot, skip the marker.
-            continue;
-        }
+        float alpha = (trace_fraction < 1) ? alpha_occ : 1.0;
 
         vector screen = project(origin);
         vector color  = MinimapPlayerColor(pnum);
 
-        MinimapDrawRing(screen, radius, color, 1);
+        if (highlight_enabled && i == player_localentnum) {
+            MinimapDrawRing(screen, highlight_radius, color, highlight_alpha);
+        }
+
+        MinimapDrawRing(screen, radius, color, alpha);
 
         // Convert world yaw into a screen yaw. With camera looking straight
         // down (pitch 90, yaw 0), screen up corresponds to world +X. World
@@ -324,7 +330,7 @@ void(vector cam_origin) MinimapDrawPlayers =
         vector tip = [screen.x + sin(screen_yaw) * (radius + dir_len),
                       screen.y - cos(screen_yaw) * (radius + dir_len),
                       0];
-        MinimapDrawDirectionTriangle(tip, screen_yaw, dir_len, dir_half, color);
+        MinimapDrawDirectionTriangle(tip, screen_yaw, dir_len, dir_half, color, alpha);
     }
 };
 
@@ -428,8 +434,8 @@ void() MinimapRegisterDescriptions =
         "Radius of the player marker ring on the minimap, in screen pixels.");
     MinimapDescribeCvar("minimap_player_dir_len",
         "Length of the look-direction triangle extending out from the player ring, in screen pixels.");
-    MinimapDescribeCvar("minimap_player_visible",
-        "1 = always draw player marker. 0 = only when the player is occluded from the minimap camera.");
+    MinimapDescribeCvar("minimap_player_alpha_occluded",
+        "Alpha applied to player markers when the player is occluded from the minimap camera. Visible players are drawn at alpha 1. Default 0.5.");
     MinimapDescribeCvar("minimap_player_color_team",
         "Ring/triangle color for same-team players.");
     MinimapDescribeCvar("minimap_player_color_enemy",
