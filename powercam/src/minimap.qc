@@ -52,7 +52,7 @@ var float  autocvar_minimap_ortho            = 0;
 var float  autocvar_minimap_height_offset    = 0;
 var vector autocvar_minimap_center_override  = '0 0 0';
 var float  autocvar_minimap_player_radius           = 7;
-var float  autocvar_minimap_player_alpha_occluded   = 0.5;
+var float  autocvar_minimap_player_alpha_occluded   = 0.8;
 var float  autocvar_minimap_player_label_name_length       = 4;
 var float  autocvar_minimap_player_label_font_size  = 6;
 // Set to '0 0 0' as a sentinel for "use auto-derived color from cl_teamskin /
@@ -74,10 +74,19 @@ var float  minimap_world_top_z = 0;   // BSP maxs.z, set in MinimapAutoBounds
 var float  minimap_world_dx    = 0;   // BSP width  (maxs.x - mins.x)
 var float  minimap_world_dy    = 0;   // BSP depth  (maxs.y - mins.y)
 var float  minimap_loaded      = 0;
+
+// Auto-cull state. Populated lazily on the first render after world load,
+// once the server has sent baseline entities for the pickups. Highest pickup
+// origin Z (weapons, armor, health, ammo) defines the play-floor ceiling -
+// anything above that is roof/upper geometry the minimap should see through.
+var float  minimap_auto_pickup_max_z = -99999;
+var float  minimap_auto_pickup_known = 0;
+var float  minimap_auto_ceil_margin  = 128;   // QU above tallest pickup before culling kicks in
 var string minimap_loaded_for  = "";
 
 // Forward declarations for callees of MinimapLoad.
 void() MinimapComputeAutoColors;
+float(vector p) MinimapPointInCullVolume;
 
 void() MinimapResetState =
 {
@@ -85,6 +94,8 @@ void() MinimapResetState =
     minimap_center      = '0 0 0';
     minimap_ortho       = 2048;
     minimap_height      = 4096;
+    minimap_auto_pickup_max_z = -99999;
+    minimap_auto_pickup_known = 0;
 };
 
 // Derive center/ortho/height from the worldmodel AABB.
@@ -318,8 +329,24 @@ void(float mode, float vw, float vh, __out vector vmin, __out vector vsize) Mini
         vsize = [vw / 2, vh, 0];
         break;
     default:
-        vmin  = '0 0 0';
-        vsize = [vw, vh, 0];
+        // FULL: letterbox the viewport to the map's aspect so the map
+        // actually fills the visible area instead of leaving large empty
+        // margins. Without this, a portrait map in a wide screen looks
+        // tiny and centered.
+        if (minimap_world_dx > 0 && minimap_world_dy > 0) {
+            float map_aspect = minimap_world_dx / minimap_world_dy;
+            float target_w = vh * map_aspect;
+            float target_h = vh;
+            if (target_w > vw) {
+                target_w = vw;
+                target_h = vw / map_aspect;
+            }
+            vmin  = [(vw - target_w) * 0.5, (vh - target_h) * 0.5, 0];
+            vsize = [target_w, target_h, 0];
+        } else {
+            vmin  = '0 0 0';
+            vsize = [vw, vh, 0];
+        }
         break;
     }
 };
@@ -397,6 +424,94 @@ string(string colored, float n_visible) MinimapColoredPrefix =
 #define MINIMAP_MAX_PLAYERS 32
 var string minimap_label_name[MINIMAP_MAX_PLAYERS];
 var string minimap_label_plain[MINIMAP_MAX_PLAYERS];
+
+// Per-frame doppelganger overlays for players the minimap camera can't see
+// directly. Engine-side player entities aren't exposed as QC entities
+// (deltalisten isn't registered unless pip_xray is on), so we can't flip
+// EF_NODEPTHTEST on them. Instead, for each occluded player we spawn a
+// throwaway QC entity that mirrors the player's pose and add it to the
+// scene with NODEPTHTEST + alpha so it shows through walls/roofs.
+// Visible players are skipped - the engine already draws them at full
+// opacity, and we don't want a double-render.
+var entity minimap_doppel_ents[MINIMAP_MAX_PLAYERS];
+var int    minimap_doppel_count = 0;
+
+// Returns 1 if the line from cam_origin to the player's head is blocked by
+// world geometry that isn't part of a minimap cull volume. Mirrors the
+// xray-style traceline pattern from main.qc:301, with extra walking through
+// cull volumes since the minimap camera looks down through roofs that are
+// intentionally hidden in the render.
+float(vector cam_origin, vector player_origin) MinimapPlayerOccluded =
+{
+    vector head = [player_origin.x, player_origin.y, player_origin.z + 24];
+    // Start just inside the BSP. cam_origin sits above the outer hull, and
+    // tracing from outside into BSP space hits the hull's top first, which
+    // would falsely flag every player as occluded.
+    vector trace_from = [cam_origin.x, cam_origin.y, minimap_world_top_z - 1];
+    if (trace_from.z <= head.z) {
+        return 0;
+    }
+    float steps = 8;
+    while (steps > 0) {
+        steps--;
+        traceline(trace_from, head, MOVE_NORMAL | MOVE_NOMONSTERS, world);
+        if (trace_fraction == 1) {
+            return 0;
+        }
+        float vol = MinimapPointInCullVolume(trace_endpos);
+        if (vol < 0) {
+            return 1;
+        }
+        trace_from = [trace_endpos.x, trace_endpos.y, minimap_volumes[vol].mins.z - 1];
+        if (trace_from.z <= head.z) {
+            return 0;
+        }
+    }
+    return 0;
+};
+
+void(vector cam_origin) MinimapSpawnOccludedDoppelgangers =
+{
+    float plyr_mdl = getmodelindex("progs/player.mdl");
+    minimap_doppel_count = 0;
+    for (int i = 1; i <= maxclients; i++) {
+        if (minimap_doppel_count >= MINIMAP_MAX_PLAYERS) break;
+        float active = getentity(i, GE_ACTIVE);
+        if (!active) continue;
+        float modidx = getentity(i, GE_MODELINDEX);
+        if (modidx != plyr_mdl) continue;
+        vector origin = getentity(i, GE_ORIGIN);
+        if (origin == '0 0 0') continue;
+        if (!MinimapPlayerOccluded(cam_origin, origin)) continue;
+
+        float occ_alpha = autocvar_minimap_player_alpha_occluded > 0
+                          ? autocvar_minimap_player_alpha_occluded : 0.8;
+
+        entity d = spawn();
+        setmodelindex(d, plyr_mdl);
+        setorigin(d, origin);
+        d.angles  = getentity(i, GE_ANGLES);
+        d.frame   = getentity(i, GE_FRAME);
+        d.skin    = getentity(i, GE_SKIN);
+        d.alpha   = occ_alpha;
+        d.effects = EF_NODEPTHTEST;
+        addentity(d);
+
+        minimap_doppel_ents[minimap_doppel_count] = d;
+        minimap_doppel_count++;
+    }
+};
+
+void() MinimapRemoveDoppelgangers =
+{
+    for (int i = 0; i < minimap_doppel_count; i++) {
+        if (minimap_doppel_ents[i]) {
+            remove(minimap_doppel_ents[i]);
+            minimap_doppel_ents[i] = nil;
+        }
+    }
+    minimap_doppel_count = 0;
+};
 
 void() MinimapBuildPlayerLabels =
 {
@@ -483,14 +598,147 @@ string(float weapon_bit) MinimapWeaponName =
     }
 };
 
-// Health bar fill color: cyan for mega-overheal, green/yellow/red on the way
-// down. Matches the rough convention from autoid.
-vector(float health) MinimapHealthColor =
+// Health/armor color tables, mirroring the autoid tables in view.c:1823 /
+// view.c:1831 so the minimap and the engine's autoid overlay share a visual
+// language. Bars are rendered in two segments: dim color on the depleted
+// side, full color on the remaining side.
+//
+// healthcolours[r] (dim) + healthcolours[r+1] (full) where r=floor(hp/100).
+const vector MINIMAP_HEALTH_C0 = '0.7 0.45 0.45';
+const vector MINIMAP_HEALTH_C1 = '0.3 0 0';
+const vector MINIMAP_HEALTH_C2 = '1 0 0';
+const vector MINIMAP_HEALTH_C3 = '1 0.4 0';
+const vector MINIMAP_HEALTH_C4 = '1 1 1';
+
+vector(float idx) MinimapHealthColorAt =
 {
-    if (health > 100) return '0.4 0.6 1';
-    if (health > 50)  return '0 1 0';
-    if (health > 25)  return '1 1 0';
-    return '1 0 0';
+    if (idx <= 0) return MINIMAP_HEALTH_C0;
+    if (idx == 1) return MINIMAP_HEALTH_C1;
+    if (idx == 2) return MINIMAP_HEALTH_C2;
+    if (idx == 3) return MINIMAP_HEALTH_C3;
+    return MINIMAP_HEALTH_C4;
+};
+
+// Armor tiers: 0/1 = GA dim/full, 2/3 = YA dim/full, 4/5 = RA dim/full.
+const vector MINIMAP_ARMOR_GA_DIM  = '0 0.4 0';
+const vector MINIMAP_ARMOR_GA_FULL = '0 1 0';
+const vector MINIMAP_ARMOR_YA_DIM  = '0.4 0.4 0';
+const vector MINIMAP_ARMOR_YA_FULL = '1 1 0';
+const vector MINIMAP_ARMOR_RA_DIM  = '0.4 0 0';
+const vector MINIMAP_ARMOR_RA_FULL = '1 0 0';
+
+// Known Quake 1 pickup model names. Anything in this set sits on the play
+// floor when spawned, so their Z values give a clean baseline for the
+// minimap's auto-cull height. Excludes monsters, gibs, dropped backpacks.
+float(string mname) MinimapIsPickupModel =
+{
+    if (mname == "") return 0;
+    // Weapons
+    if (mname == "progs/g_shot.mdl")  return 1;
+    if (mname == "progs/g_nail.mdl")  return 1;
+    if (mname == "progs/g_nail2.mdl") return 1;
+    if (mname == "progs/g_rock.mdl")  return 1;
+    if (mname == "progs/g_rock2.mdl") return 1;
+    if (mname == "progs/g_light.mdl") return 1;
+    // Armor (single mdl, colored via .skin)
+    if (mname == "progs/armor.mdl")   return 1;
+    // Powerups
+    if (mname == "progs/quaddama.mdl") return 1;
+    if (mname == "progs/invulner.mdl") return 1;
+    if (mname == "progs/suit.mdl")     return 1;
+    if (mname == "progs/invisibl.mdl") return 1;
+    // Health boxes (BSP submodels)
+    if (mname == "maps/b_bh100.bsp")  return 1;
+    if (mname == "maps/b_bh25.bsp")   return 1;
+    if (mname == "maps/b_bh10.bsp")   return 1;
+    // Ammo boxes
+    if (mname == "maps/b_shell0.bsp") return 1;
+    if (mname == "maps/b_shell1.bsp") return 1;
+    if (mname == "maps/b_nail0.bsp")  return 1;
+    if (mname == "maps/b_nail1.bsp")  return 1;
+    if (mname == "maps/b_rock0.bsp")  return 1;
+    if (mname == "maps/b_rock1.bsp")  return 1;
+    if (mname == "maps/b_batt0.bsp")  return 1;
+    if (mname == "maps/b_batt1.bsp")  return 1;
+    return 0;
+};
+
+// Scan baseline/networked entities once per map. For each pickup, trace
+// straight up to find the local ceiling and add a cull volume covering an
+// XY region around the pickup above that ceiling. This gives per-region
+// auto-cull, which handles multi-level maps where a single global ceiling
+// height would leak (lower roofs ignored) or over-cull (upper floors cut off).
+//
+// Returns 1 if at least one pickup was found, 0 to retry next frame
+// (entities probably not yet populated).
+float() MinimapScanPickupCeiling =
+{
+    float region_pad     = 256;   // half-width of the cull column around each pickup, in QU
+    float ceiling_margin = 8;     // QU above the detected ceiling to start culling
+    int   found = 0;
+    int   added = 0;
+    int   pad_outdoor = 0;
+
+    float n = getentity(0, GE_MAXENTS);
+    for (float i = 1; i < n && minimap_num_volumes < MINIMAP_MAX_CULL_VOLUMES; i++) {
+        float active = getentity(i, GE_ACTIVE);
+        if (!active) continue;
+        float midx = getentity(i, GE_MODELINDEX);
+        if (midx == 0) continue;
+        string mname = modelnameforindex(midx);
+        if (!MinimapIsPickupModel(mname)) continue;
+
+        vector org = getentity(i, GE_ORIGIN);
+        found++;
+
+        // Brushmodel pickups (maps/b_*.bsp) have their origin below the
+        // visible floor - tracing straight up from origin would hit the
+        // floor surface itself, not the ceiling. Start above the entity's
+        // bounding-box top (or a safe player-head offset if absmax is
+        // missing) so the trace only sees what is genuinely above.
+        vector amax = getentity(i, GE_ABSMAX);
+        float start_z;
+        if (amax.z > org.z + 1) {
+            start_z = amax.z + 1;
+        } else {
+            start_z = org.z + 56;   // ~player head height
+        }
+        vector start = [org.x, org.y, start_z];
+        vector hi    = [org.x, org.y, start_z + 100000];
+        traceline(start, hi, MOVE_NORMAL | MOVE_NOMONSTERS, world);
+        if (trace_fraction == 1) {
+            // Open sky above (no roof) - no auto-cull needed for this pickup.
+            pad_outdoor++;
+            continue;
+        }
+        float ceil_z = trace_endpos.z;
+        // If the trace hit the BSP outer hull (near world_top_z), treat as
+        // outdoor too - we don't want to cull the skybox itself.
+        if (ceil_z >= minimap_world_top_z - 32) {
+            pad_outdoor++;
+            continue;
+        }
+
+        minimap_volumes[minimap_num_volumes].mins =
+            [org.x - region_pad, org.y - region_pad, ceil_z + ceiling_margin];
+        minimap_volumes[minimap_num_volumes].maxs =
+            [org.x + region_pad, org.y + region_pad,  99999];
+        minimap_num_volumes++;
+        added++;
+
+        // Keep the legacy summary value (used by the world_top_z safety in
+        // MinimapPlayerOccluded) - max ceiling seen so far.
+        if (ceil_z > minimap_auto_pickup_max_z) {
+            minimap_auto_pickup_max_z = ceil_z;
+        }
+    }
+    if (!found) {
+        return 0;
+    }
+    minimap_auto_pickup_known = 1;
+    debug("minimap: scanned %d pickups (%d added cull volumes, %d outdoor)",
+          (float)found, (float)added, (float)pad_outdoor);
+    return 1;
 };
 
 // One-time shader registration. "minimap_fill" is a simple 2D fill shader
@@ -633,8 +881,10 @@ vector(string path) MinimapAverageImageColor =
     int width, height, fmt;
     int *data = r_readimage(path, width, height, fmt);
     if (!data) {
+        debug("minimap: r_readimage('%s') failed", path);
         return '-1 -1 -1';
     }
+    debug("minimap: r_readimage('%s') -> %dx%d", path, (float)width, (float)height);
     float rs = 0, gs = 0, bs = 0;
     int count = 0;
     int total = width * height;
@@ -655,15 +905,43 @@ vector(string path) MinimapAverageImageColor =
     return [rs * inv, gs * inv, bs * inv];
 };
 
-// r_readimage doesn't auto-try extensions; skin filenames in cl_teamskin
-// etc. are just the base name. Probe the common formats FTE supports.
+// Strip any extension the cvar might carry (the engine itself accepts
+// "name" or "name.pcx" in cl_teamskin/cl_enemyskin), then probe the formats
+// FTE supports. The engine reads skins as "skins/<name>.pcx" (skin.c:362);
+// modern setups may use .png replacements alongside the .pcx.
+//
+// r_readimage goes through FS_LoadMallocFile which iterates search paths,
+// but on web/Emscripten builds the file may only be reachable through the
+// explicit gamedir prefix (e.g. "qw/skins/team.pcx"), so we try both.
 vector(string base) MinimapLoadSkinAverage =
 {
+    string clean = base;
+    float dot = strstrofs(clean, ".", 0);
+    if (dot >= 0) {
+        clean = substring(clean, 0, dot);
+    }
+
+    string gamedir = cvar_string("fs_game");
+    if (gamedir == "") gamedir = cvar_string("game");
+
+    string prefixes[2];
+    prefixes[0] = "skins";
+    prefixes[1] = (gamedir != "") ? sprintf("%s/skins", gamedir) : "";
+
+    string exts[4];
+    exts[0] = "png";
+    exts[1] = "jpg";
+    exts[2] = "tga";
+    exts[3] = "pcx";
+
     vector c;
-    c = MinimapAverageImageColor(sprintf("skins/%s.png", base));  if (c.x >= 0) return c;
-    c = MinimapAverageImageColor(sprintf("skins/%s.jpg", base));  if (c.x >= 0) return c;
-    c = MinimapAverageImageColor(sprintf("skins/%s.tga", base));  if (c.x >= 0) return c;
-    c = MinimapAverageImageColor(sprintf("skins/%s.pcx", base));  if (c.x >= 0) return c;
+    for (int pi = 0; pi < 2; pi++) {
+        if (prefixes[pi] == "") continue;
+        for (int ei = 0; ei < 4; ei++) {
+            c = MinimapAverageImageColor(sprintf("%s/%s.%s", prefixes[pi], clean, exts[ei]));
+            if (c.x >= 0) return c;
+        }
+    }
     return '-1 -1 -1';
 };
 
@@ -673,11 +951,13 @@ void() MinimapComputeAutoColors =
 {
     vector c;
     string ts = cvar_string("cl_teamskin");
+    debug("minimap: cl_teamskin='%s'", ts);
     if (ts != "") {
         c = MinimapLoadSkinAverage(ts);
         if (c.x >= 0) minimap_auto_color_team = c;
     }
     string es = cvar_string("cl_enemyskin");
+    debug("minimap: cl_enemyskin='%s'", es);
     if (es != "") {
         c = MinimapLoadSkinAverage(es);
         if (c.x >= 0) minimap_auto_color_enemy = c;
@@ -757,32 +1037,30 @@ void(vector cam_origin) MinimapDrawPlayers =
         float  pnum   = pnum_idx;
 
         // 2D overlay is drawn after renderscene without depth test, so the
-        // marker is always visible. Trace from player head straight UP to
-        // detect a ceiling/floor above them. Starting at the player avoids
-        // the "camera is in the outer void" problem. Hits inside a minimap
-        // cull volume don't count - that's geometry the minimap intentionally
-        // sees through, so we advance the trace past the volume and retry.
+        // marker is always visible. Mirrors main.qc:301's xray occlusion
+        // test: trace from the minimap camera straight at the player. If
+        // the hit point falls inside a cull volume, the geometry there is
+        // hidden in the render, so we advance past the volume and retry.
         vector head = [origin.x, origin.y, origin.z + 24];
-        vector sky  = [origin.x, origin.y, origin.z + 100000];
-        vector trace_from = head;
+        vector trace_from = cam_origin;
         float alpha = 1.0;
         float steps = 8;
         while (steps > 0) {
             steps--;
-            traceline(trace_from, sky, MOVE_NOMONSTERS, world);
-            if (trace_fraction >= 1) {
-                break;  // exited cleanly
-            }
-            if (trace_endpos.z >= minimap_world_top_z - 32) {
-                break;  // hit BSP outer boundary, treat as visible
+            traceline(trace_from, head, MOVE_NORMAL | MOVE_NOMONSTERS, world);
+            if (trace_fraction == 1) {
+                break;  // unobstructed line of sight
             }
             float vol = MinimapPointInCullVolume(trace_endpos);
             if (vol < 0) {
                 alpha = alpha_occ;  // genuine occlusion
                 break;
             }
-            // Hit a culled surface. Resume above the volume's top.
-            trace_from = [trace_endpos.x, trace_endpos.y, minimap_volumes[vol].maxs.z + 1];
+            // Hit geometry inside a cull volume. Resume just under it.
+            trace_from = [trace_endpos.x, trace_endpos.y, minimap_volumes[vol].mins.z - 1];
+            if (trace_from.z <= head.z) {
+                break;  // descended past the target, treat as visible
+            }
         }
 
         vector screen = project(origin);
@@ -886,11 +1164,20 @@ void(vector cam_origin) MinimapDrawPlayers =
             float bar_top  = text_y;
             float bar_group_h = bar_h * 2 + bar_gap;
 
-            // Health bar.
+            // Health bar - two-tone, matching the autoid table in view.c:1823.
+            // r = floor(hp/100); LEFT segment (width = bar_w*frac) draws the
+            // brighter colours[r+1], RIGHT (1-frac) draws the dimmer colours[r].
             vector hpos = [bar_left, text_y, 0];
+            float h_idx  = floor(health / 100);
+            float h_frac = health / 100 - h_idx;
+            if (h_idx > 3) { h_idx = 3; h_frac = 1; }
+            if (h_idx < 0) { h_idx = 0; h_frac = 0; }
+            vector h_dim  = MinimapHealthColorAt(h_idx);
+            vector h_full = MinimapHealthColorAt(h_idx + 1);
             drawfill(hpos, [bar_w, bar_h], '0 0 0', 0.6);
-            float hfrac = health > 100 ? 1 : health / 100;
-            drawfill(hpos, [bar_w * hfrac, bar_h], MinimapHealthColor(health), 1);
+            drawfill(hpos, [bar_w * h_frac, bar_h], h_full, 1);
+            drawfill([bar_left + bar_w * h_frac, text_y, 0],
+                     [bar_w * (1 - h_frac), bar_h], h_dim, 1);
             text_y += bar_h + bar_gap;
 
             // Read items once - used for both armor type and weapon labels.
@@ -898,25 +1185,34 @@ void(vector cam_origin) MinimapDrawPlayers =
             // runes/items2 are packed into the upper bits.
             int items = getplayerstat(pnum, STAT_ITEMS, EV_INTEGER);
 
-            // Armor bar. Type comes from the IT_ARMOR* item bit, max from
-            // standard Q1 values (GA 100, YA 150, RA 200). Show percent of
-            // that max.
+            // Armor bar - two-tone, matching the autoid table in view.c:1831.
+            // RA/YA/GA each have a dim/full color pair; remaining armor
+            // draws full, depleted draws dim.
             float armor = getplayerstat(pnum, STAT_ARMOR, EV_FLOAT);
             float armor_max = 0;
-            vector armor_color = '0 0 0';
+            vector armor_dim  = '0 0 0';
+            vector armor_full = '0 0 0';
             if (items & MM_IT_ARMOR3) {
-                armor_max = 200; armor_color = '1 0 0';
+                armor_max = 200;
+                armor_dim  = MINIMAP_ARMOR_RA_DIM;
+                armor_full = MINIMAP_ARMOR_RA_FULL;
             } else if (items & MM_IT_ARMOR2) {
-                armor_max = 150; armor_color = '1 1 0';
+                armor_max = 150;
+                armor_dim  = MINIMAP_ARMOR_YA_DIM;
+                armor_full = MINIMAP_ARMOR_YA_FULL;
             } else if (items & MM_IT_ARMOR1) {
-                armor_max = 100; armor_color = '0 1 0';
+                armor_max = 100;
+                armor_dim  = MINIMAP_ARMOR_GA_DIM;
+                armor_full = MINIMAP_ARMOR_GA_FULL;
             }
             if (armor_max > 0 && armor > 0) {
                 vector apos = [bar_left, text_y, 0];
-                drawfill(apos, [bar_w, bar_h], '0 0 0', 0.6);
                 float afrac = armor / armor_max;
                 if (afrac > 1) afrac = 1;
-                drawfill(apos, [bar_w * afrac, bar_h], armor_color, 1);
+                drawfill(apos, [bar_w, bar_h], '0 0 0', 0.6);
+                drawfill(apos, [bar_w * afrac, bar_h], armor_full, 1);
+                drawfill([bar_left + bar_w * afrac, text_y, 0],
+                         [bar_w * (1 - afrac), bar_h], armor_dim, 1);
             }
 
             // Best-weapon indicator to the right of the bar stack, vertically
@@ -999,6 +1295,18 @@ void(float vwidth, float vheight) MinimapRender =
     float prev_novis = cvar("r_novis");
     cvar_set("r_novis", "1");
 
+    // The engine draws scr_autoid nametags + health/armor/weapon overlays
+    // from inside renderscene (pr_csqc.c PF_R_RenderScene -> R_DrawNameTags),
+    // using the current viewport. Spectators want autoid in the main view,
+    // but the minimap pass would re-draw them on top of our own markers.
+    // Suppress just for our renderscene; main view restores them. Both
+    // scr_autoid and scr_autoid_team must be cleared - in teamplay, the
+    // team variant still draws teammates regardless of scr_autoid.
+    float prev_autoid      = cvar("scr_autoid");
+    float prev_autoid_team = cvar("scr_autoid_team");
+    cvar_set("scr_autoid", "0");
+    cvar_set("scr_autoid_team", "0");
+
     clearscene();
     setviewprop(VF_DRAWWORLD,      1);
     setviewprop(VF_VIEWENTITY,     0);
@@ -1011,6 +1319,14 @@ void(float vwidth, float vheight) MinimapRender =
     setviewprop(VF_MIN,            vmin);
     setviewprop(VF_SIZE,           vsize);
 
+    // Try the pickup-ceiling scan if we haven't yet. Pickup baselines arrive
+    // a few frames after world load, so this runs lazily on each render
+    // until it succeeds. The scan appends per-pickup cull volumes directly
+    // to minimap_volumes alongside any volumes from the .cull file.
+    if (!minimap_auto_pickup_known) {
+        MinimapScanPickupCeiling();
+    }
+
     for (int i = 0; i < minimap_num_volumes; i++) {
         setviewprop(VF_CULLVOLUME, i,
                     minimap_volumes[i].mins,
@@ -1020,13 +1336,17 @@ void(float vwidth, float vheight) MinimapRender =
     // MASK_LOCAL pulls in the POV player. PipResetPlayer sets the local
     // player's drawmask to MASK_LOCAL (and 0 for everyone else), so the
     // engine's normal "hide self in first-person" suppression is bypassed.
+    vector cam_origin = [center.x, center.y, center.z + hoff];
     addentities(MASK_ENGINE | MASK_LOCAL);
+    MinimapSpawnOccludedDoppelgangers(cam_origin);
     renderscene();
+    MinimapRemoveDoppelgangers();
 
     cvar_set("r_novis", ftos(prev_novis));
+    cvar_set("scr_autoid", ftos(prev_autoid));
+    cvar_set("scr_autoid_team", ftos(prev_autoid_team));
 
     // Overlay players (project() reads the view state we just set).
-    vector cam_origin = [center.x, center.y, center.z + hoff];
     MinimapDrawPlayers(cam_origin);
 };
 
@@ -1050,6 +1370,35 @@ float() MinimapCmdStatus =
     println("Center:       %v", minimap_center);
     println("Ortho:        %g", minimap_ortho);
     println("Height:       %g", minimap_height);
+    println("Auto-cull:    known=%g, max_ceil_z=%g", minimap_auto_pickup_known, minimap_auto_pickup_max_z);
+    for (int i = 0; i < minimap_num_volumes; i++) {
+        println("  vol[%d]: mins=%v maxs=%v",
+                (float)i, minimap_volumes[i].mins, minimap_volumes[i].maxs);
+    }
+
+    println("Probing networked entities for pickups...");
+    int total = 0;
+    int active = 0;
+    int with_model = 0;
+    int pickups = 0;
+    float n = getentity(0, GE_MAXENTS);
+    for (float j = 1; j < n; j++) {
+        total++;
+        float a = getentity(j, GE_ACTIVE);
+        if (!a) continue;
+        active++;
+        float midx = getentity(j, GE_MODELINDEX);
+        if (midx == 0) continue;
+        with_model++;
+        string mname = modelnameforindex(midx);
+        if (MinimapIsPickupModel(mname)) {
+            vector org = getentity(j, GE_ORIGIN);
+            pickups++;
+            println("  pickup ent %d '%s' at %v", (float)j, mname, org);
+        }
+    }
+    println("Scanned %d slots: %d active, %d with model, %d pickups",
+            (float)total, (float)active, (float)with_model, (float)pickups);
     return 1;
 };
 
@@ -1075,7 +1424,7 @@ void() MinimapRegisterDescriptions =
     MinimapDescribeCvar("minimap_player_radius",
         "Radius of the player marker ring on the minimap, in screen pixels.");
     MinimapDescribeCvar("minimap_player_alpha_occluded",
-        "Alpha applied to player markers when the player is occluded from the minimap camera. Visible players are drawn at alpha 1. Default 0.5.");
+        "Alpha applied to a player model that the minimap camera can't see directly (drawn through walls/roofs via a doppelganger pass). Visible players use the engine's normal rendering. Default 0.8.");
     MinimapDescribeCvar("minimap_player_color_team",
         "Ring/triangle color for same-team players. '0 0 0' = average color of the cl_teamskin image.");
     MinimapDescribeCvar("minimap_player_color_enemy",
