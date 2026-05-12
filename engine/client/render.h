@@ -345,15 +345,15 @@ static inline qboolean R_NodeCulledByVolumes(const float *nodemins, const float 
 	int i;
 	const cullvolume_t *v;
 	if (!r_refdef.numcullvolumes)
-		return false;
+		return qfalse;
 	for (i = 0, v = r_refdef.cullvolumes; i < r_refdef.numcullvolumes; i++, v++)
 	{
 		if (nodemins[0] >= v->mins[0] && nodemaxs[0] <= v->maxs[0] &&
 			nodemins[1] >= v->mins[1] && nodemaxs[1] <= v->maxs[1] &&
 			nodemins[2] >= v->mins[2] && nodemaxs[2] <= v->maxs[2])
-			return true;
+			return qtrue;
 	}
-	return false;
+	return qfalse;
 }
 
 extern	struct texture_s	*r_notexture_mip;
