@@ -322,7 +322,10 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			emscripten::val result = emscripten::val::object();
 			result.set("elapsed", elapsed);
 			result.set("total", total);
-			result.set("match_started_at", (int)floor(cl.matchgametimestart));
+			if (cl_demoMatchClockValid)
+				result.set("match_started_at", (int)floor(cl_demoMatchClockStart));
+			else
+				result.set("match_started_at", emscripten::val::null());
 			return result;
 		})
 		.function("getItemTimer", +[](client_state_t& self) -> client_state_t::itemtimer_s* {

@@ -413,15 +413,26 @@ void CL_UpdateWindowTitle(void)
 #ifdef __GLIBC__
 #include <malloc.h>
 #endif
-// Clear the cached match clock state. Called when seeking a demo so that
-// stale matchgametimestart/matchovertime values from forward playback don't
-// leak across the seek; the next batch of "X min[s] left" / overtime prints
-// during fast-parse rebuilds the state at the new position.
+// Print-derived match clock state. Kept fully separate from the engine's
+// cl.matchgametimestart / cl.matchstate so we never write to engine-owned
+// fields. Populated by CL_ParseOvertimeLine / CL_ParseMatchTimeLeftLine in
+// cl_parse.c (driven off "N minutes overtime follows" and "X min[s] left"
+// console prints), cleared by CL_ResetMatchState on demo seek.
+//
+// Units: cl_demoMatchClockStart is demtime (demo playback position) at the
+// moment the match started. CL_GetMatchTime returns demtime - start.
+double   cl_demoMatchClockStart;
+int      cl_demoMatchOvertimeSecs;
+qboolean cl_demoMatchClockValid;
+
+// Clear the cached match clock state. Called when seeking a demo so stale
+// values from forward playback don't leak across the seek; the next batch
+// of "X min[s] left" / overtime prints during fast-parse rebuilds state.
 void CL_ResetMatchState(void)
 {
-	cl.matchgametimestart = 0;
-	cl.matchovertime = 0;
-	cl.matchstate = MATCH_DONTKNOW;
+	cl_demoMatchClockStart = 0;
+	cl_demoMatchOvertimeSecs = 0;
+	cl_demoMatchClockValid = false;
 }
 
 // Whole seconds of demo playback position (demtime). -1 when not playing
@@ -452,22 +463,20 @@ int CL_GetDemoDuration(void)
 	timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
 	if (timelimit <= 0)
 		return -1;
-	return (int)(timelimit * 60) + cl.matchovertime;
+	return (int)(timelimit * 60) + cl_demoMatchOvertimeSecs;
 }
 
 // Whole seconds elapsed since the match started (floored).
-//   >= 0  match in progress
+//   >= 0  match clock available
 //   -1    no match context: disconnected, not yet active, live connection
-//         (not a demo/QTV), pre-match standby, or the pre-match countdown.
-// The countdown phase is intentionally rolled into the -1 case so callers
-// can disambiguate "match running" vs "no game clock yet" without a magic
-// negative range. Frontends that want to display the countdown should read
-// the serverinfo "status" string directly.
+//         (not a demo/QTV), or no "X min[s] left" print has been parsed yet
+//         on a QTV stream.
 //
 // Time base: demtime, the demo playback clock (0-based, resets cleanly on
-// seek/replay/map change). cl.gametime is the server's running wall clock
-// which carries weird offsets and can drift across rewinds. Both demo and
-// QTV playback go through the demtime path, so a single formula serves both.
+// seek/replay/map change). For recorded demos that start at the match's
+// first server frame, demtime itself IS the elapsed match time until a
+// print-derived clock supersedes it. For QTV streams we have to wait for
+// the first "X min[s] left" print to land before we can return anything.
 int CL_GetMatchTime(void)
 {
 	extern float demtime;
@@ -475,15 +484,11 @@ int CL_GetMatchTime(void)
 		return -1;
 	if (cls.demoplayback == DPB_NONE)
 		return -1;
-	// Recorded demo: demtime IS the match clock. QW demos start at the
-	// match's first server frame, so we don't need the "X min[s] left"
-	// derivation - it only matters for QTV (live MVD streams) where demtime
-	// is keyed to when we connected, not to match start.
+	if (cl_demoMatchClockValid)
+		return (int)floor(demtime - cl_demoMatchClockStart);
 	if (cls.lastdemoname[0])
-		return (int)floor(demtime);
-	if (cl.matchstate != MATCH_INPROGRESS)
-		return -1;
-	return (int)floor(demtime - cl.matchgametimestart);
+		return (int)floor(demtime < 0 ? 0 : demtime);
+	return -1;
 }
 
 void CL_MakeActive(char *gamename)
@@ -495,7 +500,6 @@ void CL_MakeActive(char *gamename)
 		fs_finds = 0;
 	}
 	cl.matchgametimestart = 0;
-	cl.matchovertime = 0;
 	cls.state = ca_active;
 
 	//this might be expensive, don't count any of this as time spent *playing* the demo. this avoids skipping the first $LOADDURATION seconds.
@@ -3358,13 +3362,8 @@ void CL_CheckServerInfo(void)
 		if (time >= 0)
 		{
 			//always update it. this is to try to cope with overtime.
-			//matchgametimestart is kept in demtime units so CL_GetMatchTime
-			//can produce a stable result across demo seek/replay.
-			extern float demtime;
 			oldstate = cl.matchstate = MATCH_INPROGRESS;
-			cl.matchgametimestart = demtime + time
-				- 60*atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"))
-				- cl.matchovertime;
+			cl.matchgametimestart = cl.gametime + time - 60*atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
 		}
 		else
 		{
@@ -3375,14 +3374,7 @@ void CL_CheckServerInfo(void)
 		}
 	}
 	if (oldstate != cl.matchstate)
-	{
-		extern float demtime;
-		cl.matchgametimestart = demtime;
-		//Clear accumulated overtime when a match ends or a new one begins.
-		//Any transition out of/into MATCH_INPROGRESS implies a fresh game.
-		if (cl.matchstate != MATCH_INPROGRESS || oldstate == MATCH_INPROGRESS)
-			cl.matchovertime = 0;
-	}
+		cl.matchgametimestart = cl.gametime;
 #endif
 
 	CL_CheckServerPacks();

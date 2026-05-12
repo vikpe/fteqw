@@ -6868,8 +6868,9 @@ static void CL_PrintStandardMessage(char *msgtext, int printlevel)
 
 static char printtext[4096];
 //Catches "<N> minute[s] overtime follows" lines emitted by ktx/ktpro and
-//accumulates seconds into cl.matchovertime. The number is at the start of
-//the line (optionally preceded by whitespace).
+//accumulates seconds into cl_demoMatchOvertimeSecs (our own state, not the
+//engine's cl.matchstate / cl.matchgametimestart). The number is at the
+//start of the line (optionally preceded by whitespace).
 static void CL_ParseOvertimeLine(const char *line)
 {
 	const char *p = line;
@@ -6893,15 +6894,14 @@ static void CL_ParseOvertimeLine(const char *line)
 		return;
 	if (minutes <= 0)
 		return;
-	cl.matchovertime += minutes * 60;
+	cl_demoMatchOvertimeSecs += minutes * 60;
 }
 
 //Catches "<N> minute[s]/second[s]/hour[s] left" lines. QTV viewers don't get
 //a reliable serverinfo "status" update; these prints are the only signal we
-//have for where in the match we are. We back-compute matchgametimestart in
-//demtime units (which CL_GetMatchTime reads against) from the timelimit +
-//accumulated overtime so CL_GetMatchTime() starts returning useful values
-//as soon as the first announcement lands.
+//have for where in the match we are. We back-compute the match start in
+//demtime units (separate from cl.matchgametimestart, which the engine owns)
+//from the timelimit + accumulated overtime.
 static void CL_ParseMatchTimeLeftLine(const char *line)
 {
 	extern float demtime;
@@ -6948,13 +6948,12 @@ static void CL_ParseMatchTimeLeftLine(const char *line)
 		return;
 
 	remaining = value * unit_secs;
-	total_secs = 60 * atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit")) + cl.matchovertime;
+	total_secs = 60 * atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit")) + cl_demoMatchOvertimeSecs;
 	if (total_secs <= 0)
 		return;
 
-	cl.matchgametimestart = demtime + remaining - total_secs;
-	if (cl.matchstate != MATCH_INPROGRESS)
-		cl.matchstate = MATCH_INPROGRESS;
+	cl_demoMatchClockStart = demtime + remaining - total_secs;
+	cl_demoMatchClockValid = true;
 }
 
 static void CL_ParsePrint(const char *msg, int level)

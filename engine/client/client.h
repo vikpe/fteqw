@@ -1028,7 +1028,6 @@ typedef struct
 	int contentstage;
 
 	double matchgametimestart;
-	int    matchovertime;       //seconds of overtime accumulated from "N minutes overtime follows" prints. Reset on map change.
 	enum {
 		MATCH_DONTKNOW,	//assumed to be in progress.
 		MATCH_COUNTDOWN,
@@ -1256,6 +1255,14 @@ int  CL_GetMatchTime(void);
 int  CL_GetDemoTime(void);
 int  CL_GetDemoDuration(void);
 void CL_ResetMatchState(void);
+//Print-derived match clock state. Owned entirely by our additive code in
+//cl_main.c / cl_parse.c - the engine's cl.matchgametimestart / cl.matchstate
+//are never touched. cl_demoMatchClockStart is in demtime units (the demo
+//playback position when the match started); cl_demoMatchOvertimeSecs is the
+//accumulated "N minutes overtime follows" prints in seconds.
+extern double   cl_demoMatchClockStart;
+extern int      cl_demoMatchOvertimeSecs;
+extern qboolean cl_demoMatchClockValid;
 void CL_UpdateWindowTitle(void);
 
 #ifdef QUAKESTATS
