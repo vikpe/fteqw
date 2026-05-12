@@ -413,6 +413,79 @@ void CL_UpdateWindowTitle(void)
 #ifdef __GLIBC__
 #include <malloc.h>
 #endif
+// Clear the cached match clock state. Called when seeking a demo so that
+// stale matchgametimestart/matchovertime values from forward playback don't
+// leak across the seek; the next batch of "X min[s] left" / overtime prints
+// during fast-parse rebuilds the state at the new position.
+void CL_ResetMatchState(void)
+{
+	cl.matchgametimestart = 0;
+	cl.matchovertime = 0;
+	cl.matchstate = MATCH_DONTKNOW;
+}
+
+// Whole seconds of demo playback position (demtime). -1 when not playing
+// back a demo or stream. While seeking, report the target position - the
+// engine restarts the demo for backward seeks and demtime briefly reads 0
+// until the fast-parse catches up, which would otherwise yank a progress
+// bar back to the start.
+int CL_GetDemoTime(void)
+{
+	extern float demtime;
+	if (cls.demoplayback == DPB_NONE)
+		return -1;
+	if (cls.demoseeking == DEMOSEEK_TIME)
+		return (int)floor(cls.demoseektime);
+	if (demtime < 0)
+		return 0;
+	return (int)floor(demtime);
+}
+
+// Total match length in whole seconds, i.e. timelimit + any overtime
+// announcements parsed so far. -1 when not playing back a demo or stream,
+// or when no timelimit is known.
+int CL_GetDemoDuration(void)
+{
+	float timelimit;
+	if (cls.demoplayback == DPB_NONE)
+		return -1;
+	timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
+	if (timelimit <= 0)
+		return -1;
+	return (int)(timelimit * 60) + cl.matchovertime;
+}
+
+// Whole seconds elapsed since the match started (floored).
+//   >= 0  match in progress
+//   -1    no match context: disconnected, not yet active, live connection
+//         (not a demo/QTV), pre-match standby, or the pre-match countdown.
+// The countdown phase is intentionally rolled into the -1 case so callers
+// can disambiguate "match running" vs "no game clock yet" without a magic
+// negative range. Frontends that want to display the countdown should read
+// the serverinfo "status" string directly.
+//
+// Time base: demtime, the demo playback clock (0-based, resets cleanly on
+// seek/replay/map change). cl.gametime is the server's running wall clock
+// which carries weird offsets and can drift across rewinds. Both demo and
+// QTV playback go through the demtime path, so a single formula serves both.
+int CL_GetMatchTime(void)
+{
+	extern float demtime;
+	if (cls.state != ca_active)
+		return -1;
+	if (cls.demoplayback == DPB_NONE)
+		return -1;
+	// Recorded demo: demtime IS the match clock. QW demos start at the
+	// match's first server frame, so we don't need the "X min[s] left"
+	// derivation - it only matters for QTV (live MVD streams) where demtime
+	// is keyed to when we connected, not to match start.
+	if (cls.lastdemoname[0])
+		return (int)floor(demtime);
+	if (cl.matchstate != MATCH_INPROGRESS)
+		return -1;
+	return (int)floor(demtime - cl.matchgametimestart);
+}
+
 void CL_MakeActive(char *gamename)
 {
 	extern int fs_finds;
@@ -422,6 +495,7 @@ void CL_MakeActive(char *gamename)
 		fs_finds = 0;
 	}
 	cl.matchgametimestart = 0;
+	cl.matchovertime = 0;
 	cls.state = ca_active;
 
 	//this might be expensive, don't count any of this as time spent *playing* the demo. this avoids skipping the first $LOADDURATION seconds.
@@ -3284,8 +3358,13 @@ void CL_CheckServerInfo(void)
 		if (time >= 0)
 		{
 			//always update it. this is to try to cope with overtime.
+			//matchgametimestart is kept in demtime units so CL_GetMatchTime
+			//can produce a stable result across demo seek/replay.
+			extern float demtime;
 			oldstate = cl.matchstate = MATCH_INPROGRESS;
-			cl.matchgametimestart = cl.gametime + time - 60*atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
+			cl.matchgametimestart = demtime + time
+				- 60*atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"))
+				- cl.matchovertime;
 		}
 		else
 		{
@@ -3296,7 +3375,14 @@ void CL_CheckServerInfo(void)
 		}
 	}
 	if (oldstate != cl.matchstate)
-		cl.matchgametimestart = cl.gametime;
+	{
+		extern float demtime;
+		cl.matchgametimestart = demtime;
+		//Clear accumulated overtime when a match ends or a new one begins.
+		//Any transition out of/into MATCH_INPROGRESS implies a fresh game.
+		if (cl.matchstate != MATCH_INPROGRESS || oldstate == MATCH_INPROGRESS)
+			cl.matchovertime = 0;
+	}
 #endif
 
 	CL_CheckServerPacks();

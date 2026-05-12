@@ -17,4 +17,5 @@ itemtype.qc
 cameras.qc
 itemtimer.qc
 minimap.qc
+score_overlay.qc
 main.qc

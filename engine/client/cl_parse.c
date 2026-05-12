@@ -6867,6 +6867,96 @@ static void CL_PrintStandardMessage(char *msgtext, int printlevel)
 }
 
 static char printtext[4096];
+//Catches "<N> minute[s] overtime follows" lines emitted by ktx/ktpro and
+//accumulates seconds into cl.matchovertime. The number is at the start of
+//the line (optionally preceded by whitespace).
+static void CL_ParseOvertimeLine(const char *line)
+{
+	const char *p = line;
+	int minutes;
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (*p < '0' || *p > '9')
+		return;
+	minutes = atoi(p);
+	while (*p >= '0' && *p <= '9')
+		p++;
+	if (*p != ' ')
+		return;
+	p++;
+	if (strncmp(p, "minute", 6))
+		return;
+	p += 6;
+	if (*p == 's')
+		p++;
+	if (strncmp(p, " overtime follows", 17))
+		return;
+	if (minutes <= 0)
+		return;
+	cl.matchovertime += minutes * 60;
+}
+
+//Catches "<N> minute[s]/second[s]/hour[s] left" lines. QTV viewers don't get
+//a reliable serverinfo "status" update; these prints are the only signal we
+//have for where in the match we are. We back-compute matchgametimestart in
+//demtime units (which CL_GetMatchTime reads against) from the timelimit +
+//accumulated overtime so CL_GetMatchTime() starts returning useful values
+//as soon as the first announcement lands.
+static void CL_ParseMatchTimeLeftLine(const char *line)
+{
+	extern float demtime;
+	const char *p = line;
+	int value;
+	int unit_secs;
+	int remaining;
+	float total_secs;
+
+	while (*p == ' ' || *p == '\t')
+		p++;
+	if (*p < '0' || *p > '9')
+		return;
+	value = atoi(p);
+	while (*p >= '0' && *p <= '9')
+		p++;
+	if (*p != ' ')
+		return;
+	p++;
+
+	if (!strncmp(p, "minute", 6))
+	{
+		unit_secs = 60;
+		p += 6;
+	}
+	else if (!strncmp(p, "second", 6))
+	{
+		unit_secs = 1;
+		p += 6;
+	}
+	else if (!strncmp(p, "hour", 4))
+	{
+		unit_secs = 3600;
+		p += 4;
+	}
+	else
+		return;
+
+	if (*p == 's')
+		p++;
+	if (strncmp(p, " left", 5))
+		return;
+	if (value < 0)
+		return;
+
+	remaining = value * unit_secs;
+	total_secs = 60 * atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit")) + cl.matchovertime;
+	if (total_secs <= 0)
+		return;
+
+	cl.matchgametimestart = demtime + remaining - total_secs;
+	if (cl.matchstate != MATCH_INPROGRESS)
+		cl.matchstate = MATCH_INPROGRESS;
+}
+
 static void CL_ParsePrint(const char *msg, int level)
 {
 	char n, *e;
@@ -6885,6 +6975,9 @@ static void CL_ParsePrint(const char *msg, int level)
 	{
 		n = e[1];
 		e[1] = 0;
+
+		CL_ParseOvertimeLine(printtext);
+		CL_ParseMatchTimeLeftLine(printtext);
 
 //		QTube wants all the stats
 //		if (!cls.demoseeking)

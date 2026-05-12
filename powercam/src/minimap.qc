@@ -178,10 +178,23 @@ float() MinimapNarrowToLocFile =
         return 0;
     }
 
+    // .loc files only mark named landmarks, not the full playable extent.
+    // Inflate generously so corners/walls of the playable area aren't
+    // cropped, then only adopt the result if it's actually tighter than
+    // the BSP-derived bounds.
+    float pad = 256;
+    minx -= pad;  miny -= pad;
+    maxx += pad;  maxy += pad;
+
+    float new_ext   = max(maxx - minx, maxy - miny);
+    float new_ortho = new_ext * 0.5 + 64;
+    if (new_ortho >= minimap_ortho) {
+        return 0;
+    }
+
     minimap_center.x = (minx + maxx) * 0.5;
     minimap_center.y = (miny + maxy) * 0.5;
-    float ext = max(maxx - minx, maxy - miny);
-    minimap_ortho = ext * 0.5 + 64;
+    minimap_ortho = new_ortho;
     debug("minimap: locs/%s.loc narrowed bounds (%g points), center %v, ortho %g",
           mapname, count, minimap_center, minimap_ortho);
     return 1;
@@ -690,17 +703,48 @@ void(vector cam_origin) MinimapDrawPlayers =
     float highlight_alpha    = 1;
     vector highlight_color   = '0 1 1';  // #00ffff
 
+    float plyr_mdl = getmodelindex("progs/player.mdl");
+    float is_demo  = isdemo();
+
     for (int i = 1; i <= maxclients; i++) {
-        // The local POV player's entity may not show up in GE_ACTIVE / model
-        // checks (engine hides own model). Detect players via their userinfo
-        // name instead, which is set for every connected slot regardless.
-        string pname = getplayerkeyvalue(i - 1, "name");
+        float pnum_idx = i - 1;
+        // Slot must have a name (so it's connected).
+        string pname = getplayerkeyvalue(pnum_idx, "name");
         if (pname == "") {
             continue;
         }
+        // Spectators have userinfo but no playable entity.
+        if (stof(getplayerkeyvalue(pnum_idx, "*spectator")) > 0) {
+            continue;
+        }
+        // Mirrors bindings.cpp:getPlayers: on demo playback, post-match
+        // ghost slots can linger with no frags and zeroed colors. Drop them.
+        if (is_demo
+            && stof(getplayerkeyvalue(pnum_idx, "frags"))       < 1
+            && stof(getplayerkeyvalue(pnum_idx, "topcolor"))    == 0
+            && stof(getplayerkeyvalue(pnum_idx, "bottomcolor")) == 0) {
+            continue;
+        }
+        // Require an active player entity. Without this, slots whose entity
+        // hasn't synced (typical for QTV during gaps) get phantom markers
+        // even though the renderer has no model to draw.
+        float active = getentity(i, GE_ACTIVE);
+        if (!active) {
+            continue;
+        }
+        float modidx = getentity(i, GE_MODELINDEX);
+        if (modidx != plyr_mdl) {
+            continue;
+        }
         vector origin = getentity(i, GE_ORIGIN);
+        // Origin at world zero usually means the entity slot exists but the
+        // server hasn't placed it yet (mid-respawn, mid-pickup, sync gap).
+        // Skip - the renderer won't draw the model there either.
+        if (origin == '0 0 0') {
+            continue;
+        }
         vector angles = getentity(i, GE_ANGLES);
-        float  pnum   = i - 1;
+        float  pnum   = pnum_idx;
 
         // 2D overlay is drawn after renderscene without depth test, so the
         // marker is always visible. Trace from player head straight UP to

@@ -307,10 +307,24 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		.property("deathmatch", &client_state_t::deathmatch)
 		.property("teamplay", &client_state_t::teamplay)
 		.property("allocated_client_slots", &client_state_t::allocated_client_slots)
-		.property("matchgametimestart", &client_state_t::matchgametimestart)
 		.property("matchstate", &client_state_t::matchstate) // enum, how
-		.property("gametime", &client_state_t::gametime)
-		.property("time", &client_state_t::time)
+		.function("getMatchTime", +[](client_state_t& self) -> emscripten::val {
+			int v = CL_GetMatchTime();
+			if (v < 0)
+				return emscripten::val::null();
+			return emscripten::val(v);
+		})
+		.function("getDemoState", +[](client_state_t& self) -> emscripten::val {
+			int elapsed = CL_GetDemoTime();
+			int total = CL_GetDemoDuration();
+			if (elapsed < 0 || total < 0)
+				return emscripten::val::null();
+			emscripten::val result = emscripten::val::object();
+			result.set("elapsed", elapsed);
+			result.set("total", total);
+			result.set("match_started_at", (int)floor(cl.matchgametimestart));
+			return result;
+		})
 		.function("getItemTimer", +[](client_state_t& self) -> client_state_t::itemtimer_s* {
 			return self.itemtimers;
 		}, allow_raw_pointers())
@@ -343,19 +357,19 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 
 			char *demoplayback = Cmd_GetMacroValue("demoplayback");
 			bool is_dem_playback = demoplayback && strcmp(demoplayback, "demplayback") == 0;
-			
+
 			int n_player = 0;
 			for (int i = 0; i < cl.allocated_client_slots; i++) {
 			    player_info_t *player = &(cl.players[i]);
-			
+
 			    if (!player->name[0] || player->spectator) {
 			        continue;
 			    }
-			
+
 			    if (is_dem_playback && player->frags < 1 && player->rbottomcolor == 0 && player->rtopcolor == 0) {
 			        continue;
 			    }
-			
+
 			    result.set(n_player++, player);
 			}
 			return result;
@@ -476,7 +490,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
         if (cls.demoplayback) {
            	if (*cls.lastdemoname) {
                 info.set("type", "demo");
-				info.set("last_source", cls.lastdemoname);				
+				info.set("last_source", cls.lastdemoname);
            	} else {
                 info.set("type", "qtv");
                 info.set("last_source", cls.last_qtv_stream);
@@ -487,11 +501,6 @@ EMSCRIPTEN_BINDINGS(browser_api) {
         }
 
         return info;
-	});
-
-	function("getDemoTime",  +[]() -> float {
-		extern float demtime;
-		return demtime;
 	});
 
 	function("getCvar", +[](std::string name) -> std::string {

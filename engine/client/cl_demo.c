@@ -487,6 +487,10 @@ void CL_DemoJump_f(void)
 
 		//now fastparse it.
 		cls.demoseektime = newtime;
+		//Demo restarted: forget the cached match clock so fast-parse rebuilds
+		//it from the upcoming "X min[s] left" / overtime prints. Forward
+		//seeks don't restart the demo, so the existing state is still valid.
+		CL_ResetMatchState();
 	}
 	cls.demoseeking = DEMOSEEK_TIME;
 }

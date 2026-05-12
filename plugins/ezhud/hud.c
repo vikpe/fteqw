@@ -991,61 +991,75 @@ qbool HUD_PrepareDraw(hud_t *hud, int width, int height, // In.
     //
     // Placement.
 	//
-    switch (hud->place_num)
+    //
+    // All anchors are scoped to the active player view rect (scr_vrect),
+    // not the raw video size. With cl_splitscreen or the minimap split
+    // overriding VF_MIN/VF_SIZE, this keeps the HUD inside the player's
+    // half of the screen instead of bleeding into the other viewport.
+    //
     {
-		default:
-		case HUD_PLACE_SCREEN:
-			bounds_x = bounds_y = 0;
-			bounds_width = vid.width;
-			bounds_height = vid.height;
-			break;
-		case HUD_PLACE_TOP: // Top = screen - sbar
-			bounds_x = bounds_y = 0;
-			bounds_width = vid.width;
-			bounds_height = vid.height - sb_lines;
-			break;
-		case HUD_PLACE_VIEW:
-			bounds_x = scr_vrect.x;
-			bounds_y = scr_vrect.y;
-			bounds_width = scr_vrect.width;
-			bounds_height = scr_vrect.height;
-			break;
-		case HUD_PLACE_SBAR:
-			bounds_x = 0;
-			bounds_y = vid.height - sb_lines;
-			bounds_width = sbar_last_width;
-			bounds_height = sb_lines;
-			break;
-		case HUD_PLACE_IBAR:
-			bounds_width = sbar_last_width;
-			bounds_height = max(sb_lines - SBAR_HEIGHT, 0);
-			bounds_x = 0;
-			bounds_y = vid.height - sb_lines;
-			break;
-		case HUD_PLACE_HBAR:
-			bounds_width = sbar_last_width;
-			bounds_height = min(SBAR_HEIGHT, sb_lines);
-			bounds_x = 0;
-			bounds_y = vid.height - bounds_height;
-			break;
-		case HUD_PLACE_SFREE:
-			bounds_x = sbar_last_width;
-			bounds_y = vid.height - sb_lines;
-			bounds_width = vid.width - sbar_last_width;
-			bounds_height = sb_lines;
-			break;
-		case HUD_PLACE_IFREE:
-			bounds_width = vid.width - sbar_last_width;
-			bounds_height = max(sb_lines - SBAR_HEIGHT, 0);
-			bounds_x = sbar_last_width;
-			bounds_y = vid.height - sb_lines;
-			break;
-		case HUD_PLACE_HFREE:
-			bounds_width = vid.width - sbar_last_width;
-			bounds_height = min(SBAR_HEIGHT, sb_lines);
-			bounds_x = sbar_last_width;
-			bounds_y = vid.height - bounds_height;
-			break;
+		int vx = scr_vrect.x;
+		int vy = scr_vrect.y;
+		int vw = scr_vrect.width;
+		int vh = scr_vrect.height;
+		switch (hud->place_num)
+		{
+			default:
+			case HUD_PLACE_SCREEN:
+				bounds_x = vx;
+				bounds_y = vy;
+				bounds_width = vw;
+				bounds_height = vh;
+				break;
+			case HUD_PLACE_TOP: // Top = view - sbar
+				bounds_x = vx;
+				bounds_y = vy;
+				bounds_width = vw;
+				bounds_height = vh - sb_lines;
+				break;
+			case HUD_PLACE_VIEW:
+				bounds_x = vx;
+				bounds_y = vy;
+				bounds_width = vw;
+				bounds_height = vh;
+				break;
+			case HUD_PLACE_SBAR:
+				bounds_x = vx;
+				bounds_y = vy + vh - sb_lines;
+				bounds_width = sbar_last_width;
+				bounds_height = sb_lines;
+				break;
+			case HUD_PLACE_IBAR:
+				bounds_width = sbar_last_width;
+				bounds_height = max(sb_lines - SBAR_HEIGHT, 0);
+				bounds_x = vx;
+				bounds_y = vy + vh - sb_lines;
+				break;
+			case HUD_PLACE_HBAR:
+				bounds_width = sbar_last_width;
+				bounds_height = min(SBAR_HEIGHT, sb_lines);
+				bounds_x = vx;
+				bounds_y = vy + vh - bounds_height;
+				break;
+			case HUD_PLACE_SFREE:
+				bounds_x = vx + sbar_last_width;
+				bounds_y = vy + vh - sb_lines;
+				bounds_width = vw - sbar_last_width;
+				bounds_height = sb_lines;
+				break;
+			case HUD_PLACE_IFREE:
+				bounds_width = vw - sbar_last_width;
+				bounds_height = max(sb_lines - SBAR_HEIGHT, 0);
+				bounds_x = vx + sbar_last_width;
+				bounds_y = vy + vh - sb_lines;
+				break;
+			case HUD_PLACE_HFREE:
+				bounds_width = vw - sbar_last_width;
+				bounds_height = min(SBAR_HEIGHT, sb_lines);
+				bounds_x = vx + sbar_last_width;
+				bounds_y = vy + vh - bounds_height;
+				break;
+		}
     }
 
     if (hud->place_hud == NULL)

@@ -399,6 +399,8 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
         addentities(MASK_XRAY);
         setviewprop(VF_DRAWWORLD, 0);
         renderscene();
+
+        ScoreOverlayDraw(main_min, main_size);
     }
 
     if (time < camera_start) {

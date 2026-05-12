@@ -1028,6 +1028,7 @@ typedef struct
 	int contentstage;
 
 	double matchgametimestart;
+	int    matchovertime;       //seconds of overtime accumulated from "N minutes overtime follows" prints. Reset on map change.
 	enum {
 		MATCH_DONTKNOW,	//assumed to be in progress.
 		MATCH_COUNTDOWN,
@@ -1251,6 +1252,10 @@ extern 	kbutton_t 	in_speed;
 extern	float in_sensitivityscale;
 
 void CL_MakeActive(char *gamename);
+int  CL_GetMatchTime(void);
+int  CL_GetDemoTime(void);
+int  CL_GetDemoDuration(void);
+void CL_ResetMatchState(void);
 void CL_UpdateWindowTitle(void);
 
 #ifdef QUAKESTATS

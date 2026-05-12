@@ -838,9 +838,10 @@ static void SCR_HUD_DrawNotify(hud_t* hud)
 //
 void SCR_HUD_DrawGameClock(hud_t *hud)
 {
-    int width, height;
-    int x, y;
+    int width = 0, height = 0;
+    int x = 0, y = 0;
 	int timetype;
+	int big;
 	const char *t;
 
     static cvar_t
@@ -863,14 +864,34 @@ void SCR_HUD_DrawGameClock(hud_t *hud)
 //		gameclockoffset = &hud_gameclock_offset->ival;
     }
 
-	timetype = (hud_gameclock_countdown->value) ? TIMETYPE_GAMECLOCKINV : TIMETYPE_GAMECLOCK;
-	t = SCR_GetTimeString(timetype, NULL);
-	width = SCR_GetClockStringWidth(t, hud_gameclock_big->ival, hud_gameclock_scale->value);
-	height = SCR_GetClockStringHeight(hud_gameclock_big->ival, hud_gameclock_scale->value);
+	// Hide entirely during standby (pre-match / intermission).
+	if (cl.standby)
+	{
+		HUD_PrepareDraw(hud, width, height, &x, &y);
+		return;
+	}
+
+	big = hud_gameclock_big->ival;
+
+	if (cl.countdown)
+	{
+		// "Countdown" placeholder during the pre-match countdown. SCR_DrawBigClock
+		// only knows digits + ':' so force the small-clock path for letters.
+		t = "Countdown";
+		big = 0;
+	}
+	else
+	{
+		timetype = (hud_gameclock_countdown->value) ? TIMETYPE_GAMECLOCKINV : TIMETYPE_GAMECLOCK;
+		t = SCR_GetTimeString(timetype, NULL);
+	}
+
+	width = SCR_GetClockStringWidth(t, big, hud_gameclock_scale->value);
+	height = SCR_GetClockStringHeight(big, hud_gameclock_scale->value);
 
     if (HUD_PrepareDraw(hud, width, height, &x, &y))
     {
-        if (hud_gameclock_big->value)
+        if (big)
             SCR_DrawBigClock(x, y, hud_gameclock_style->value, hud_gameclock_blink->value, hud_gameclock_scale->value, t);
         else
             SCR_DrawSmallClock(x, y, hud_gameclock_style->value, hud_gameclock_blink->value, hud_gameclock_scale->value, t);

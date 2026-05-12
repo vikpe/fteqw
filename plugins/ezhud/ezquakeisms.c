@@ -439,16 +439,30 @@ char *SecondsToMinutesString(int print_time, char *buffer, size_t buffersize) {
 	snprintf (buffer, buffersize, "%i%i:%i%i", tens_minutes, minutes, tens_seconds, seconds);
 	return buffer;
 }
+// Reads the engine's CL_GetMatchTime() which returns:
+//   >= 0  seconds since the match started (floored)
+//   -1    no match context (standby, countdown, disconnected, live, etc.)
+// During the no-match case we display 00:00; the engine purposefully doesn't
+// surface a separate countdown reading - if you want that, read the
+// serverinfo "status" string. Requires static link (LINK_EZHUD=1); the web
+// CI build does this.
+extern int CL_GetMatchTime(void);
+
 char *SCR_GetGameTime(int t, char *buffer, size_t buffersize)
 {
+	int matchtime = CL_GetMatchTime();
 	float timelimit;
+	int seconds;
 
-	timelimit = (t == TIMETYPE_GAMECLOCKINV) ? 60 * infofloat(cl.serverinfo, "timelimit", 0) + 1: 0;
+	if (matchtime < 0)
+	{
+		SecondsToMinutesString(0, buffer, buffersize);
+		return buffer;
+	}
 
-	if (cl.countdown || cl.standby)
-		SecondsToMinutesString(timelimit, buffer, buffersize);
-	else
-		SecondsToMinutesString((int) fabs(timelimit - (cl.time - cl.matchstart)), buffer, buffersize);
+	timelimit = (t == TIMETYPE_GAMECLOCKINV) ? 60 * infofloat(cl.serverinfo, "timelimit", 0) + 1 : 0;
+	seconds = (int)fabs(timelimit - matchtime);
+	SecondsToMinutesString(seconds, buffer, buffersize);
 	return buffer;
 }
 	
@@ -659,8 +673,8 @@ int EZHud_Draw(int seat, float viewx, float viewy, float viewwidth, float viewhe
 	cl.intermission = infofloat(cl.serverinfo, "intermission", 0);
 	cl.spectator = (cl.playernum>=32)||cl.players[cl.playernum].spectator;
 	infostring(cl.serverinfo, "status", val, sizeof(val));
-	cl.standby = !strcmp(val, "standby");
-	cl.countdown = !strcmp(val, "countdown");
+	cl.standby = !strcasecmp(val, "standby");
+	cl.countdown = !strcasecmp(val, "countdown");
 	cl.matchstart = infofloat(cl.serverinfo, "matchstart", 0);
 	cls.state = ca_active;
 
