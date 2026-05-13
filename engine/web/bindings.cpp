@@ -314,22 +314,27 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 				return emscripten::val::null();
 			return emscripten::val(elapsed);
 		})
-		.function("getDemoState", +[](client_state_t& self) -> emscripten::val {
-			// Recorded demos only. QTV streams have no demo timeline -
-			// callers should use getMatchElapsed instead.
+		.function("getDemoInfo", +[](client_state_t& self) -> emscripten::val {
+			// File-walked scan snapshot captured at demo load time
+			// (see cl_hub_demo_timeline.c). null when no scan has run
+			// (QTV streams, unseekable sources, unsupported formats).
 			if (!cls.lastdemoname[0])
 				return emscripten::val::null();
-			int elapsed  = Hub_GetDemoElapsed();
-			int todal_duration = Hub_GetDemoEstimatedTotalDuration();
-			if (elapsed < 0 || todal_duration < 0)
+
+			int elapsed_ms  = Hub_GetDemoElapsed();
+			if (elapsed_ms <= 0)
 				return emscripten::val::null();
-			extern double hub_countdown_duration;
-			extern int    hub_overtime_duration;
+
+			extern int hub_demo_timelimit_ms;
+			extern int hub_demo_countdown_ms;
+			extern int hub_demo_total_ms;
+			if (hub_demo_total_ms <= 0)
+				return emscripten::val::null();
 			emscripten::val result = emscripten::val::object();
-			result.set("elapsed", elapsed);
-			result.set("countdown_duration", (int)floor(hub_countdown_duration));
-			result.set("overtime_duration", hub_overtime_duration);
-			result.set("estimated_total_duration", todal_duration);
+			result.set("elapsed_ms",   elapsed_ms);
+			result.set("total_ms",     hub_demo_total_ms);
+			result.set("timelimit_ms", hub_demo_timelimit_ms);
+			result.set("countdown_ms", hub_demo_countdown_ms);
 			return result;
 		})
 		.function("getItemTimer", +[](client_state_t& self) -> client_state_t::itemtimer_s* {

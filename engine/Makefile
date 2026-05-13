@@ -744,6 +744,9 @@ CLIENT_OBJS = \
 	cl_main.o	\
 	cl_parse.o	\
 	cl_hub.o	\
+	cl_hub_demo_timeline.o	\
+	cl_hub_demo_timeline_qw.o	\
+	cl_hub_demo_timeline_nq.o	\
 	cl_pred.o	\
 	cl_tent.o	\
 	cl_cam.o	\

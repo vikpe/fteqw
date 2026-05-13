@@ -20,6 +20,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "fs.h"
+#include "cl_hub_demo_timeline.h"
 
 void CL_FinishTimeDemo (void);
 float demtime;
@@ -2456,6 +2457,7 @@ void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int 
 		Con_Printf("Buffering for %g seconds\n", bufferdelay);
 	cls.netchan.last_received=demtime;
 
+	Hub_DemoTimeline_Scan(file, demotype);
 	TP_ExecTrigger ("f_demostart", true);
 }
 
@@ -2469,6 +2471,7 @@ vfsfile_t *CL_OpenFileInZipOrSys(char *name, qboolean usesystempath)
 //tries to determine the demo type
 void CL_PlayDemoFile(vfsfile_t *f, char *demoname, qboolean issyspath)
 {
+
 #if defined(Q2CLIENT) || defined(NQPROT)
 	//figure out where we started
 	qofs_t start = VFS_TELL(f);

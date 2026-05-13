@@ -53,17 +53,6 @@ int Hub_GetDemoElapsed(void)
 	return (int)floor(demtime);
 }
 
-int Hub_GetDemoEstimatedTotalDuration(void)
-{
-	if (cls.demoplayback == DPB_NONE)
-		return -1;
-
-	float timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
-	if (timelimit <= 0)
-		return -1;
-	return (int)(timelimit * 60) + hub_overtime_duration;
-}
-
 int Hub_GetMatchElapsed(void)
 {
 	if (cls.state != ca_active)
