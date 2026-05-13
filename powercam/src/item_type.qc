@@ -20,7 +20,7 @@ typedef enum {
     IT_PENT,
 } itemtype_t;
 
-itemtype_t(float model_index) PipItemTypeByModelIndex =
+itemtype_t(float model_index) PowcamItemTypeByModelIndex =
 {
     if (!model_index) {
         return IT_NONE;
@@ -37,7 +37,7 @@ itemtype_t(float model_index) PipItemTypeByModelIndex =
     }
 };
 
-itemtype_t(string sound_name) PipItemTypeBySoundName =
+itemtype_t(string sound_name) PowcamItemTypeBySoundName =
 {
     itemtype_t type = IT_NONE;
     switch (sound_name) {
@@ -50,7 +50,7 @@ itemtype_t(string sound_name) PipItemTypeBySoundName =
     }
 };
 
-itemtype_t(float respawn_delay) PipItemTypeByRespawnDelay =
+itemtype_t(float respawn_delay) PowcamItemTypeByRespawnDelay =
 {
     switch (respawn_delay) {
     case 60:

@@ -24,12 +24,12 @@ typedef struct {
 
 itemtimer_t timers[MAX_POWERUPS];
 
-itemtimer_t*() PipGetTimers =
+itemtimer_t*() PowcamGetTimers =
 {
     return timers;
 };
 
-itemtimer_t*(int index) PipGetTimer =
+itemtimer_t*(int index) PowcamGetTimer =
 {
     itemtimer_t *timer = &timers[index];
     if (timer && !timer->item)
@@ -37,7 +37,7 @@ itemtimer_t*(int index) PipGetTimer =
     return timer;
 }
 
-float(float isnew) PipPowerupSpawnListener =
+float(float isnew) PowcamSpawnListener =
 {
     for (int i = 0; i < MAX_POWERUPS; i++) {
         itemtimer_t *timer = &timers[i];
@@ -48,7 +48,7 @@ float(float isnew) PipPowerupSpawnListener =
         timer->entnum = self.entnum;
 
         if (!timer->item) {
-            timer.item = PipFindItem(self.origin, self.modelindex);
+            timer.item = PowcamFindItem(self.origin, self.modelindex);
             if (timer.item) {
                 debug("Associated timer via listener");
             }
@@ -60,7 +60,7 @@ float(float isnew) PipPowerupSpawnListener =
     return isnew;
 };
 
-void(float timestamp) PipResetTimers =
+void(float timestamp) PowcamResetTimers =
 {
     for (int i = 0; i < MAX_POWERUPS; i++) {
         itemtimer_t *timer = &timers[i];
@@ -70,13 +70,12 @@ void(float timestamp) PipResetTimers =
         timer->took = 0;
         timer->respawn = 0;
         timer->item = nil;
-
     }
 }
 
 void(string msg) CSQC_Parse_StuffCmd =
 {
-    if (!PipGetCurrentItems())
+    if (!PowcamGetCurrentItems())
         return;
 
     if (strncmp(msg, "//ktx took ", 10)) {
@@ -90,7 +89,7 @@ void(string msg) CSQC_Parse_StuffCmd =
 
     float delay = stof(argv(1));
 
-    itemtype_t type = PipItemTypeByRespawnDelay(delay);
+    itemtype_t type = PowcamItemTypeByRespawnDelay(delay);
 
     // Lets assume standardized quad and pent respawn timers
     if (!(type == IT_QUAD || type == IT_PENT)) {
@@ -107,7 +106,7 @@ void(string msg) CSQC_Parse_StuffCmd =
         }
 
         if (!timer->item) {
-            item_t *item = PipFindItemByEntity(entnum);
+            item_t *item = PowcamFindItemByEntity(entnum);
             if (!item) {
                 debug("ITEM NOT FOUND!");
                 return;

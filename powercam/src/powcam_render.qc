@@ -1,34 +1,34 @@
 /*
- * Picture-in-Picture overlay rendering. Drawn over the player view rect:
+ * Powcam overlay rendering. Drawn over the player view rect:
  * a small 3D scene from the powerup camera, plus a colored background
  * frame and a one-line caption underneath. Slide animation at the start
  * and end of the scheduled window is driven by easeInExpo.
  *
- * Returns 1 if a PiP was rendered this frame, 0 otherwise. The main
+ * Returns 1 if a powcam was rendered this frame, 0 otherwise. The main
  * lifecycle (CSQC_UpdateView) uses this to decide whether to also tick
  * the scheduler forward.
  */
 
-float(vector main_min, vector main_size, float vwidth, float vheight) PipRender =
+float(vector main_min, vector main_size, float vwidth, float vheight) PowcamRender =
 {
-    if (time < camera_start) {
+    if (time < powcam_start) {
         return 0;
     }
 
-    itemtimer_t *timer = PipGetTimer(camera_index);
+    itemtimer_t *timer = PowcamGetTimer(powcam_index);
     if (!timer) {
         return 0;
     }
     item_t *item = timer->item;
 
-    if (camera_end == CAMERA_END_RESET && timer->took > camera_start) {
-        camera_end = timer->took + camera_outro;
-        camera_end_transition = camera_end - camera_transition;
+    if (powcam_end == POWCAM_END_RESET && timer->took > powcam_start) {
+        powcam_end = timer->took + powcam_outro;
+        powcam_end_transition = powcam_end - powcam_transition;
     }
 
     vector font_size = '8 8 0';
 
-    // Anchor PiP to the player view rect so it stays over the player camera
+    // Anchor powcam to the player view rect so it stays over the player camera
     // (e.g. left half in split mode), not over the minimap.
     float aspect_ratio = vheight / vwidth;
     float width = main_size.x / 4.0;
@@ -36,25 +36,25 @@ float(vector main_min, vector main_size, float vwidth, float vheight) PipRender 
 
     float margin = width / 10.0;
     float x_offset = main_min.x + main_size.x - margin - width;
-    // Shift down by the score overlay's reserved height so the PiP doesn't
+    // Shift down by the score overlay's reserved height so the powcam doesn't
     // overlap it. We always reserve the space (even when the overlay would
-    // skip drawing) so the PiP doesn't jump around when the overlay toggles.
+    // skip drawing) so the powcam doesn't jump around when the overlay toggles.
     float y_anchor = main_min.y + ScoreOverlayReservedHeight(main_size);
 
     float delta = 0.0;
     float slide_offset = 0;
 
-    if (time >= camera_start && time < camera_start_transition) {
-        delta = easeInExpo((camera_start_transition - time) / camera_transition);
+    if (time >= powcam_start && time < powcam_start_transition) {
+        delta = easeInExpo((powcam_start_transition - time) / powcam_transition);
     }
-    else if (time >= camera_end_transition) {
-        delta = 1.0 - easeInExpo((camera_end - time) / camera_transition);
+    else if (time >= powcam_end_transition) {
+        delta = 1.0 - easeInExpo((powcam_end - time) / powcam_transition);
     }
 
     if (delta > 0.0) {
-        // Slide PiP vertically (off the top of the player viewport). Sliding
+        // Slide powcam vertically (off the top of the player viewport). Sliding
         // horizontally crosses into the minimap area in split mode and ends
-        // up rendering over it, since the PiP renderscene can't be clipped
+        // up rendering over it, since the powcam renderscene can't be clipped
         // by a 2D scissor.
         slide_offset = (height + margin) * delta;
     }
@@ -65,7 +65,7 @@ float(vector main_min, vector main_size, float vwidth, float vheight) PipRender 
     float bg_width = width + margin / 2;
     float bg_height = height + margin / 2 + font_size.y;
     float bg_alpha = 0.5;
-    drawfill([bg_offset_x, bg_offset_y], [bg_width, bg_height], camera_bg_color, bg_alpha);
+    drawfill([bg_offset_x, bg_offset_y], [bg_width, bg_height], powcam_bg_color, bg_alpha);
 
     // Black contrasting inner border.
     float border_offset_x = x_offset - margin / 16;
@@ -105,13 +105,13 @@ float(vector main_min, vector main_size, float vwidth, float vheight) PipRender 
     cvar_set("scr_autoid_weapon", "1");
 
     string text;
-    if (time < timer->respawn && time > (timer->respawn - camera_intro)) {
-        text = sprintf("%s in %i sec", camera_item_name, (int)ceil(timer->respawn - time));
-    } else if (time > timer->took && timer->took > camera_start) {
+    if (time < timer->respawn && time > (timer->respawn - powcam_intro)) {
+        text = sprintf("%s in %i sec", powcam_item_name, (int)ceil(timer->respawn - time));
+    } else if (time > timer->took && timer->took > powcam_start) {
         string name = getplayerkeyvalue(timer->playernum - 1, INFOKEY_P_NAME);
-        text = sprintf("%s's %s", name, camera_item_name);
+        text = sprintf("%s's %s", name, powcam_item_name);
     } else {
-        text = sprintf("%s spawned!", camera_item_name);
+        text = sprintf("%s spawned!", powcam_item_name);
     }
 
     float txt_offset_x = x_offset;
@@ -122,7 +122,7 @@ float(vector main_min, vector main_size, float vwidth, float vheight) PipRender 
     drawstring([txt_offset_x, txt_offset_y], text, font_size, txt_color, txt_alpha, 0);
     drawresetcliparea();
 
-    if (time > camera_end) {
+    if (time > powcam_end) {
         ResetCamera();
         SelectNextCamera();
     }

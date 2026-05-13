@@ -111,7 +111,7 @@ struct {
 var string mapname = "";
 var item_t* active_items = nil;
 
-float() PipLoadItems =
+float() PowcamLoadItems =
 {
     for (int i = 0; i < database.length; i++) {
         if (database[i].name == mapname) {
@@ -122,7 +122,7 @@ float() PipLoadItems =
     return 0;
 };
 
-item_t*() PipGetCurrentItems =
+item_t*() PowcamGetCurrentItems =
 {
     if (!active_items)
         return nil;
@@ -131,10 +131,10 @@ item_t*() PipGetCurrentItems =
 
 var int num_items = 0;
 
-int() PipCountItems =
+int() PowcamCountItems =
 {
     if (!num_items) {
-        item_t *items = PipGetCurrentItems();
+        item_t *items = PowcamGetCurrentItems();
         for (int i = 0; i < MAX_POWERUPS; i++) {
             item_t *item = &items[i];
             if (item.type == IT_NONE)
@@ -145,9 +145,9 @@ int() PipCountItems =
     return num_items;
 };
 
-item_t*(vector origin, vector tolerance, itemtype_t expected_type) PipFindItemInternal =
+item_t*(vector origin, vector tolerance, itemtype_t expected_type) PowcamFindItemInternal =
 {
-    item_t *items = PipGetCurrentItems();
+    item_t *items = PowcamGetCurrentItems();
     if (!items)
         return nil;
 
@@ -175,14 +175,14 @@ item_t*(vector origin, vector tolerance, itemtype_t expected_type) PipFindItemIn
     }
 
     // Fallback if map only has a single camera
-    if (PipCountItems() == 1) {
+    if (PowcamCountItems() == 1) {
         return &items[0];
     }
 
     return nil;
 };
 
-item_t*(vector org, float model_index) PipFindItem =
+item_t*(vector org, float model_index) PowcamFindItem =
 {
     if (org == '0 0 0') {
         debug("zero origin, skipping");
@@ -192,18 +192,18 @@ item_t*(vector org, float model_index) PipFindItem =
         debug("zero type, skipping");
         return nil;
     }
-    itemtype_t type = PipItemTypeByModelIndex(model_index);
-    return PipFindItemInternal(org, '0 0 64', type);
+    itemtype_t type = PowcamItemTypeByModelIndex(model_index);
+    return PowcamFindItemInternal(org, '0 0 64', type);
 };
 
-item_t*(float entnum) PipFindItemByEntity =
+item_t*(float entnum) PowcamFindItemByEntity =
 {
     vector org = getentity(entnum, GE_ORIGIN);
     float model_index = getentity(entnum, GE_MODELINDEX);
-    return PipFindItem(org, model_index);
+    return PowcamFindItem(org, model_index);
 };
 
-item_t*(vector org, itemtype_t type) PipFindItemByPlayerOriginAndType =
+item_t*(vector org, itemtype_t type) PowcamFindItemByPlayerOriginAndType =
 {
-    return PipFindItemInternal(org, '64 64 112', type);
+    return PowcamFindItemInternal(org, '64 64 112', type);
 }
