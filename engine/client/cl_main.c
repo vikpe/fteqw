@@ -503,12 +503,13 @@ int CL_GetMatchElapsed(void)
 	if (cls.lastdemoname[0])
 	{
 		extern float demtime;
-		if (demoMatchStartedAt < 0)
-			return -1;
-		double elapsed = demtime - demoMatchStartedAt;
-		if (elapsed < 0)
-			return -1;
-		return (int)floor(elapsed);
+		// TODO
+		// if (demoMatchStartedAt < 0)
+		// 	return -1;
+		// double elapsed = demtime - demoMatchStartedAt;
+		// if (demtime < 0)
+		// 	return -1;
+		return (int)floor(demtime);
 	}
 
 	if (qtvMatchElapsed < 0)

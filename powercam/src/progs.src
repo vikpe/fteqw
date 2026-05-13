@@ -3,7 +3,7 @@
 #define CSQC
 #pragma target fte
 
-#define debug(fmt, ...) do { if (cvar("pip_debug")) { print(sprintf(sprintf("&c47fdebug:&r %s\n", fmt), ##__VA_ARGS__)); } } while (0)
+#define debug(fmt, ...) do { if (cvar("qdw_debug")) { print(sprintf(sprintf("&c47fdebug:&r %s\n", fmt), ##__VA_ARGS__)); } } while (0)
 #define println(fmt,...) do { print(sprintf(sprintf("%s\n", fmt), ##__VA_ARGS__)); } while (0)
 
 // Drawmask bits used across the addon (also referenced from minimap.qc).
@@ -23,20 +23,20 @@ csplat.qc
 easing.qc
 
 // Data + types
-itemtype.qc
-cameras.qc
+item_type.qc
+powcam_config.qc
 
-// Item spawn / pickup tracker (used by PiP scheduler and minimap)
-itemtimer.qc
+// Item spawn / pickup tracker (used by powcam scheduler and minimap)
+item_timer.qc
 
 // Independent rendering features
 xray.qc
 minimap.qc
 score_overlay.qc
 
-// PiP powerup-cam: schedule then render
-pip_camera.qc
-pip_render.qc
+// Powerup-cam: schedule then render
+powcam.qc
+powcam_render.qc
 
 // Console commands (depend on all feature state above)
 commands.qc

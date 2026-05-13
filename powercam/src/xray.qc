@@ -5,11 +5,11 @@
  * MASK_XRAY (set up in main.qc CSQC_UpdateView).
  */
 
-var float autocvar_pip_xray = 1;
-var float autocvar_pip_xray_alpha = 0.3;
-var float autocvar_pip_xray_distance = 512;
-var vector autocvar_pip_xray_color_team = '0 1 0';
-var vector autocvar_pip_xray_color_enemy = '1 0 0';
+var float autocvar_qdw_xray = 1;
+var float autocvar_qdw_xray_alpha = 0.3;
+var float autocvar_qdw_xray_distance = 512;
+var vector autocvar_qdw_xray_color_team = '0 1 0';
+var vector autocvar_qdw_xray_color_enemy = '1 0 0';
 
 var string team_shader = "";
 var string enemy_shader = "";
@@ -29,7 +29,7 @@ void(entity ent) XrayResetPlayer =
 
 float(float isnew) XrayNewPlayer =
 {
-    if (self.entnum == player_localentnum || !autocvar_pip_xray) {
+    if (self.entnum == player_localentnum || !autocvar_qdw_xray) {
         XrayResetPlayer(self);
         return isnew;
     }
@@ -42,7 +42,7 @@ float(float isnew) XrayNewPlayer =
     }
 
     vector org = getviewprop(VF_ORIGIN);
-    float cutoff = autocvar_pip_xray_distance;
+    float cutoff = autocvar_qdw_xray_distance;
 
     float distance = vlen(org - self.origin);
     if (distance > cutoff) {
@@ -60,7 +60,7 @@ float(float isnew) XrayNewPlayer =
 
     self.effects |= EF_NODEPTHTEST | EF_ADDITIVE;
     self.drawmask = (self.drawmask & ~MASK_ENGINE) | MASK_XRAY;
-    self.alpha = autocvar_pip_xray_alpha * distanceFactor;
+    self.alpha = autocvar_qdw_xray_alpha * distanceFactor;
     self.fatness = 2;
 
     // Workaround for self.origin not being lerped, bug in FTE, remove once fixed.
@@ -83,7 +83,7 @@ float(float isnew) XrayNewPlayer =
 // register the player-model deltalisten.
 void() XrayInit =
 {
-    if (!autocvar_pip_xray) {
+    if (!autocvar_qdw_xray) {
         return;
     }
 
@@ -92,14 +92,14 @@ void() XrayInit =
         map $whiteimage
         rgbgen const %v
       }
-    })", autocvar_pip_xray_color_team);
+    })", autocvar_qdw_xray_color_team);
 
     enemy_shader = sprintf(R"({
       {
         map $whiteimage
         rgbgen const %v
       }
-    })", autocvar_pip_xray_color_enemy);
+    })", autocvar_qdw_xray_color_enemy);
 
     deltalisten("progs/player.mdl", XrayNewPlayer, 0);
 };

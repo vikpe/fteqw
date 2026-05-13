@@ -1,4 +1,4 @@
-// Small math / easing helpers shared by the UI render passes (PiP slide,
+// Small math / easing helpers shared by the UI render passes (powcam slide,
 // transitions, etc).
 
 float(float x) easeInExpo =

@@ -16,8 +16,8 @@
 
 /*
  * Top-level CSQC entry points. The actual feature code lives in:
- *   pip_camera.qc   - powerup-cam scheduling state
- *   pip_render.qc   - PiP overlay rendering
+ *   powcam.qc   - powerup-cam scheduling state
+ *   powcam_render.qc   - powcam overlay rendering
  *   xray.qc         - through-walls player silhouettes
  *   minimap.qc      - top-down map view
  *   score_overlay.qc - 1v1 / 2-team score header
@@ -28,7 +28,7 @@
 
 void(float apilevel, string enginename, float engineversion) CSQC_Init =
 {
-    registercommand("pip");
+    registercommand("powcam");
     registercommand("minimap", "Top-down minimap. Subcommands: reload, status, help");
     MinimapRegisterDescriptions();
 };
@@ -39,11 +39,11 @@ void() CSQC_WorldLoaded =
 
     match_start_time = -1;
     ResetCamera();
-    PipResetTimers(match_start_time);
+    PowcamResetTimers(match_start_time);
 
-    if (PipLoadItems()) {
-        deltalisten("progs/quaddama.mdl", PipPowerupSpawnListener, RSES_NOLERP);
-        deltalisten("progs/invulner.mdl", PipPowerupSpawnListener, RSES_NOLERP);
+    if (PowcamLoadItems()) {
+        deltalisten("progs/quaddama.mdl", PowcamSpawnListener, RSES_NOLERP);
+        deltalisten("progs/invulner.mdl", PowcamSpawnListener, RSES_NOLERP);
     }
 
     MinimapRegisterShaders();
@@ -63,13 +63,13 @@ void() CSQC_ServerInfoChanged =
 
     match_start_time = time;
 
-    PipResetTimers(match_start_time);
+    PowcamResetTimers(match_start_time);
     SelectNextCamera();
 };
 
 // Render order for the frame:
 //   1. Main player view (with engine HUD + xray pass)
-//   2. PiP powerup overlay (if scheduled and pip enabled)
+//   2. powcam powerup overlay (if scheduled and pip enabled)
 //   3. Minimap viewport
 //   4. Score overlay (top-most UI)
 void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
@@ -100,8 +100,8 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     // schedule when the current pick has expired (or never existed).
     SelectNextCamera();
 
-    if (draw_main && autocvar_pip_enabled) {
-        PipRender(main_min, main_size, vwidth, vheight);
+    if (draw_main && autocvar_qdw_powcam_enabled) {
+        PowcamRender(main_min, main_size, vwidth, vheight);
     }
 
     MinimapRender(vwidth, vheight);

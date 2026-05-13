@@ -47,19 +47,19 @@ typedef struct {
     vector maxs;
 } minimap_volume_t;
 
-var float  autocvar_minimap_mode             = MINIMAP_SPLIT;
-var float  autocvar_minimap_ortho            = 0;
-var float  autocvar_minimap_height_offset    = 0;
-var vector autocvar_minimap_center_override  = '0 0 0';
-var float  autocvar_minimap_player_radius           = 7;
-var float  autocvar_minimap_player_alpha_occluded   = 0.8;
-var float  autocvar_minimap_player_label_name_length       = 4;
-var float  autocvar_minimap_player_label_font_size  = 6;
+var float  autocvar_qdw_minimap_mode             = MINIMAP_SPLIT;
+var float  autocvar_qdw_minimap_ortho            = 0;
+var float  autocvar_qdw_minimap_height_offset    = 0;
+var vector autocvar_qdw_minimap_center_override  = '0 0 0';
+var float  autocvar_qdw_minimap_player_radius           = 7;
+var float  autocvar_qdw_minimap_player_alpha_occluded   = 0.8;
+var float  autocvar_qdw_minimap_player_label_name_length       = 4;
+var float  autocvar_qdw_minimap_player_label_font_size  = 6;
 // '0 0 0' = sentinel for "use the built-in default" (green for team, red
 // for enemy). Any non-zero value overrides.
-var vector autocvar_minimap_player_color_team       = '0 0 0';
-var vector autocvar_minimap_player_color_enemy      = '0 0 0';
-var vector autocvar_minimap_player_color_self       = '1 1 0';
+var vector autocvar_qdw_minimap_player_color_team       = '0 0 0';
+var vector autocvar_qdw_minimap_player_color_enemy      = '0 0 0';
+var vector autocvar_qdw_minimap_player_color_self       = '1 1 0';
 
 // Built-in defaults used when the team/enemy color cvars are left at '0 0 0'.
 var vector minimap_default_color_team  = '0 1 0';
@@ -297,7 +297,7 @@ float() MinimapLoad =
 // is hidden).
 float(float vw, float vh, __out vector vmin, __out vector vsize) MinimapMainViewport =
 {
-    float mode = autocvar_minimap_mode;
+    float mode = autocvar_qdw_minimap_mode;
     if (mode == MINIMAP_SPLIT) {
         vmin  = '0 0 0';
         vsize = [vw * MINIMAP_SPLIT_MAIN_FRAC, vh, 0];
@@ -428,7 +428,7 @@ var string minimap_label_plain[MINIMAP_MAX_PLAYERS];
 
 // Per-frame doppelganger overlays for players the minimap camera can't see
 // directly. Engine-side player entities aren't exposed as QC entities
-// (deltalisten isn't registered unless pip_xray is on), so we can't flip
+// (deltalisten isn't registered unless qdw_xray is on), so we can't flip
 // EF_NODEPTHTEST on them. Instead, for each occluded player we spawn a
 // throwaway QC entity that mirrors the player's pose and add it to the
 // scene with NODEPTHTEST + alpha so it shows through walls/roofs.
@@ -485,8 +485,8 @@ void(vector cam_origin) MinimapSpawnOccludedDoppelgangers =
         if (origin == '0 0 0') continue;
         if (!MinimapPlayerOccluded(cam_origin, origin)) continue;
 
-        float occ_alpha = autocvar_minimap_player_alpha_occluded > 0
-                          ? autocvar_minimap_player_alpha_occluded : 0.8;
+        float occ_alpha = autocvar_qdw_minimap_player_alpha_occluded > 0
+                          ? autocvar_qdw_minimap_player_alpha_occluded : 0.8;
 
         entity d = spawn();
         setmodelindex(d, plyr_mdl);
@@ -759,7 +759,7 @@ float() MinimapScanPickupCeiling =
     return 1;
 };
 
-// One-time shader registration. "minimap_fill" is a simple 2D fill shader
+// One-time shader registration. "qdw_minimap_fill" is a simple 2D fill shader
 // with per-vertex color and alpha - identical to the one PF_CL_drawline
 // uses (engine/client/pr_menu.c:1074-1083). Used to render thick lines as
 // quads since drawline's width parameter is ignored by the engine.
@@ -889,7 +889,7 @@ vector(float pnum) MinimapPlayerColor =
 {
     float pov_pnum = (player_localentnum > 0) ? (player_localentnum - 1) : player_localnum;
     if (pnum == pov_pnum) {
-        return autocvar_minimap_player_color_self;
+        return autocvar_qdw_minimap_player_color_self;
     }
     float same_team = 0;
     if (serverkeyfloat("teamplay") > 0) {
@@ -897,7 +897,7 @@ vector(float pnum) MinimapPlayerColor =
         string his_team = getplayerkeyvalue(pnum, "team");
         same_team = (pov_team == his_team && pov_team != "");
     }
-    vector c = same_team ? autocvar_minimap_player_color_team : autocvar_minimap_player_color_enemy;
+    vector c = same_team ? autocvar_qdw_minimap_player_color_team : autocvar_qdw_minimap_player_color_enemy;
     if (c == '0 0 0') {
         return same_team ? minimap_default_color_team : minimap_default_color_enemy;
     }
@@ -908,12 +908,12 @@ void(vector cam_origin) MinimapDrawPlayers =
 {
     // Hard-coded fallbacks ensure markers render even when cvars are left at
     // 0 (e.g. from a stale config).
-    float radius     = autocvar_minimap_player_radius        > 0 ? autocvar_minimap_player_radius        : 7;
-    float alpha_occ  = autocvar_minimap_player_alpha_occluded > 0 ? autocvar_minimap_player_alpha_occluded : 0.5;
+    float radius     = autocvar_qdw_minimap_player_radius        > 0 ? autocvar_qdw_minimap_player_radius        : 7;
+    float alpha_occ  = autocvar_qdw_minimap_player_alpha_occluded > 0 ? autocvar_qdw_minimap_player_alpha_occluded : 0.5;
     // Name labels use a cvar-controlled font size; weapon labels are fixed
     // at the same reduced size. Both default to 6 (25% smaller than 8).
-    float name_fs = autocvar_minimap_player_label_font_size > 0
-                    ? autocvar_minimap_player_label_font_size : 6;
+    float name_fs = autocvar_qdw_minimap_player_label_font_size > 0
+                    ? autocvar_qdw_minimap_player_label_font_size : 6;
     vector label_size  = [name_fs, name_fs, 0];
     vector weapon_size = '6 6 0';
 
@@ -926,7 +926,7 @@ void(vector cam_origin) MinimapDrawPlayers =
 
     // Highlight the player the main view is tracking when there is one.
     // Skipped in FULL mode since there is no main view to correlate with.
-    float highlight_enabled  = autocvar_minimap_mode != MINIMAP_FULL;
+    float highlight_enabled  = autocvar_qdw_minimap_mode != MINIMAP_FULL;
     float highlight_radius   = radius + 4;
     float highlight_alpha    = 1;
     vector highlight_color   = '0 1 1';  // #00ffff
@@ -1055,8 +1055,8 @@ void(vector cam_origin) MinimapDrawPlayers =
         // this player. Both forms keep any ^X markup in front of each kept
         // char so drawstring can recolor them.
         string label;
-        if (autocvar_minimap_player_label_name_length > 0) {
-            label = MinimapColoredPrefix(minimap_label_name[pnum], autocvar_minimap_player_label_name_length);
+        if (autocvar_qdw_minimap_player_label_name_length > 0) {
+            label = MinimapColoredPrefix(minimap_label_name[pnum], autocvar_qdw_minimap_player_label_name_length);
         } else {
             label = MinimapShortestUniquePrefix(pnum);
         }
@@ -1180,7 +1180,7 @@ void(vector cam_origin) MinimapDrawPlayers =
 
 void(float vwidth, float vheight) MinimapRender =
 {
-    float mode = autocvar_minimap_mode;
+    float mode = autocvar_qdw_minimap_mode;
     if (mode <= MINIMAP_OFF) {
         return;
     }
@@ -1189,12 +1189,12 @@ void(float vwidth, float vheight) MinimapRender =
         MinimapLoad();
     }
 
-    vector center = autocvar_minimap_center_override;
+    vector center = autocvar_qdw_minimap_center_override;
     if (center == '0 0 0') {
         center = minimap_center;
     }
-    float ortho  = autocvar_minimap_ortho            > 0 ? autocvar_minimap_ortho            : minimap_ortho;
-    float hoff   = autocvar_minimap_height_offset    > 0 ? autocvar_minimap_height_offset    : minimap_height;
+    float ortho  = autocvar_qdw_minimap_ortho            > 0 ? autocvar_qdw_minimap_ortho            : minimap_ortho;
+    float hoff   = autocvar_qdw_minimap_height_offset    > 0 ? autocvar_qdw_minimap_height_offset    : minimap_height;
 
     vector vmin, vsize;
     MinimapViewport(mode, vwidth, vheight, vmin, vsize);
@@ -1307,7 +1307,7 @@ float() MinimapCmdReload =
 
 float() MinimapCmdStatus =
 {
-    println("Minimap mode: %g  (0=off 1=pip 2=split 3=full)", autocvar_minimap_mode);
+    println("Minimap mode: %g  (0=off 1=pip 2=split 3=full)", autocvar_qdw_minimap_mode);
     println("Map:          %s", mapname);
     println("Loaded:       %g", minimap_loaded);
     println("Volumes:      %d", minimap_num_volumes);
@@ -1357,27 +1357,27 @@ void(string name, string desc) MinimapDescribeCvar =
 
 void() MinimapRegisterDescriptions =
 {
-    MinimapDescribeCvar("minimap_mode",
+    MinimapDescribeCvar("qdw_minimap_mode",
         "Minimap display mode. 0=off, 1=picture-in-picture (top right), 2=split screen (right half), 3=full screen.");
-    MinimapDescribeCvar("minimap_ortho",
+    MinimapDescribeCvar("qdw_minimap_ortho",
         "Orthographic half-extent in Quake units per side. 0 = use value from .cull file or auto-derived from worldmodel bounds.");
-    MinimapDescribeCvar("minimap_height_offset",
+    MinimapDescribeCvar("qdw_minimap_height_offset",
         "Camera Z offset above the reference center. 0 = use value from .cull file or auto-derived (highest geometry at center + 512 margin).");
-    MinimapDescribeCvar("minimap_center_override",
+    MinimapDescribeCvar("qdw_minimap_center_override",
         "Camera XY position and reference Z, as a vector. '0 0 0' = use value from .cull file or worldmodel midpoint.");
-    MinimapDescribeCvar("minimap_player_radius",
+    MinimapDescribeCvar("qdw_minimap_player_radius",
         "Radius of the player marker ring on the minimap, in screen pixels.");
-    MinimapDescribeCvar("minimap_player_alpha_occluded",
+    MinimapDescribeCvar("qdw_minimap_player_alpha_occluded",
         "Alpha applied to a player model that the minimap camera can't see directly (drawn through walls/roofs via a doppelganger pass). Visible players use the engine's normal rendering. Default 0.8.");
-    MinimapDescribeCvar("minimap_player_color_team",
+    MinimapDescribeCvar("qdw_minimap_player_color_team",
         "Ring/triangle color for same-team players. '0 0 0' = default green.");
-    MinimapDescribeCvar("minimap_player_color_enemy",
+    MinimapDescribeCvar("qdw_minimap_player_color_enemy",
         "Ring/triangle color for opposing-team players. '0 0 0' = default red.");
-    MinimapDescribeCvar("minimap_player_color_self",
+    MinimapDescribeCvar("qdw_minimap_player_color_self",
         "Ring/triangle color for the local player.");
-    MinimapDescribeCvar("minimap_player_label_name_length",
+    MinimapDescribeCvar("qdw_minimap_player_label_name_length",
         "Fixed number of characters to show in each player label. Default 4. Set to 0 for auto (shortest prefix unique among all current players).");
-    MinimapDescribeCvar("minimap_player_label_font_size",
+    MinimapDescribeCvar("qdw_minimap_player_label_font_size",
         "Font size in pixels for the player name label above each marker. Default 6.");
 };
 

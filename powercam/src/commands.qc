@@ -1,33 +1,33 @@
 /*
  * Console command handlers. Two namespaces, both dispatched from
  * CSQC_ConsoleCommand:
- *   pip      - PiP camera diagnostics (active / timers / recheck / help)
+ *   pip      - powcam diagnostics (active / timers / recheck / help)
  *   minimap  - minimap diagnostics, implemented in minimap.qc
  */
 
-float() PipCmdActive =
+float() PowcamCmdActive =
 {
     print("");
 
-    println("PiP Camera State\n\n");
+    println("Powcam state\n\n");
     println("Camera settings:");
-    println("- index:      %3d", (float)camera_index);
-    println("- intro:      %1.1f", camera_intro);
-    println("- outro:      %1.1f", camera_outro);
-    println("- transition: %1.1f", camera_transition);
+    println("- index:      %3d", (float)powcam_index);
+    println("- intro:      %1.1f", powcam_intro);
+    println("- outro:      %1.1f", powcam_outro);
+    println("- transition: %1.1f", powcam_transition);
     println("Camera schedule:");
-    println("- start: %4.2f", camera_start);
-    println("- intro: %4.2f", camera_start_transition);
-    println("- outro: %4.2f", camera_end_transition);
-    println("- end:   %4.2f", camera_end);
+    println("- start: %4.2f", powcam_start);
+    println("- intro: %4.2f", powcam_start_transition);
+    println("- outro: %4.2f", powcam_end_transition);
+    println("- end:   %4.2f", powcam_end);
     println("Current Time: %4.2f", time);
     return 1;
 };
 
-float() PipCmdTimers =
+float() PowcamCmdTimers =
 {
-    println("PiP Timer State\n");
-    itemtimer_t *timers = PipGetTimers();
+    println("Powcam timer state\n");
+    itemtimer_t *timers = PowcamGetTimers();
     for (int i = 0; i < MAX_POWERUPS; i++) {
         itemtimer_t *timer = &timers[i];
         if (!timer->item) {
@@ -65,20 +65,20 @@ float() PipCmdTimers =
     return 1;
 };
 
-float() PipCmdReCheck =
+float() PowcamCmdRecheck =
 {
-    if (camera_index == -1) {
+    if (powcam_index == -1) {
         return 1;
     }
 
-    if (time < camera_start) {
+    if (time < powcam_start) {
         debug("camera start not yet reached");
         return 1;
     }
 
-    itemtimer_t *timers = PipGetTimers();
-    itemtimer_t *timer = &timers[camera_index];
-    if (PipFindItemByEntity(timer->entnum) != nil) {
+    itemtimer_t *timers = PowcamGetTimers();
+    itemtimer_t *timer = &timers[powcam_index];
+    if (PowcamFindItemByEntity(timer->entnum) != nil) {
         debug("recheck found item");
         return 1;
     }
@@ -89,9 +89,9 @@ float() PipCmdReCheck =
     return 1;
 };
 
-float() PipCmdHelp =
+float() PowcamCmdHelp =
 {
-    println("Picture-in-Picture Commands");
+    println("Powcam commands");
     println(" * active  - Currently scheduled camera");
     println(" * timers  - All tracked timers");
     println(" * recheck - Reset camera and try to schedule next");
@@ -111,17 +111,17 @@ float(string cmd) CSQC_ConsoleCommand =
             return MinimapCmdHelp();
         }
     }
-    if (argv(0) != "pip") {
+    if (argv(0) != "powcam") {
         return 0;
     }
     switch (argv(1)) {
     case "active":
-        return PipCmdActive();
+        return PowcamCmdActive();
     case "timers":
-        return PipCmdTimers();
+        return PowcamCmdTimers();
     case "recheck":
-        return PipCmdReCheck();
+        return PowcamCmdRecheck();
     default:
-        return PipCmdHelp();
+        return PowcamCmdHelp();
     }
 };

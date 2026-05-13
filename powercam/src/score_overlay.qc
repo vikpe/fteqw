@@ -97,7 +97,7 @@ void(vector pos, vector size, float radius, float corners, vector color, float a
 
 // Reserved vertical footprint (top margin + box + bottom margin) the score
 // overlay occupies inside the player viewport. Callers placing other UI
-// near the top of the viewport (e.g. powerup-cam PiP) can shift down by
+// near the top of the viewport (e.g. powcam) can shift down by
 // this amount so they don't overlap.
 float(vector main_size) ScoreOverlayReservedHeight =
 {
@@ -120,8 +120,7 @@ void(vector main_min, vector main_size, float vwidth, float vheight) ScoreOverla
     // Hide during pre-match standby (no scores yet). After the match the
     // status may revert to "standby" but matchstart is still set - keep the
     // overlay visible in that case so the final score remains on screen.
-    if (!strcasecmp(serverkey("status"), "standby")
-        && serverkeyfloat("matchstart") <= 0) {
+    if (!strcasecmp(serverkey("status"), "standby")) {
         return;
     }
 
@@ -254,7 +253,7 @@ void(vector main_min, vector main_size, float vwidth, float vheight) ScoreOverla
     float b2w   = i2w + pad_x * 2;
 
     // Always centered on the full screen (highest z-index UI element -
-    // rendered last on top of player view, minimap, and PiP). Names extend
+    // rendered last on top of player view, minimap, and powcam). Names extend
     // outward and don't shift the score boxes.
     float margin   = ceil(16 * scale);
     float top      = margin;
