@@ -65,6 +65,17 @@ int Hub_GetMatchElapsedMs(void)
 
 void Hub_CheckServerInfo(void)
 {
+	// We only track the match clock for demo / qtv playback. Live
+	// servers (joined directly) use the engine's own gameclock path.
+	// Reset state on the transition out so stale values don't bleed
+	// into a subsequent demo / qtv session.
+	if (cls.demoplayback == DPB_NONE)
+	{
+		if (hub_match_elapsed_ms >= 0 || hub_match_in_progress)
+			Hub_ResetMatchState();
+		return;
+	}
+
 	// Track "X min left" to detect overtime announcements. ktx-style
 	// mods announce OT by jumping the status remaining back up (e.g.
 	// "1 min left" -> "5 min left"); any increase over the previously
@@ -93,6 +104,19 @@ void Hub_CheckServerInfo(void)
 	else if (!strcmp(status, "standby"))
 	{
 		hub_match_in_progress = false;
+		// Demo: capture the match clock at the moment of the match-end
+		// transition. Fires inside fast-parse seek loops too (where
+		// Hub_HostFrame doesn't get to see the intermediate frames),
+		// so jumping past intermission still freezes the clock at the
+		// correct end-of-match value instead of the pre-seek one.
+		if (cls.lastdemoname[0] && !strcmp(hub_prev_status, "normal"))
+		{
+			extern float demtime;
+			double captured_ms = demtime * 1000.0 - hub_demo_countdown_ms;
+			double max_ms      = hub_demo_timelimit_ms + hub_overtime_duration_ms;
+			captured_ms = floor(captured_ms / 1000.0 + 0.5) * 1000.0;
+			hub_match_elapsed_ms = (captured_ms > max_ms) ? max_ms : captured_ms;
+		}
 	}
 	else if (!strcmp(status, "normal"))
 	{
@@ -103,7 +127,7 @@ void Hub_CheckServerInfo(void)
 		}
 		else if (hub_match_elapsed_ms < 0 && !cls.lastdemoname[0])
 		{
-			// Live join mid-match: derive elapsed from the "X min
+			// QTV joined mid-match: derive elapsed from the "X min
 			// left" status string. Demos use the scan-captured
 			// countdown anchor instead (see Hub_HostFrame).
 			float timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
@@ -118,6 +142,10 @@ void Hub_CheckServerInfo(void)
 
 void Hub_HostFrame(double frametime)
 {
+    // Same scope as Hub_CheckServerInfo: only ticks for demo / qtv.
+	if (cls.demoplayback == DPB_NONE)
+		return;
+
 	if (cls.lastdemoname[0])
 	{
 		// Demo: derive the match clock from demtime + the scan-
