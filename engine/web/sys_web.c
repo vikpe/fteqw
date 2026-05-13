@@ -10,7 +10,7 @@ quakeparms_t	parms;
 // Toggle for forwarding engine console output to the browser's console.log.
 // Flip via JS bindings (setWebLogEnabled) when you want to silence the engine
 // (e.g. to keep the host page's console clean during demo playback).
-qboolean web_log_enabled = false;
+qboolean web_log_enabled = true;
 
 void Sys_Error (const char *error, ...)
 {
