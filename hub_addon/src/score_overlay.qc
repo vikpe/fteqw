@@ -127,10 +127,11 @@ float(vector main_size) ScoreOverlayReservedHeight =
 
 // ----- participants ---------------------------------------------------------
 
-// Gather players, fold into participants (2 teams or 2 players), sort, and
-// draw both sides. Returns 1 if both sides were drawn, 0 if bailed (no
-// 2-side partition). `anchor` is the centered top of the overlay row
-// (x = horizontal center, y = top edge).
+// Gather players, fold into participants (1-2 teams or 1-2 players),
+// sort, and draw. Returns 1 if anything was drawn, 0 if bailed (no
+// participants, or too many for a 2-side display). A single participant
+// is drawn on the left; two are drawn left/right. `anchor` is the
+// centered top of the overlay row (x = horizontal center, y = top edge).
 float(so_layout_t L, vector anchor) SO_DrawParticipants =
 {
     // Collect active non-spectator players into one struct array.
@@ -148,14 +149,12 @@ float(so_layout_t L, vector anchor) SO_DrawParticipants =
         player_count++;
     }
 
-    // No 2-side partition is possible with fewer than 2 players.
-    if (player_count < 2) {
+    if (player_count == 0) {
         return 0;
     }
 
-    // Pick the two participants. In teamplay, aggregate into unique teams
-    // and use them when there are exactly 2 distinct non-empty teams.
-    // Otherwise fall back to the 2-player case.
+    // Teamplay: aggregate into unique teams. Use them when 1 or 2
+    // distinct non-empty teams exist; otherwise fall through.
     so_participant_t participants[2];
     float participant_count = 0;
     if (serverkeyfloat("teamplay") > 0) {
@@ -163,8 +162,8 @@ float(so_layout_t L, vector anchor) SO_DrawParticipants =
         float team_count = 0;
         for (int i = 0; i < player_count; i++) {
             if (players[i].team == "") {
-                // Empty team disqualifies the partition; poison team_count so
-                // the check below falls through to the 2-player case.
+                // Empty team disqualifies the partition; poison team_count
+                // so the check below falls through to the player case.
                 team_count = -1;
                 break;
             }
@@ -184,31 +183,35 @@ float(so_layout_t L, vector anchor) SO_DrawParticipants =
                 teams[existing].score += players[i].score;
             }
         }
-        if (team_count == 2) {
+        if (team_count == 1 || team_count == 2) {
             participants[0] = teams[0];
-            participants[1] = teams[1];
-            participant_count = 2;
+            if (team_count == 2) participants[1] = teams[1];
+            participant_count = team_count;
         }
     }
-    if (participant_count < 2) {
-        if (player_count != 2) {
+
+    if (participant_count == 0) {
+        if (player_count > 2) {
             return 0;
         }
         participants[0] = players[0];
-        participants[1] = players[1];
-        participant_count = 2;
+        if (player_count == 2) participants[1] = players[1];
+        participant_count = player_count;
     }
 
-    // Stable left/right placement: sort by ASCII-byte order of the
+    // Two-sided: stable left/right placement by ASCII-byte order of the
     // markup-stripped names, ascending.
-    if (strcmp(strdecolorize(participants[0].name), strdecolorize(participants[1].name)) > 0) {
+    if (participant_count == 2 &&
+        strcmp(strdecolorize(participants[0].name), strdecolorize(participants[1].name)) > 0) {
         so_participant_t swap = participants[0];
         participants[0] = participants[1];
         participants[1] = swap;
     }
 
     SO_DrawParticipantSide(L, anchor, -1, participants[0]);
-    SO_DrawParticipantSide(L, anchor, +1, participants[1]);
+    if (participant_count == 2) {
+        SO_DrawParticipantSide(L, anchor, +1, participants[1]);
+    }
     return 1;
 };
 

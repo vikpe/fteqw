@@ -38,10 +38,16 @@ float(vector main_min, vector main_size, float vwidth, float vheight) PowcamRend
 
     float margin = width / 10.0;
     float x_offset = main_min.x + main_size.x - margin - width;
-    // Shift down by the score overlay's reserved height so the powcam doesn't
-    // overlap it. We always reserve the space (even when the overlay would
-    // skip drawing) so the powcam doesn't jump around when the overlay toggles.
-    float y_anchor = main_min.y + ScoreOverlayReservedHeight(main_size);
+
+    // In split mode the player viewport occupies only the left half and the
+    // score overlay (centered on the full screen) sits over its top edge -
+    // shift the powcam down by the overlay's reserved height to avoid
+    // overlapping. In the other modes the powcam sits to the right of the
+    // overlay and doesn't need the offset.
+    float y_anchor = main_min.y;
+    if (autocvar_minimap_mode == MINIMAP_SPLIT) {
+        y_anchor += ScoreOverlayReservedHeight(main_size);
+    }
 
     float delta = 0.0;
     float slide_offset = 0;
