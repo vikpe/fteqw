@@ -309,7 +309,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		.property("allocated_client_slots", &client_state_t::allocated_client_slots)
 		.property("matchstate", &client_state_t::matchstate) // enum, how
 		.function("getMatchElapsed", +[](client_state_t& self) -> emscripten::val {
-			int elapsed = Hub_GetMatchElapsed();
+			int elapsed = Hub_GetMatchElapsedMs();
 			if (elapsed < 0)
 				return emscripten::val::null();
 			return emscripten::val(elapsed);
@@ -321,7 +321,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			if (!cls.lastdemoname[0])
 				return emscripten::val::null();
 
-			int elapsed_ms  = Hub_GetDemoElapsed();
+			int elapsed_ms  = Hub_GetDemoElapsedMs();
 			if (elapsed_ms <= 0)
 				return emscripten::val::null();
 

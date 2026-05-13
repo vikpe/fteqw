@@ -6222,12 +6222,12 @@ static void QCBUILTIN PF_getentity(pubprogfuncs_t *prinst, struct globalvars_s *
 }
 
 
-// Thin wrapper so CSQC can read the engine's match-elapsed clock instead
-// of duplicating the QTV print parser. Returns int seconds, -1 = unknown.
-extern int Hub_GetMatchElapsed(void);
+// Thin wrapper so CSQC can read the engine's match-elapsed clock
+// instead of duplicating the QTV print parser. Returns ms, -1 = unknown.
+extern int Hub_GetMatchElapsedMs(void);
 static void QCBUILTIN PF_cl_getmatchelapsed(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 {
-	G_FLOAT(OFS_RETURN) = (float)Hub_GetMatchElapsed();
+	G_FLOAT(OFS_RETURN) = (float)Hub_GetMatchElapsedMs();
 }
 
 static void QCBUILTIN PF_cs_getplayerstat(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)

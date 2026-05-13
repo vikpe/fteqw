@@ -255,10 +255,11 @@ void(so_layout_t L, vector anchor, float side, so_participant_t p) SO_DrawPartic
 // that case so the slot doesn't read "00:00".
 void(so_layout_t L, vector anchor, float has_participants) SO_DrawClock =
 {
-    float elapsed = getmatchelapsed();
-    if (elapsed < 0) return;
+    float elapsed_ms = getmatchelapsed();
+    if (elapsed_ms < 0) return;
+    float  elapsed = floor(elapsed_ms / 1000);
     float  minutes = floor(elapsed / 60);
-    float  seconds = floor(elapsed - minutes * 60);
+    float  seconds = elapsed - minutes * 60;
     string text    = sprintf("%02d:%02d", minutes, seconds);
     float  width   = stringwidth(text, 0, L.clock_font_size);
     float  y       = has_participants ? (anchor.y + L.score.box_height + L.vertical_gap) : anchor.y;

@@ -1251,12 +1251,12 @@ extern 	kbutton_t 	in_speed;
 extern	float in_sensitivityscale;
 
 void CL_MakeActive(char *gamename);
-int  Hub_GetMatchElapsed(void);
-int  Hub_GetDemoElapsed(void);
+int  Hub_GetMatchElapsedMs(void);
+int  Hub_GetDemoElapsedMs(void);
 void Hub_ResetMatchState(void);
 
-//cl_hub.c:Hub_GetMatchElapsed.
-extern int hub_overtime_duration;
+//cl_hub.c
+extern int hub_overtime_duration_ms;
 void CL_UpdateWindowTitle(void);
 
 #ifdef QUAKESTATS

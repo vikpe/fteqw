@@ -7,11 +7,11 @@
 #ifndef CL_HUB_H
 #define CL_HUB_H
 
-// QTV match clock. Updated by the hooks below.
-//   hub_match_in_progress  true while the match is ticking.
-//   hub_match_elapsed         seconds elapsed since match start, -1 if unknown.
+// Match clock state. Updated by the hooks below.
+//   hub_match_in_progress     true while the match is ticking.
+//   hub_match_elapsed_ms      ms elapsed since match start, -1 if unknown.
 extern qboolean hub_match_in_progress;
-extern double   hub_match_elapsed;
+extern double   hub_match_elapsed_ms;
 
 // Hook entry points called from the engine.
 void Hub_CheckServerInfo(void);        // end of CL_CheckServerInfo
