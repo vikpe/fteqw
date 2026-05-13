@@ -1,22 +1,57 @@
-Powerup Cameras CSQC Addon
-==========================
+QuakeWorld Demo Analysis CSQC Addon
+===================================
 
-This addon adds a picture-in-picture view for powerups based on KTX item
-timers. If both a pentagram and quad artifact are close in spawn time, the
-pentagram will be prioritized.
+This CSQC addon bundles several spectator and demo-analysis features for
+QuakeWorld matches:
 
-To match entities from both initial spawn origin, and entity number from
-the `//ktx took` messages this project contains a database of common maps
-keyed on origin. This origin is matched with some Z-tolerance as the items
-are dropped to the ground on the map by the mod.
+* **Powerup cameras** - picture-in-picture view of upcoming quad/pent
+  pickups, driven by KTX item timers. If both spawn close together, pent
+  wins.
+* **Minimap** - top-down orthographic view of the map with cull volumes
+  to peel away roofs, player markers (rings + arrowhead), health/armor
+  bars, weapon labels, and through-wall doppelgangers for occluded
+  players. Modes: off, picture-in-picture, split-screen, full-screen.
+* **Score overlay** - centered top-of-screen 1v1 / 2-team score header
+  with team-colored boxes and a match clock.
+* **X-ray** - colored player silhouettes drawn through walls so the
+  spectator can track action around corners.
 
-As nothing tastes sweeter than feature creep, it also adds xray support
-for drawing solid colored players behind wall, colored by team vs POV.
+Source layout
+-------------
+
+```
+src/
+  csplat.qc             - engine API dump (do not edit by hand)
+  easing.qc             - EaseInExpo
+  item_type.qc          - itemtype_t + lookups
+  item_timer.qc         - powerup pickup/respawn timers
+  powcam.qc             - powcam scheduler
+  powcam_config.qc      - per-map powerup/camera database
+  powcam_render.qc      - powcam overlay rendering
+  xray.qc               - through-wall silhouettes
+  score_overlay.qc      - 1v1 / 2-team header
+  minimap.qc            - minimap render pass
+  minimap_data.qc       - minimap shared state, primitives, color tables
+  minimap_load.qc       - cull-file/locs/auto-bounds loading
+  minimap_players.qc    - player markers, labels, doppelgangers
+  minimap_commands.qc   - minimap console handlers
+  commands.qc           - top-level console dispatcher + powcam handlers
+  main.qc               - CSQC lifecycle hooks
+  progs.src             - build manifest
+```
+
+Build
+-----
+
+```
+make            # produces csaddon.dat (requires fteqcc / fteqcc64 in PATH)
+```
 
 Contributing cameras
 --------------------
-The cameras are declared in `src/cameras.qc` via an eDSL to make it a bit
-more accessible for non-programmers:
+
+The cameras are declared in `src/powcam_config.qc` via an embedded DSL to
+make it a bit more accessible for non-programmers:
 
 ```
 map("e2m5",
@@ -29,59 +64,76 @@ map("e2m5",
 To contribute a new camera, the easiest way right now is to use a client
 that supports `/viewpos`, for example [QSS-M](https://qssm.quakeone.com/).
 
-Launch QSS-M, load the map, type `/noclip` and set `fov 110` as that's what
-the camera uses. Then fly to the desired location and type `/viewpos copy`
-to copy the position and angles into the clipboard which will look something
-like this:
+Launch QSS-M, load the map, type `/noclip` and set `fov 110` as that's
+what the camera uses. Then fly to the desired location and type
+`/viewpos copy` to copy the position and angles into the clipboard which
+will look something like this:
 
 ```
 (610 -772 716) 90 1 0
 ```
 
-The first triplet is camera position (origin), and the latter is camera angle.
+The first triplet is camera position (origin), and the latter is camera
+angle.
 
-To find the position of the powerup open up the .bsp in some editor and search
-for `item_artifact_super_damage` (quad) and `item_artifact_invulnerability` (pent).
+To find the position of the powerup, open the .bsp in some editor and
+search for `item_artifact_super_damage` (quad) and
+`item_artifact_invulnerability` (pent). Alternatively:
 
-Alternatively run:
-```bash
-$ strings foo.bsp | grep -A 5 -B 5 item_artifact
+```
+strings foo.bsp | grep -A 5 -B 5 item_artifact
 ```
 
-In both cases there might be an origin field both above and below the so without
-getting into technicals, just pick the one that looks closest to the origin of
-your `/viewpos`.
+If the powerup does not show up, this is likely due to it being dropped
+on the map. Try lowering the last value (Z) of the origin a bit.
 
-If the powerup does not show up, then this is likely due to it being dropped
-on the map. Try lowering the last value (Z) of the origin a bit and it ought
-to pop up.
+Cvars
+-----
 
-Configuration and commands
---------------------------
+Powcam:
 
-Configurations:
-* `pip_enabled` - `0` or `1`.
-* `pip_debug` - `0` or `1` to toggle debug logging.
-* `pip_camera_intro` - Seconds before spawn to show camera.
-* `pip_camera_outro` - Seconds until hide camera after pickup.
-* `pip_camera_transition` - Seconds of camera transition, both in and out.
-* `pip_bg_quad_color` - Background color if quad camera.
-* `pip_bg_pent_color` - Background color if pent camera.
-* `pip_xray` - `0` or `1` to toggle xray.
-* `pip_xray_distance` - how far through walls to see until faded out.
-* `pip_xray_color_team` - `r g b` team color.
-* `pip_xray_color_enemy` - `r g b` enemy color.
+* `qdw_powcam_enabled` - `0` or `1`.
+* `qdw_powcam_intro` - seconds of lead-in before spawn.
+* `qdw_powcam_outro` - seconds to keep camera up after pickup.
+* `qdw_powcam_transition` - slide in/out duration (seconds).
+* `qdw_powcam_bg_quad_color` - frame color for quad cameras.
+* `qdw_powcam_bg_pent_color` - frame color for pent cameras.
 
-Commands:
-* `pip` - Show available commands.
-  * `active` - Current camera settings, and schedule.
-  * `timers` - Tracked timers.
+X-ray:
+
+* `qdw_xray` - `0` or `1`.
+* `qdw_xray_alpha` - silhouette alpha at zero distance.
+* `qdw_xray_distance` - how far through walls to see until faded out.
+* `qdw_xray_color_team` - `r g b` team color.
+* `qdw_xray_color_enemy` - `r g b` enemy color.
+
+Minimap (see `minimap help` for in-game descriptions):
+
+* `qdw_minimap_mode` - 0=off, 1=pip, 2=split, 3=full.
+* `qdw_minimap_ortho`, `qdw_minimap_height_offset`,
+  `qdw_minimap_center_override` - override auto-derived projection.
+* `qdw_minimap_player_radius`, `_alpha_occluded`,
+  `_color_team`/`_color_enemy`/`_color_self`,
+  `_label_name_length`, `_label_font_size`.
+
+Debug:
+
+* `qdw_debug` - `0` or `1`; toggles diagnostic logging.
+
+Commands
+--------
+
+* `powcam`  - subcommands: `active`, `timers`, `recheck`, `help`.
+* `minimap` - subcommands: `reload`, `status`, `help`.
 
 Compatibility
 -------------
-For the time being this addon only works with the
-[hub.quakeworld.nu](https://hub.quakeworld.nu) fork of [FTE](https://www.fteqw.org).
 
-The addon somewhat works when loaded in an official release of FTE, but due to
-some bugs and limitations found during development there are currently some
-issues with timers when seeking. Will work anywhere FTE runs later on.
+For the time being this addon only works with the
+[hub.quakeworld.nu](https://hub.quakeworld.nu) fork of
+[FTE](https://www.fteqw.org).
+
+The addon somewhat works when loaded in an official release of FTE, but
+due to some bugs and limitations found during development there are
+currently some issues with timers when seeking. Will work anywhere FTE
+runs later on.

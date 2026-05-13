@@ -1,18 +1,4 @@
-/*
- * Copyright (c) 2024 Daniel Svensson <dsvensson@gmail.com>
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
+// SPDX-License-Identifier: 0BSD
 
 typedef enum {
     IT_NONE,
@@ -20,7 +6,7 @@ typedef enum {
     IT_PENT,
 } itemtype_t;
 
-itemtype_t(float model_index) PowcamItemTypeByModelIndex =
+itemtype_t(float model_index) ItemTypeByModelIndex =
 {
     if (!model_index) {
         return IT_NONE;
@@ -37,20 +23,7 @@ itemtype_t(float model_index) PowcamItemTypeByModelIndex =
     }
 };
 
-itemtype_t(string sound_name) PowcamItemTypeBySoundName =
-{
-    itemtype_t type = IT_NONE;
-    switch (sound_name) {
-    case "items/damage.wav":
-        return IT_QUAD;
-    case "items/protect.wav":
-        return IT_PENT;
-    default:
-        return IT_NONE;
-    }
-};
-
-itemtype_t(float respawn_delay) PowcamItemTypeByRespawnDelay =
+itemtype_t(float respawn_delay) ItemTypeByRespawnDelay =
 {
     switch (respawn_delay) {
     case 60:

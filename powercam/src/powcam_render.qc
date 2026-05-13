@@ -1,8 +1,10 @@
+// SPDX-License-Identifier: 0BSD
+
 /*
  * Powcam overlay rendering. Drawn over the player view rect:
  * a small 3D scene from the powerup camera, plus a colored background
  * frame and a one-line caption underneath. Slide animation at the start
- * and end of the scheduled window is driven by easeInExpo.
+ * and end of the scheduled window is driven by EaseInExpo.
  *
  * Returns 1 if a powcam was rendered this frame, 0 otherwise. The main
  * lifecycle (CSQC_UpdateView) uses this to decide whether to also tick
@@ -11,19 +13,19 @@
 
 float(vector main_min, vector main_size, float vwidth, float vheight) PowcamRender =
 {
-    if (time < powcam_start) {
+    if (time < powcam.start) {
         return 0;
     }
 
-    itemtimer_t *timer = PowcamGetTimer(powcam_index);
+    item_timer_t *timer = ItemTimerGet(powcam.index);
     if (!timer) {
         return 0;
     }
-    item_t *item = timer->item;
+    powcam_item_t *item = timer->item;
 
-    if (powcam_end == POWCAM_END_RESET && timer->took > powcam_start) {
-        powcam_end = timer->took + powcam_outro;
-        powcam_end_transition = powcam_end - powcam_transition;
+    if (powcam.end == POWCAM_TIME_RESET && timer->took > powcam.start) {
+        powcam.end = timer->took + powcam.outro_seconds;
+        powcam.end_transition = powcam.end - powcam.transition_seconds;
     }
 
     vector font_size = '8 8 0';
@@ -44,11 +46,11 @@ float(vector main_min, vector main_size, float vwidth, float vheight) PowcamRend
     float delta = 0.0;
     float slide_offset = 0;
 
-    if (time >= powcam_start && time < powcam_start_transition) {
-        delta = easeInExpo((powcam_start_transition - time) / powcam_transition);
+    if (time >= powcam.start && time < powcam.start_transition) {
+        delta = EaseInExpo((powcam.start_transition - time) / powcam.transition_seconds);
     }
-    else if (time >= powcam_end_transition) {
-        delta = 1.0 - easeInExpo((powcam_end - time) / powcam_transition);
+    else if (time >= powcam.end_transition) {
+        delta = 1.0 - EaseInExpo((powcam.end - time) / powcam.transition_seconds);
     }
 
     if (delta > 0.0) {
@@ -65,7 +67,7 @@ float(vector main_min, vector main_size, float vwidth, float vheight) PowcamRend
     float bg_width = width + margin / 2;
     float bg_height = height + margin / 2 + font_size.y;
     float bg_alpha = 0.5;
-    drawfill([bg_offset_x, bg_offset_y], [bg_width, bg_height], powcam_bg_color, bg_alpha);
+    drawfill([bg_offset_x, bg_offset_y], [bg_width, bg_height], powcam.bg_color, bg_alpha);
 
     // Black contrasting inner border.
     float border_offset_x = x_offset - margin / 16;
@@ -105,13 +107,13 @@ float(vector main_min, vector main_size, float vwidth, float vheight) PowcamRend
     cvar_set("scr_autoid_weapon", "1");
 
     string text;
-    if (time < timer->respawn && time > (timer->respawn - powcam_intro)) {
-        text = sprintf("%s in %i sec", powcam_item_name, (int)ceil(timer->respawn - time));
-    } else if (time > timer->took && timer->took > powcam_start) {
+    if (time < timer->respawn && time > (timer->respawn - powcam.intro_seconds)) {
+        text = sprintf("%s in %i sec", powcam.item_name, (int)ceil(timer->respawn - time));
+    } else if (time > timer->took && timer->took > powcam.start) {
         string name = getplayerkeyvalue(timer->playernum - 1, INFOKEY_P_NAME);
-        text = sprintf("%s's %s", name, powcam_item_name);
+        text = sprintf("%s's %s", name, powcam.item_name);
     } else {
-        text = sprintf("%s spawned!", powcam_item_name);
+        text = sprintf("%s spawned!", powcam.item_name);
     }
 
     float txt_offset_x = x_offset;
@@ -122,9 +124,9 @@ float(vector main_min, vector main_size, float vwidth, float vheight) PowcamRend
     drawstring([txt_offset_x, txt_offset_y], text, font_size, txt_color, txt_alpha, 0);
     drawresetcliparea();
 
-    if (time > powcam_end) {
-        ResetCamera();
-        SelectNextCamera();
+    if (time > powcam.end) {
+        PowcamReset();
+        PowcamSelectNext();
     }
     return 1;
 };

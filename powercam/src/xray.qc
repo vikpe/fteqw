@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+
 /*
  * Xray rendering: through-walls silhouettes of nearby players so the
  * spectator can track action behind geometry. Triggered via the
@@ -5,14 +7,17 @@
  * MASK_XRAY (set up in main.qc CSQC_UpdateView).
  */
 
-var float autocvar_qdw_xray = 1;
-var float autocvar_qdw_xray_alpha = 0.3;
-var float autocvar_qdw_xray_distance = 512;
-var vector autocvar_qdw_xray_color_team = '0 1 0';
-var vector autocvar_qdw_xray_color_enemy = '1 0 0';
+var float  autocvar_qdw_xray              = 1;
+var float  autocvar_qdw_xray_alpha        = 0.3;
+var float  autocvar_qdw_xray_distance     = 512;
+var vector autocvar_qdw_xray_color_team   = '0 1 0';
+var vector autocvar_qdw_xray_color_enemy  = '1 0 0';
 
-var string team_shader = "";
-var string enemy_shader = "";
+// Cached shader source strings (one per team/enemy color). Baked once in
+// XrayInit using the active xray_color_* cvars and re-bound per player by
+// shaderforname() when the deltalisten fires.
+var string xray_team_shader  = "";
+var string xray_enemy_shader = "";
 
 void(entity ent) XrayResetPlayer =
 {
@@ -21,9 +26,9 @@ void(entity ent) XrayResetPlayer =
     } else {
         ent.drawmask = 0;
     }
-    ent.effects = 0;
-    ent.alpha = 0;
-    ent.fatness = 0;
+    ent.effects     = 0;
+    ent.alpha       = 0;
+    ent.fatness     = 0;
     ent.forceshader = 0;
 };
 
@@ -34,46 +39,46 @@ float(float isnew) XrayNewPlayer =
         return isnew;
     }
 
-    float pnum = self.entnum - 1;
-    float health = getplayerstat(pnum, STAT_HEALTH, EV_FLOAT);
+    float player_index = self.entnum - 1;
+    float health = getplayerstat(player_index, STAT_HEALTH, EV_FLOAT);
     if (health <= 0) {
         XrayResetPlayer(self);
         return isnew;
     }
 
-    vector org = getviewprop(VF_ORIGIN);
-    float cutoff = autocvar_qdw_xray_distance;
+    vector view_origin = getviewprop(VF_ORIGIN);
+    float  cutoff_distance = autocvar_qdw_xray_distance;
 
-    float distance = vlen(org - self.origin);
-    if (distance > cutoff) {
+    float distance_to_player = vlen(view_origin - self.origin);
+    if (distance_to_player > cutoff_distance) {
         XrayResetPlayer(self);
         return isnew;
     }
 
-    traceline(org, self.origin, MOVE_NORMAL | MOVE_NOMONSTERS, self);
+    traceline(view_origin, self.origin, MOVE_NORMAL | MOVE_NOMONSTERS, self);
     if (trace_fraction == 1) {
         XrayResetPlayer(self);
         return isnew;
     }
 
-    float distanceFactor = 1 - easeInExpo(distance / cutoff);
+    float distance_fade = 1 - EaseInExpo(distance_to_player / cutoff_distance);
 
     self.effects |= EF_NODEPTHTEST | EF_ADDITIVE;
     self.drawmask = (self.drawmask & ~MASK_ENGINE) | MASK_XRAY;
-    self.alpha = autocvar_qdw_xray_alpha * distanceFactor;
-    self.fatness = 2;
+    self.alpha    = autocvar_qdw_xray_alpha * distance_fade;
+    self.fatness  = 2;
 
     // Workaround for self.origin not being lerped, bug in FTE, remove once fixed.
-    vector origin = getentity(self.entnum, GE_ORIGIN);
-    setorigin(self, origin);
+    vector lerped_origin = getentity(self.entnum, GE_ORIGIN);
+    setorigin(self, lerped_origin);
 
     string pov_team = getplayerkeyvalue(player_localentnum - 1, "team");
-    string ent_team = getplayerkeyvalue(pnum, "team");
+    string ent_team = getplayerkeyvalue(player_index, "team");
 
     if (pov_team != ent_team) {
-        self.forceshader = shaderforname("xray-enemy", enemy_shader);
+        self.forceshader = shaderforname("xray-enemy", xray_enemy_shader);
     } else {
-        self.forceshader = shaderforname("xray-team", team_shader);
+        self.forceshader = shaderforname("xray-team", xray_team_shader);
     }
 
     return isnew;
@@ -87,14 +92,14 @@ void() XrayInit =
         return;
     }
 
-    team_shader = sprintf(R"({
+    xray_team_shader = sprintf(R"({
       {
         map $whiteimage
         rgbgen const %v
       }
     })", autocvar_qdw_xray_color_team);
 
-    enemy_shader = sprintf(R"({
+    xray_enemy_shader = sprintf(R"({
       {
         map $whiteimage
         rgbgen const %v

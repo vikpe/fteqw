@@ -1,32 +1,18 @@
-/*
- * Copyright (c) 2024 Daniel Svensson <dsvensson@gmail.com>
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
+// SPDX-License-Identifier: 0BSD
 
-// Increase if any predefined map needs more.. "¯\_(ツ)_/¯"
+// Increase if any predefined map needs more.. "(shrug)"
 #define MAX_POWERUPS 4
 
 typedef struct {
         vector origin;
         vector angles;
-} camera_t;
+} powcam_camera_t;
 
 typedef struct {
     itemtype_t type;
     vector origin;
-    camera_t camera;
-} item_t;
+    powcam_camera_t camera;
+} powcam_item_t;
 
 // Defines to make the database somewhat of an embedded DSL.
 #define origin(x) x
@@ -37,10 +23,13 @@ typedef struct {
 #define pent(org, cam) powerup(IT_PENT, org, cam)
 #define map(name, ...) { name, { __VA_ARGS__ } }
 
+// Per-map powerup -> camera lookup table. Each entry is keyed on map name
+// and contains up to MAX_POWERUPS powerup origins paired with the camera
+// pose to use when that powerup is the scheduled focus.
 struct {
     string name;
-    item_t items[MAX_POWERUPS];
-} database[] = {
+    powcam_item_t items[MAX_POWERUPS];
+} powcam_map_database[] = {
     map("dm2",
         quad('1920 -704 184', camera(origin('1846 -585 355'), angles('71 0 0')))
     ),
@@ -108,81 +97,80 @@ struct {
 #undef angles
 #undef origin
 
-var string mapname = "";
-var item_t* active_items = nil;
+// Pointer into powcam_map_database for the currently loaded map, or nil if
+// the current map has no entry. Lookup happens once in PowcamLoadItems().
+// (`mapname` is an engine-provided global declared by csplat.qc - the
+// engine populates it on world load.)
+var powcam_item_t* powcam_active_items = nil;
+
+// Cached count of entries in powcam_active_items (lazy filled by
+// PowcamCountItems on first call). Counts up to the first IT_NONE sentinel.
+var int   powcam_active_item_count   = 0;
+var float powcam_active_item_counted = 0;
 
 float() PowcamLoadItems =
 {
-    for (int i = 0; i < database.length; i++) {
-        if (database[i].name == mapname) {
-            active_items = database[i].items;
+    for (int i = 0; i < powcam_map_database.length; i++) {
+        if (powcam_map_database[i].name == mapname) {
+            powcam_active_items = powcam_map_database[i].items;
             return 1;
         }
     }
     return 0;
 };
 
-item_t*() PowcamGetCurrentItems =
+powcam_item_t*() PowcamGetCurrentItems =
 {
-    if (!active_items)
+    if (!powcam_active_items)
         return nil;
-    return active_items;
+    return powcam_active_items;
 };
-
-var int num_items = 0;
 
 int() PowcamCountItems =
 {
-    if (!num_items) {
-        item_t *items = PowcamGetCurrentItems();
-        for (int i = 0; i < MAX_POWERUPS; i++) {
-            item_t *item = &items[i];
-            if (item.type == IT_NONE)
+    if (!powcam_active_item_counted) {
+        powcam_item_t *items = PowcamGetCurrentItems();
+        for (int i = 0; items && i < MAX_POWERUPS; i++) {
+            if (items[i].type == IT_NONE)
                 break;
-            num_items += 1;
+            powcam_active_item_count += 1;
         }
+        powcam_active_item_counted = 1;
     }
-    return num_items;
+    return powcam_active_item_count;
 };
 
-item_t*(vector origin, vector tolerance, itemtype_t expected_type) PowcamFindItemInternal =
+powcam_item_t*(vector origin, vector tolerance, itemtype_t expected_type) PowcamFindItemInternal =
 {
-    item_t *items = PowcamGetCurrentItems();
+    powcam_item_t *items = PowcamGetCurrentItems();
     if (!items)
         return nil;
 
     for (int i = 0; i < MAX_POWERUPS; i++) {
-        item_t *item = &items[i];
-        if (item.type == IT_NONE) {
-            debug("Camera not found on map '%s'", mapname);
+        powcam_item_t *item = &items[i];
+        if (item->type == IT_NONE) {
             break;
         }
-
-        if (item.type != expected_type) {
-            debug("Item model mismatch: %f != %f", item.type, expected_type);
+        if (item->type != expected_type) {
             continue;
         }
-
-        if (fabs(item.origin.x - origin.x) <= tolerance.x &&
-            fabs(item.origin.y - origin.y) <= tolerance.y &&
-            fabs(item.origin.z - origin.z) <= tolerance.z) {
+        if (fabs(item->origin.x - origin.x) <= tolerance.x &&
+            fabs(item->origin.y - origin.y) <= tolerance.y &&
+            fabs(item->origin.z - origin.z) <= tolerance.z) {
             return item;
-        } else {
-            debug("x-delta: %f %f %f", item.origin.x, origin.x, fabs(item.origin.x - origin.x));
-            debug("y-delta: %f %f %f", item.origin.y, origin.y, fabs(item.origin.y - origin.y));
-            debug("z-delta: %f %f %f", item.origin.z, origin.z, fabs(item.origin.z - origin.z));
         }
     }
 
-    // Fallback if map only has a single camera
+    // Fallback if map only has a single camera.
     if (PowcamCountItems() == 1) {
         return &items[0];
     }
 
+    debug("No camera matched origin %v (type %d) on map '%s'", origin, expected_type, mapname);
     return nil;
 };
 
-item_t*(vector org, float model_index) PowcamFindItem =
+powcam_item_t*(vector org, float model_index) PowcamFindItem =
 {
     if (org == '0 0 0') {
         debug("zero origin, skipping");
@@ -192,18 +180,14 @@ item_t*(vector org, float model_index) PowcamFindItem =
         debug("zero type, skipping");
         return nil;
     }
-    itemtype_t type = PowcamItemTypeByModelIndex(model_index);
+    itemtype_t type = ItemTypeByModelIndex(model_index);
     return PowcamFindItemInternal(org, '0 0 64', type);
 };
 
-item_t*(float entnum) PowcamFindItemByEntity =
+powcam_item_t*(float entnum) PowcamFindItemByEntity =
 {
     vector org = getentity(entnum, GE_ORIGIN);
     float model_index = getentity(entnum, GE_MODELINDEX);
     return PowcamFindItem(org, model_index);
 };
 
-item_t*(vector org, itemtype_t type) PowcamFindItemByPlayerOriginAndType =
-{
-    return PowcamFindItemInternal(org, '64 64 112', type);
-}

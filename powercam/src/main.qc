@@ -1,30 +1,6 @@
-/*
- * Copyright (c) 2024 Daniel Svensson <dsvensson@gmail.com>
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
+// SPDX-License-Identifier: 0BSD
 
-/*
- * Top-level CSQC entry points. The actual feature code lives in:
- *   powcam.qc   - powerup-cam scheduling state
- *   powcam_render.qc   - powcam overlay rendering
- *   xray.qc         - through-walls player silhouettes
- *   minimap.qc      - top-down map view
- *   score_overlay.qc - 1v1 / 2-team score header
- *   itemtimer.qc    - powerup spawn timers
- *   commands.qc     - console command handlers
- *   easing.qc       - small math helpers
- */
+// Top-level CSQC entry points. See progs.src for the file list.
 
 void(float apilevel, string enginename, float engineversion) CSQC_Init =
 {
@@ -38,12 +14,12 @@ void() CSQC_WorldLoaded =
     XrayInit();
 
     match_start_time = -1;
-    ResetCamera();
-    PowcamResetTimers(match_start_time);
+    PowcamReset();
+    ItemTimerResetAll(match_start_time);
 
     if (PowcamLoadItems()) {
-        deltalisten("progs/quaddama.mdl", PowcamSpawnListener, RSES_NOLERP);
-        deltalisten("progs/invulner.mdl", PowcamSpawnListener, RSES_NOLERP);
+        deltalisten("progs/quaddama.mdl", ItemTimerSpawnListener, RSES_NOLERP);
+        deltalisten("progs/invulner.mdl", ItemTimerSpawnListener, RSES_NOLERP);
     }
 
     MinimapRegisterShaders();
@@ -63,8 +39,8 @@ void() CSQC_ServerInfoChanged =
 
     match_start_time = time;
 
-    PowcamResetTimers(match_start_time);
-    SelectNextCamera();
+    ItemTimerResetAll(match_start_time);
+    PowcamSelectNext();
 };
 
 // Render order for the frame:
@@ -74,34 +50,35 @@ void() CSQC_ServerInfoChanged =
 //   4. Score overlay (top-most UI)
 void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 {
-    vector main_min, main_size;
-    float draw_main = MinimapMainViewport(vwidth, vheight, main_min, main_size);
+    minimap_rect_t main_view;
+    MinimapMainViewport(vwidth, vheight, main_view);
+    float draw_main = (main_view.size != '0 0 0');
 
     if (draw_main) {
         clearscene();
         setviewprop(VF_VIEWENTITY, 0);
-        setviewprop(VF_MIN, main_min);
-        setviewprop(VF_SIZE, main_size);
+        setviewprop(VF_MIN, main_view.min);
+        setviewprop(VF_SIZE, main_view.size);
         addentities(MASK_ENGINE | MASK_VIEWMODEL);
         setviewprop(VF_DRAWENGINESBAR, 1);
         setviewprop(VF_DRAWCROSSHAIR, 1);
         renderscene();
         clearscene();
 
-        setviewprop(VF_MIN, main_min);
-        setviewprop(VF_SIZE, main_size);
+        setviewprop(VF_MIN, main_view.min);
+        setviewprop(VF_SIZE, main_view.size);
         addentities(MASK_XRAY);
         setviewprop(VF_DRAWWORLD, 0);
         renderscene();
     }
 
-    // SelectNextCamera early-returns when a camera is already in its
+    // PowcamSelectNext early-returns when a camera is already in its
     // active window, so calling it unconditionally only advances the
     // schedule when the current pick has expired (or never existed).
-    SelectNextCamera();
+    PowcamSelectNext();
 
     if (draw_main && autocvar_qdw_powcam_enabled) {
-        PowcamRender(main_min, main_size, vwidth, vheight);
+        PowcamRender(main_view.min, main_view.size, vwidth, vheight);
     }
 
     MinimapRender(vwidth, vheight);

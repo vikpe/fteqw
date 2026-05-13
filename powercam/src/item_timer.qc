@@ -1,46 +1,36 @@
-/*
- * Copyright (c) 2024 Daniel Svensson <dsvensson@gmail.com>
- *
- * Permission to use, copy, modify, and/or distribute this software for any
- * purpose with or without fee is hereby granted, provided that the above
- * copyright notice and this permission notice appear in all copies.
- *
- * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
- * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
- * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
- * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
- * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
- * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
- * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
+// SPDX-License-Identifier: 0BSD
 
 typedef struct {
-    float entnum;
-    float took;
-    float respawn;
-    float playernum;
-    item_t *item;
-} itemtimer_t;
+    float entnum;     // server entity number of the powerup item
+    float took;       // engine `time` when last picked up (0 = never)
+    float respawn;    // engine `time` of the next scheduled respawn
+    float playernum;  // user index (1-based) of the player who took it
+    powcam_item_t *item;     // pointer into powcam_active_items[] for this slot
+} item_timer_t;
 
-itemtimer_t timers[MAX_POWERUPS];
+// Pickup timer state, one slot per tracked powerup on the current map.
+// Populated by the CSQC_Parse_StuffCmd "//ktx took" handler and by the
+// deltalisten spawn listener. Read by the powcam scheduler and the
+// commands UI. timer->item points into powcam_active_items[].
+item_timer_t item_timers[MAX_POWERUPS];
 
-itemtimer_t*() PowcamGetTimers =
+item_timer_t*() ItemTimerGetAll =
 {
-    return timers;
+    return item_timers;
 };
 
-itemtimer_t*(int index) PowcamGetTimer =
+item_timer_t*(int index) ItemTimerGet =
 {
-    itemtimer_t *timer = &timers[index];
+    item_timer_t *timer = &item_timers[index];
     if (timer && !timer->item)
         return nil;
     return timer;
 }
 
-float(float isnew) PowcamSpawnListener =
+float(float isnew) ItemTimerSpawnListener =
 {
     for (int i = 0; i < MAX_POWERUPS; i++) {
-        itemtimer_t *timer = &timers[i];
+        item_timer_t *timer = &item_timers[i];
         if (timer->entnum != self.entnum && timer->entnum > 0) {
             continue;
         }
@@ -48,8 +38,8 @@ float(float isnew) PowcamSpawnListener =
         timer->entnum = self.entnum;
 
         if (!timer->item) {
-            timer.item = PowcamFindItem(self.origin, self.modelindex);
-            if (timer.item) {
+            timer->item = PowcamFindItem(self.origin, self.modelindex);
+            if (timer->item) {
                 debug("Associated timer via listener");
             }
         }
@@ -60,16 +50,16 @@ float(float isnew) PowcamSpawnListener =
     return isnew;
 };
 
-void(float timestamp) PowcamResetTimers =
+void(float timestamp) ItemTimerResetAll =
 {
     for (int i = 0; i < MAX_POWERUPS; i++) {
-        itemtimer_t *timer = &timers[i];
-        timer->respawn = timestamp;
-        timer->entnum = 0;
+        item_timer_t *timer = &item_timers[i];
+        timer->respawn   = timestamp;
+        timer->entnum    = 0;
         timer->playernum = 0;
-        timer->took = 0;
-        timer->respawn = 0;
-        timer->item = nil;
+        timer->took      = 0;
+        timer->respawn   = 0;
+        timer->item      = nil;
     }
 }
 
@@ -87,36 +77,36 @@ void(string msg) CSQC_Parse_StuffCmd =
 
     tokenize_console(msg);
 
-    float delay = stof(argv(1));
+    float respawn_delay = stof(argv(1));
 
-    itemtype_t type = PowcamItemTypeByRespawnDelay(delay);
+    itemtype_t type = ItemTypeByRespawnDelay(respawn_delay);
 
     // Lets assume standardized quad and pent respawn timers
     if (!(type == IT_QUAD || type == IT_PENT)) {
         return;
     }
 
-    float entnum = stof(argv(0));
+    float entnum    = stof(argv(0));
     float playernum = stof(argv(2));
 
     for (int i = 0; i < MAX_POWERUPS; i++) {
-        itemtimer_t *timer = &timers[i];
+        item_timer_t *timer = &item_timers[i];
         if (timer->entnum != 0 && entnum != timer->entnum) {
             continue;
         }
 
         if (!timer->item) {
-            item_t *item = PowcamFindItemByEntity(entnum);
+            powcam_item_t *item = PowcamFindItemByEntity(entnum);
             if (!item) {
                 debug("ITEM NOT FOUND!");
                 return;
             }
-            timer->item = item;
+            timer->item   = item;
             timer->entnum = entnum;
         }
 
-        timer->respawn = time + delay;
-        timer->took = time;
+        timer->respawn   = time + respawn_delay;
+        timer->took      = time;
         timer->playernum = playernum;
         break;
     }

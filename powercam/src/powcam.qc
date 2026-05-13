@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: 0BSD
+
 /*
  * Powcam (powerup-cam) scheduling: tracks which powerup spawn the powcam
  * should be focused on, and the start/end/transition timestamps around it.
@@ -5,59 +7,77 @@
  * schedule state.
  */
 
-#define POWCAM_START_RESET 9999999
-#define POWCAM_END_RESET   9999999
+// Sentinel value for unscheduled powcam timestamps. Chosen high enough that
+// `time < powcam.start` and `time >= powcam.end` both read as "no window".
+#define POWCAM_TIME_RESET 9999999
 
+// Wall-clock time (engine `time`) when the current match started, or -1 if
+// no match has started yet. Set in main.qc:CSQC_ServerInfoChanged on the
+// first non-standby/non-countdown serverinfo, and consumed by the powcam
+// scheduler as the earliest legal camera-start timestamp. Shared with
+// main.qc so its lifecycle hooks can detect the "match running" state.
 var float match_start_time = -1;
-var int   powcam_index = -1;
-var float powcam_intro = 4.0;
-var float powcam_outro = 2.5;
-var float powcam_transition = 1.0;
 
-var float powcam_start = POWCAM_START_RESET;
-var float powcam_start_transition = POWCAM_START_RESET;
-var float powcam_end = POWCAM_END_RESET;
-var float powcam_end_transition = POWCAM_END_RESET;
+// Currently scheduled powcam window. All fields move together: written
+// atomically by PowcamSelectNext, cleared by PowcamReset, consumed by
+// PowcamRender. `index` is -1 and the four timestamps are POWCAM_TIME_RESET
+// when no camera is scheduled.
+typedef struct {
+    int    index;               // index into item_timers[] (-1 = unscheduled)
+    float  intro_seconds;       // snapshot of autocvar_qdw_powcam_intro
+    float  outro_seconds;       // snapshot of autocvar_qdw_powcam_outro
+    float  transition_seconds;  // snapshot of autocvar_qdw_powcam_transition
+    float  start;               // render begins
+    float  start_transition;    // slide-in completes
+    float  end_transition;      // slide-out begins
+    float  end;                 // render ends
+    vector bg_color;            // frame fill for this window
+    string item_name;           // caption label ("Quad" / "Pent")
+} powcam_schedule_t;
 
-var vector powcam_bg_color = '1 1 1';
-var string powcam_item_name = "none";
+var powcam_schedule_t powcam;
 
-var float  autocvar_qdw_debug = 0;
-var float  autocvar_qdw_powcam_enabled = 1;
-var float  autocvar_qdw_powcam_intro = 5.0;
-var float  autocvar_qdw_powcam_outro = 3.5;
-var float  autocvar_qdw_powcam_transition = 0.8;
-var vector autocvar_qdw_powcam_bg_quad_color = '0.2 0.2 0.5';
-var vector autocvar_qdw_powcam_bg_pent_color = '0.5 0.2 0.2';
+// Cvars (auto-prefixed accessors). Read at PowcamSelectNext time.
+var float  autocvar_qdw_powcam_enabled         = 1;
+var float  autocvar_qdw_powcam_intro           = 5.0;
+var float  autocvar_qdw_powcam_outro           = 3.5;
+var float  autocvar_qdw_powcam_transition      = 0.8;
+var vector autocvar_qdw_powcam_bg_quad_color   = '0.2 0.2 0.5';
+var vector autocvar_qdw_powcam_bg_pent_color   = '0.5 0.2 0.2';
 
-void() ResetCamera =
+void() PowcamReset =
 {
-    powcam_start = POWCAM_START_RESET;
-    powcam_start_transition = POWCAM_START_RESET;
-    powcam_end = POWCAM_END_RESET;
-    powcam_end_transition = POWCAM_END_RESET;
-    powcam_index = -1;
+    powcam.index              = -1;
+    powcam.intro_seconds      = 4.0;
+    powcam.outro_seconds      = 2.5;
+    powcam.transition_seconds = 1.0;
+    powcam.start              = POWCAM_TIME_RESET;
+    powcam.start_transition   = POWCAM_TIME_RESET;
+    powcam.end_transition     = POWCAM_TIME_RESET;
+    powcam.end                = POWCAM_TIME_RESET;
+    powcam.bg_color           = '1 1 1';
+    powcam.item_name          = "none";
 };
 
-void() SelectNextCamera =
+void() PowcamSelectNext =
 {
     if (match_start_time == -1) {
         return;
     }
 
-    if (time >= powcam_start && time < powcam_end) {
+    if (time >= powcam.start && time < powcam.end) {
         return;
     }
 
-    itemtimer_t *timers = PowcamGetTimers();
+    item_timer_t *timers = ItemTimerGetAll();
 
-    itemtype_t candidate_type = IT_NONE;
-    float candidate_respawn = POWCAM_START_RESET;
-    int   candidate_index = -1;
+    itemtype_t candidate_type    = IT_NONE;
+    float      candidate_respawn = POWCAM_TIME_RESET;
+    int        candidate_index   = -1;
 
     for (int i = 0; i < MAX_POWERUPS; i++) {
-        itemtimer_t *timer = &timers[i];
-        item_t *item = timer->item;
+        item_timer_t *timer = &timers[i];
+        powcam_item_t *item = timer->item;
         if (!item) {
             continue;
         }
@@ -65,34 +85,34 @@ void() SelectNextCamera =
         // Prefer earliest respawn; pent wins ties.
         if (timer->respawn < candidate_respawn ||
             (item->type == IT_PENT && timer->respawn == candidate_respawn)) {
-            candidate_type = item->type;
+            candidate_type    = item->type;
             candidate_respawn = timer->respawn;
-            candidate_index = i;
+            candidate_index   = i;
         }
     }
     if (candidate_index != -1) {
         // Reload any cvar changes.
-        powcam_intro = autocvar_qdw_powcam_intro;
-        powcam_outro = autocvar_qdw_powcam_outro;
-        powcam_transition = autocvar_qdw_powcam_transition;
+        powcam.intro_seconds      = autocvar_qdw_powcam_intro;
+        powcam.outro_seconds      = autocvar_qdw_powcam_outro;
+        powcam.transition_seconds = autocvar_qdw_powcam_transition;
 
-        powcam_index = candidate_index;
-        powcam_start = max(match_start_time, candidate_respawn - powcam_intro);
-        powcam_start_transition = powcam_start + powcam_transition;
-        powcam_end = POWCAM_END_RESET;
-        powcam_end_transition = POWCAM_END_RESET;
+        powcam.index            = candidate_index;
+        powcam.start            = max(match_start_time, candidate_respawn - powcam.intro_seconds);
+        powcam.start_transition = powcam.start + powcam.transition_seconds;
+        powcam.end              = POWCAM_TIME_RESET;
+        powcam.end_transition   = POWCAM_TIME_RESET;
 
         switch (candidate_type) {
         case IT_QUAD:
-            powcam_bg_color = autocvar_qdw_powcam_bg_quad_color;
-            powcam_item_name = "Quad";
+            powcam.bg_color  = autocvar_qdw_powcam_bg_quad_color;
+            powcam.item_name = "Quad";
             break;
         case IT_PENT:
-            powcam_bg_color = autocvar_qdw_powcam_bg_pent_color;
-            powcam_item_name = "Pent";
+            powcam.bg_color  = autocvar_qdw_powcam_bg_pent_color;
+            powcam.item_name = "Pent";
             break;
         default:
-            powcam_bg_color = '1 1 1';
+            powcam.bg_color = '1 1 1';
             break;
         }
     }

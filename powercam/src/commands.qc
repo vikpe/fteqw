@@ -1,100 +1,93 @@
+// SPDX-License-Identifier: 0BSD
+
 /*
- * Console command handlers. Two namespaces, both dispatched from
- * CSQC_ConsoleCommand:
- *   pip      - powcam diagnostics (active / timers / recheck / help)
- *   minimap  - minimap diagnostics, implemented in minimap.qc
+ * Console command dispatcher and powcam command handlers.
+ * Two top-level commands, both routed here from CSQC_ConsoleCommand:
+ *   powcam   - powcam diagnostics (active / timers / recheck / help)
+ *   minimap  - minimap diagnostics (handlers in minimap_commands.qc)
+ *
+ * Output convention: `Key  value` per line, label padded to a fixed width;
+ * one record per line for tabular data ("[i] k=v k=v ...").
  */
 
 float() PowcamCmdActive =
 {
-    print("");
-
-    println("Powcam state\n\n");
-    println("Camera settings:");
-    println("- index:      %3d", (float)powcam_index);
-    println("- intro:      %1.1f", powcam_intro);
-    println("- outro:      %1.1f", powcam_outro);
-    println("- transition: %1.1f", powcam_transition);
-    println("Camera schedule:");
-    println("- start: %4.2f", powcam_start);
-    println("- intro: %4.2f", powcam_start_transition);
-    println("- outro: %4.2f", powcam_end_transition);
-    println("- end:   %4.2f", powcam_end);
-    println("Current Time: %4.2f", time);
+    println("Powcam schedule:");
+    println("  index           %d",    powcam.index);
+    println("  intro (s)       %1.1f", powcam.intro_seconds);
+    println("  outro (s)       %1.1f", powcam.outro_seconds);
+    println("  transition (s)  %1.1f", powcam.transition_seconds);
+    println("  start           %4.2f", powcam.start);
+    println("  start-trans     %4.2f", powcam.start_transition);
+    println("  end-trans       %4.2f", powcam.end_transition);
+    println("  end             %4.2f", powcam.end);
+    println("  now             %4.2f", time);
     return 1;
+};
+
+string(itemtype_t type) PowcamItemTypeLabel =
+{
+    switch (type) {
+    case IT_QUAD: return "&c55fquad&r";
+    case IT_PENT: return "&cf55pent&r";
+    default:      return "none";
+    }
 };
 
 float() PowcamCmdTimers =
 {
-    println("Powcam timer state\n");
-    itemtimer_t *timers = PowcamGetTimers();
+    println("Powcam timers:");
+    item_timer_t *timers = ItemTimerGetAll();
     for (int i = 0; i < MAX_POWERUPS; i++) {
-        itemtimer_t *timer = &timers[i];
+        item_timer_t *timer = &timers[i];
         if (!timer->item) {
             continue;
         }
-        println("  index: %d", i);
-        println(" entnum: %d", timer->entnum);
-        println("   took: %.2f", timer->took);
-        println("respawn: %.2f", timer->respawn);
-
         vector origin = getentity(timer->entnum, GE_ORIGIN);
-        println("spawned: %s", origin == '0 0 0' ? "no" : "yes");
-
+        string spawned = (origin == '0 0 0') ? "no" : "yes";
+        string by = "";
         if (timer->took > 0) {
             string name = getplayerkeyvalue(timer->playernum - 1, INFOKEY_P_NAME);
-            println("     by: %s (num: %f)", name, timer->playernum);
+            by = sprintf(" by=%s(#%i)", name, (int)timer->playernum);
         }
-
-        print("   type: ");
-        item_t *item = timer.item;
-        switch (item.type) {
-        case IT_QUAD:
-            print("&c55fquad&r");
-            break;
-        case IT_PENT:
-            print("&cf55pent&r");
-            break;
-        default:
-            print("none");
-            break;
-        }
-        print("\n\n");
+        println("  [%i] entnum=%i type=%s took=%.2f respawn=%.2f spawned=%s%s",
+                i, (int)timer->entnum, PowcamItemTypeLabel(timer->item->type),
+                timer->took, timer->respawn, spawned, by);
     }
-    println("Current time: %f", time);
+    println("  now             %4.2f", time);
     return 1;
 };
 
 float() PowcamCmdRecheck =
 {
-    if (powcam_index == -1) {
+    if (powcam.index == -1) {
+        println("Powcam: no camera scheduled");
+        return 1;
+    }
+    if (time < powcam.start) {
+        println("Powcam: window has not started");
         return 1;
     }
 
-    if (time < powcam_start) {
-        debug("camera start not yet reached");
-        return 1;
-    }
-
-    itemtimer_t *timers = PowcamGetTimers();
-    itemtimer_t *timer = &timers[powcam_index];
+    item_timer_t *timers = ItemTimerGetAll();
+    item_timer_t *timer = &timers[powcam.index];
     if (PowcamFindItemByEntity(timer->entnum) != nil) {
-        debug("recheck found item");
+        println("Powcam: item still present, schedule kept");
         return 1;
     }
 
-    ResetCamera();
-    SelectNextCamera();
-
+    PowcamReset();
+    PowcamSelectNext();
+    println("Powcam: rescheduled");
     return 1;
 };
 
 float() PowcamCmdHelp =
 {
-    println("Powcam commands");
-    println(" * active  - Currently scheduled camera");
-    println(" * timers  - All tracked timers");
-    println(" * recheck - Reset camera and try to schedule next");
+    println("Powcam commands:");
+    println("  active   - currently scheduled camera");
+    println("  timers   - all tracked timers");
+    println("  recheck  - reset camera and try to schedule next");
     return 1;
 };
 
@@ -103,25 +96,18 @@ float(string cmd) CSQC_ConsoleCommand =
     tokenize_console(cmd);
     if (argv(0) == "minimap") {
         switch (argv(1)) {
-        case "reload":
-            return MinimapCmdReload();
-        case "status":
-            return MinimapCmdStatus();
-        default:
-            return MinimapCmdHelp();
+        case "reload":  return MinimapCmdReload();
+        case "status":  return MinimapCmdStatus();
+        default:        return MinimapCmdHelp();
         }
     }
-    if (argv(0) != "powcam") {
-        return 0;
+    if (argv(0) == "powcam") {
+        switch (argv(1)) {
+        case "active":  return PowcamCmdActive();
+        case "timers":  return PowcamCmdTimers();
+        case "recheck": return PowcamCmdRecheck();
+        default:        return PowcamCmdHelp();
+        }
     }
-    switch (argv(1)) {
-    case "active":
-        return PowcamCmdActive();
-    case "timers":
-        return PowcamCmdTimers();
-    case "recheck":
-        return PowcamCmdRecheck();
-    default:
-        return PowcamCmdHelp();
-    }
+    return 0;
 };
