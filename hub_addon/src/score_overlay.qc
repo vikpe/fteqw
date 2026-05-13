@@ -83,7 +83,7 @@ typedef struct {
 // Forward declarations so the file reads top-down (entry points first).
 void(vector main_size, __out so_layout_t L)                                              SO_LayoutFor;
 float(so_layout_t L, vector anchor)                                                      SO_DrawParticipants;
-void(so_layout_t L, vector anchor, float has_participants)                               SO_DrawClock;
+void(so_layout_t L, vector anchor)                                                       SO_DrawClock;
 void(so_layout_t L, vector anchor, float side, so_participant_t p)                       SO_DrawParticipantSide;
 void(vector pos, vector size, float radius, float corners, vector color, float alpha)    SO_DrawRoundedRect;
 
@@ -106,11 +106,14 @@ void(vector main_size, float vwidth) ScoreOverlayDraw =
     // previous match stays on screen between rounds).
     float has_participants = SO_DrawParticipants(L, anchor);
 
-    // Clock: hidden during pre-match / between-match standby. When no
-    // participants were drawn, the clock takes their slot at the top.
-    if (strcasecmp(serverkey("status"), "standby")) {
-        SO_DrawClock(L, anchor, has_participants);
+    // Clock: hidden during pre-match / between-match standby is handled
+    // inside SO_DrawClock. When no participants were drawn, the clock
+    // takes their slot at the top.
+    vector clock_anchor = anchor;
+    if (has_participants) {
+        clock_anchor.y += L.score.box_height + L.vertical_gap;
     }
+    SO_DrawClock(L, clock_anchor);
 };
 
 // Reserved vertical footprint (top margin + box + clock + bottom margin)
@@ -253,18 +256,30 @@ void(so_layout_t L, vector anchor, float side, so_participant_t p) SO_DrawPartic
 // `anchor.y`. getmatchelapsed returns -1 during
 // standby/countdown/QTV-before-first-time-print; we skip drawing in
 // that case so the slot doesn't read "00:00".
-void(so_layout_t L, vector anchor, float has_participants) SO_DrawClock =
+void(so_layout_t L, vector anchor) SO_DrawClock =
 {
-    float elapsed_ms = getmatchelapsed();
-    if (elapsed_ms < 0) return;
-    float  elapsed = floor(elapsed_ms / 1000);
-    float  minutes = floor(elapsed / 60);
-    float  seconds = elapsed - minutes * 60;
-    string text    = sprintf("%02d:%02d", minutes, seconds);
-    float  width   = stringwidth(text, 0, L.clock_font_size);
-    float  y       = has_participants ? (anchor.y + L.score.box_height + L.vertical_gap) : anchor.y;
-    vector pos     = [anchor.x - width * 0.5, y, 0];
-    drawstring(pos, text, L.clock_font_size, '1 1 0.2', 1, 0);
+    // Hide only when we have no match clock yet AND we're in pre-match
+    // standby - during intermission we keep showing the frozen clock.
+    float  elapsed_ms = getmatchelapsed();
+    string status     = serverkey("status");
+    if (elapsed_ms < 0 && !strcasecmp(status, "standby"))
+        return;
+
+    string text;
+    vector color;
+    if (!strcasecmp(status, "countdown")) {
+        text  = "Countdown";
+        color = '1 1 1';
+    } else {
+        float elapsed = floor(elapsed_ms / 1000);
+        float minutes = floor(elapsed / 60);
+        float seconds = elapsed - minutes * 60;
+        text  = sprintf("%02d:%02d", minutes, seconds);
+        color = '1 1 0.2';
+    }
+    float  width = stringwidth(text, 0, L.clock_font_size);
+    vector pos   = [anchor.x - width * 0.5, anchor.y, 0];
+    drawstring(pos, text, L.clock_font_size, color, 1, 0);
 };
 
 // ----- layout / primitives --------------------------------------------------
