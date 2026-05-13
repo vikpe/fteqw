@@ -6868,7 +6868,7 @@ static void CL_PrintStandardMessage(char *msgtext, int printlevel)
 
 static char printtext[4096];
 //Catches "<N> minute[s] overtime follows" lines emitted by ktx/ktpro and
-//accumulates seconds into matchTotalOvertime (our own state, not the
+//accumulates seconds into hub_match_total_overtime (our own state, not the
 //engine's cl.matchstate / cl.matchgametimestart). The number is at the
 //start of the line (optionally preceded by whitespace).
 static void CL_ParseOvertimeLine(const char *line)
@@ -6897,92 +6897,7 @@ static void CL_ParseOvertimeLine(const char *line)
 		return;
 	if (minutes <= 0)
 		return;
-	matchTotalOvertime += minutes * 60;
-}
-
-//Catches lines like "<N> minute[s]/second[s] left|remaining". QTV viewers
-//don't get a reliable serverinfo "status" update; these prints are the only
-//signal we have for where in a live match we are. The parser is forgiving
-//about decorations: mods print these with bracket / color-byte framing
-//around the number (e.g. "\x12 8 \x13 minutes remaining") so we skip any
-//non-digit leading chars and any non-letter chars between number and unit
-//word.
-static void CL_ParseMatchTimeLeftLine(const char *line)
-{
-	const char *p = line;
-	int value;
-	int unit_secs;
-	int remaining;
-	float total_secs;
-
-	// Skip leading non-digit chars: whitespace, brackets, color bytes,
-	// charset decoration, anything that isn't 0-9.
-	while (*p && (*p < '0' || *p > '9'))
-		p++;
-	if (!*p)
-		return;
-	value = atoi(p);
-	while (*p >= '0' && *p <= '9')
-		p++;
-
-	// Skip any non-letter chars between the number and the unit word.
-	while (*p && *p != 'm' && *p != 's')
-	{
-		if (*p == '\n' || *p == '\r')
-			return;
-		p++;
-	}
-	if (!*p)
-		return;
-
-	if (!strncmp(p, "minute", 6))
-	{
-		unit_secs = 60;
-		p += 6;
-	}
-	else if (!strncmp(p, "second", 6))
-	{
-		unit_secs = 1;
-		p += 6;
-	}
-	else
-		return;
-
-	if (*p == 's')
-		p++;
-	if (*p != ' ')
-		return;
-	p++;
-	// Accept either "left" or "remaining".
-	if (strncmp(p, "left", 4) && strncmp(p, "remaining", 9))
-		return;
-	if (value < 0)
-		return;
-
-	remaining = value * unit_secs;
-	total_secs = 60 * atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit")) + matchTotalOvertime;
-	if (total_secs <= 0)
-		return;
-
-	{
-		double elapsed = total_secs - remaining;
-		if (elapsed < 0)
-			elapsed = 0;
-		if (cls.lastdemoname[0])
-		{
-			// Recorded demo: convert the print into a stable demtime anchor.
-			// demoMatchStartedAt = current demtime - elapsed yields the same
-			// value for every subsequent "X min[s] left" print regardless of
-			// when it fires (normal playback, fast-parse, post-seek).
-			extern float demtime;
-			demoMatchStartedAt = demtime - elapsed;
-		}
-		else
-		{
-			// QTV live stream: store elapsed directly; Host_Frame ticks it.
-			qtvMatchElapsed = elapsed;
-		}
-	}
+	hub_match_total_overtime += minutes * 60;
 }
 
 static void CL_ParsePrint(const char *msg, int level)
@@ -7005,7 +6920,6 @@ static void CL_ParsePrint(const char *msg, int level)
 		e[1] = 0;
 
 		CL_ParseOvertimeLine(printtext);
-		CL_ParseMatchTimeLeftLine(printtext);
 
 //		QTube wants all the stats
 //		if (!cls.demoseeking)

@@ -490,7 +490,7 @@ void CL_DemoJump_f(void)
 		//Demo restarted: forget the cached match clock so fast-parse rebuilds
 		//it from the upcoming "X min[s] left" / overtime prints. Forward
 		//seeks don't restart the demo, so the existing state is still valid.
-		CL_ResetMatchState();
+		Hub_ResetMatchState();
 	}
 	cls.demoseeking = DEMOSEEK_TIME;
 }
@@ -2450,7 +2450,7 @@ void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int 
 	// Reset our additive match clock state so a previous demo/qtv session
 	// doesn't carry over. For qtv the clock must stay -1 until the first
 	// "X min[s] left" print is parsed.
-	CL_ResetMatchState();
+	Hub_ResetMatchState();
 	if (demtime < -0.5)
 		Con_Printf("Buffering for %g seconds\n", bufferdelay);
 	cls.netchan.last_received=demtime;

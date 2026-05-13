@@ -743,6 +743,7 @@ CLIENT_OBJS = \
 	in_generic.o	\
 	cl_main.o	\
 	cl_parse.o	\
+	cl_hub.o	\
 	cl_pred.o	\
 	cl_tent.o	\
 	cl_cam.o	\

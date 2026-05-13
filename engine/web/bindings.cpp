@@ -309,30 +309,27 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		.property("allocated_client_slots", &client_state_t::allocated_client_slots)
 		.property("matchstate", &client_state_t::matchstate) // enum, how
 		.function("getMatchElapsed", +[](client_state_t& self) -> emscripten::val {
-			int elapsed = CL_GetMatchElapsed();
+			int elapsed = Hub_GetMatchElapsed();
 			if (elapsed < 0)
 				return emscripten::val::null();
 			return emscripten::val(elapsed);
 		})
 		.function("getDemoState", +[](client_state_t& self) -> emscripten::val {
 			// Recorded demos only. QTV streams have no demo timeline -
-			// callers should use getMatchElapsed / qtvMatchElapsed instead.
+			// callers should use getMatchElapsed instead.
 			if (!cls.lastdemoname[0])
 				return emscripten::val::null();
-			int elapsed = CL_GetDemoElapsed();
-			int duration = CL_GetDemoDuration();
+			int elapsed = Hub_GetDemoElapsed();
+			int duration = Hub_GetDemoDuration();
 			if (elapsed < 0 || duration < 0)
 				return emscripten::val::null();
 			emscripten::val result = emscripten::val::object();
 			result.set("elapsed", elapsed);
 			result.set("duration", duration);
-			// match_started_at: demtime offset where the match started,
-			// derived from "X min[s] left" prints in CL_ParseMatchTimeLeftLine.
-			// Null until the first such print has been parsed.
-			if (demoMatchStartedAt >= 0)
-				result.set("match_started_at", (int)floor(demoMatchStartedAt));
-			else
-				result.set("match_started_at", emscripten::val::null());
+			// match_started_at: demtime offset where the match started.
+			// Defaults to 10s (standard countdown duration), pulled back
+			// to current demtime if the demo joined mid-game / standby.
+			result.set("match_started_at", (int)floor(hub_demo_match_started_at));
 			return result;
 		})
 		.function("getItemTimer", +[](client_state_t& self) -> client_state_t::itemtimer_s* {

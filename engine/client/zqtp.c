@@ -1260,7 +1260,7 @@ static char *Macro_Coloured_Short_Powerups(void)
 	else
 		return "";
 }
-static char *Macro_Match_Status(void)
+char *Macro_Match_Status(void)
 {
 	if (cls.state == ca_disconnected)
 		return "disconnected";
