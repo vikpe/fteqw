@@ -288,6 +288,10 @@ float() MinimapLoad =
     return 1;
 };
 
+// Split-mode horizontal partition: player view on the left, minimap on
+// the right. 0.60 = player view gets 60% of the screen width.
+#define MINIMAP_SPLIT_MAIN_FRAC 0.50
+
 // Returns 1 if the main player view should render, filling vmin/vsize with
 // its viewport rect. Returns 0 when the minimap is in FULL mode (main view
 // is hidden).
@@ -296,7 +300,7 @@ float(float vw, float vh, __out vector vmin, __out vector vsize) MinimapMainView
     float mode = autocvar_minimap_mode;
     if (mode == MINIMAP_SPLIT) {
         vmin  = '0 0 0';
-        vsize = [vw * 0.5, vh, 0];
+        vsize = [vw * MINIMAP_SPLIT_MAIN_FRAC, vh, 0];
         return 1;
     }
     if (mode == MINIMAP_FULL) {
@@ -322,8 +326,8 @@ void(float mode, float vw, float vh, __out vector vmin, __out vector vsize) Mini
         }
         break;
     case MINIMAP_SPLIT:
-        vmin  = [vw / 2, 0, 0];
-        vsize = [vw / 2, vh, 0];
+        vmin  = [vw * MINIMAP_SPLIT_MAIN_FRAC, 0, 0];
+        vsize = [vw * (1 - MINIMAP_SPLIT_MAIN_FRAC), vh, 0];
         break;
     default:
         // FULL: letterbox the viewport to the map's aspect so the map

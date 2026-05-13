@@ -439,18 +439,18 @@ char *SecondsToMinutesString(int print_time, char *buffer, size_t buffersize) {
 	snprintf (buffer, buffersize, "%i%i:%i%i", tens_minutes, minutes, tens_seconds, seconds);
 	return buffer;
 }
-// Reads the engine's CL_GetMatchTime() which returns:
+// Reads the engine's CL_GetMatchElapsed() which returns:
 //   >= 0  seconds since the match started (floored)
 //   -1    no match context (standby, countdown, disconnected, live, etc.)
 // During the no-match case we display 00:00; the engine purposefully doesn't
 // surface a separate countdown reading - if you want that, read the
 // serverinfo "status" string. Requires static link (LINK_EZHUD=1); the web
 // CI build does this.
-extern int CL_GetMatchTime(void);
+extern int CL_GetMatchElapsed(void);
 
 char *SCR_GetGameTime(int t, char *buffer, size_t buffersize)
 {
-	int matchtime = CL_GetMatchTime();
+	int matchtime = CL_GetMatchElapsed();
 	float timelimit;
 	int seconds;
 

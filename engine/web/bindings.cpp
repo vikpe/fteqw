@@ -308,22 +308,29 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		.property("teamplay", &client_state_t::teamplay)
 		.property("allocated_client_slots", &client_state_t::allocated_client_slots)
 		.property("matchstate", &client_state_t::matchstate) // enum, how
-		.function("getMatchTime", +[](client_state_t& self) -> emscripten::val {
-			int v = CL_GetMatchTime();
-			if (v < 0)
+		.function("getMatchElapsed", +[](client_state_t& self) -> emscripten::val {
+			int elapsed = CL_GetMatchElapsed();
+			if (elapsed < 0)
 				return emscripten::val::null();
-			return emscripten::val(v);
+			return emscripten::val(elapsed);
 		})
 		.function("getDemoState", +[](client_state_t& self) -> emscripten::val {
-			int elapsed = CL_GetDemoTime();
-			int total = CL_GetDemoDuration();
-			if (elapsed < 0 || total < 0)
+			// Recorded demos only. QTV streams have no demo timeline -
+			// callers should use getMatchElapsed / qtvMatchElapsed instead.
+			if (!cls.lastdemoname[0])
+				return emscripten::val::null();
+			int elapsed = CL_GetDemoElapsed();
+			int duration = CL_GetDemoDuration();
+			if (elapsed < 0 || duration < 0)
 				return emscripten::val::null();
 			emscripten::val result = emscripten::val::object();
 			result.set("elapsed", elapsed);
-			result.set("total", total);
-			if (cl_demoMatchClockValid)
-				result.set("match_started_at", (int)floor(cl_demoMatchClockStart));
+			result.set("duration", duration);
+			// match_started_at: demtime offset where the match started,
+			// derived from "X min[s] left" prints in CL_ParseMatchTimeLeftLine.
+			// Null until the first such print has been parsed.
+			if (demoMatchStartedAt >= 0)
+				result.set("match_started_at", (int)floor(demoMatchStartedAt));
 			else
 				result.set("match_started_at", emscripten::val::null());
 			return result;
@@ -339,17 +346,17 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			}
 			return result;
 		}, allow_raw_pointers())
-		.function("getLevelName", +[](client_state_t& self) -> emscripten::val {
-			size_t len = strnlen(self.levelname, 40);
-			return val(typed_memory_view(len, (unsigned char *) self.levelname));
-		})
-		.function("getLevelNamePlain", +[](client_state_t& self) -> std::string {
-			conchar_t buffer[40];
-			char out[40];
-			COM_ParseFunString(CON_WHITEMASK, self.levelname, buffer, sizeof(buffer), qfalse);
-			COM_DeFunString(buffer, NULL, out, sizeof(out), qtrue, qfalse);
-			return std::string(out);
-		})
+		// .function("getLevelName", +[](client_state_t& self) -> emscripten::val {
+		// 	size_t len = strnlen(self.levelname, 40);
+		// 	return val(typed_memory_view(len, (unsigned char *) self.levelname));
+		// })
+		// .function("getLevelNamePlain", +[](client_state_t& self) -> std::string {
+		// 	conchar_t buffer[40];
+		// 	char out[40];
+		// 	COM_ParseFunString(CON_WHITEMASK, self.levelname, buffer, sizeof(buffer), qfalse);
+		// 	COM_DeFunString(buffer, NULL, out, sizeof(out), qtrue, qfalse);
+		// 	return std::string(out);
+		// })
 		.function("getPlayer", +[](client_state_t& self, size_t index) -> player_info_t* {
 			if (index < 0 && index >= MAX_CLIENTS)
 				throw std::out_of_range("Player index out of range");
@@ -519,4 +526,5 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		extern cvar_t host_mapname;
         return std::string(host_mapname.string);
     });
+
 }

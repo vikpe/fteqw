@@ -2447,6 +2447,10 @@ void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int 
 	cls.demostarttime = 0;
 	cl.gametime = -bufferdelay;
 	cl.gametimemark = realtime;//demtime;
+	// Reset our additive match clock state so a previous demo/qtv session
+	// doesn't carry over. For qtv the clock must stay -1 until the first
+	// "X min[s] left" print is parsed.
+	CL_ResetMatchState();
 	if (demtime < -0.5)
 		Con_Printf("Buffering for %g seconds\n", bufferdelay);
 	cls.netchan.last_received=demtime;

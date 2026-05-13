@@ -1822,7 +1822,7 @@ void SCR_HUD_DrawGunByNum (hud_t *hud, int num, float scale, int style, int wide
 	case 8: // gold active, COLOR inactive
         width = 16 * scale;
         height = 8 * scale;
-       
+
 		if (!HUD_PrepareDraw(hud, width, height, &x, &y))
             return;
 
@@ -1852,7 +1852,7 @@ void SCR_HUD_DrawGunByNum (hud_t *hud, int num, float scale, int style, int wide
 					char inactive_weapon_buf_nowhite[16];
 					Util_SkipEZColors(inactive_weapon_buf, TP_ItemName(IT_SHOTGUN<<i), sizeof(inactive_weapon_buf));
 					Util_SkipChars(inactive_weapon_buf, "{}", inactive_weapon_buf_nowhite, sizeof(inactive_weapon_buf_nowhite));
-				
+
 					if (style==5) // gold inactive
 						Draw_SAlt_String(x, y, inactive_weapon_buf_nowhite, scale);
 					else if (style==7) // white inactive
@@ -5733,7 +5733,7 @@ static void SCR_HUD_DrawTeamInfo(hud_t *hud)
 			sprintf(tmp,"%s %i",TP_ParseFunChars("$."), sorted_teams[k].frags);
 			Draw_SString (x+(strlen(sorted_teams[k].name)+1)*FONTWIDTH, _y, tmp, hud_teaminfo_scale->value);
 			_y += FONTWIDTH * hud_teaminfo_scale->value;
-			for ( j = 0; j < slots_num; j++ ) 
+			for ( j = 0; j < slots_num; j++ )
 			{
 				i = ti_clients[j].client;
 				if (!strcmp(cl.players[i].team,sorted_teams[k].name))
@@ -5745,7 +5745,7 @@ static void SCR_HUD_DrawTeamInfo(hud_t *hud)
 		k++;
 		}
 	}
-	else 
+	else
 	{
 		for ( j = 0; j < slots_num; j++ ) {
 			SCR_HudDrawTeamInfoPlayer(&ti_clients[j], x, _y, maxname, maxloc, false, hud);
@@ -6113,7 +6113,7 @@ void SCR_HUD_DrawItemsClock(hud_t *hud)
 	}
 
 	MVD_ClockList_TopItems_DimensionsGet(hud_itemsclock_timelimit->value, hud_itemsclock_style->ival, &width, &height);
-	
+
 	if (hud_editor)
 		HUD_PrepareDraw(hud, width, LETTERHEIGHT, &x, &y);
 
@@ -6122,7 +6122,7 @@ void SCR_HUD_DrawItemsClock(hud_t *hud)
 
     if (!HUD_PrepareDraw(hud, width, height, &x, &y))
         return;
-	
+
 	MVD_ClockList_TopItems_Draw(hud_itemsclock_timelimit->value, hud_itemsclock_style->ival, x, y);
 }
 #endif
@@ -6144,7 +6144,7 @@ void SCR_HUD_DrawScoresTeam(hud_t *hud)
         align		= HUD_FindVar(hud, "align");
 		colorize	= HUD_FindVar(hud, "colorize");
     }
-	
+
 	//
 	// AAS: someone please tell me how to do it in a proper way!
 	//
@@ -6152,7 +6152,7 @@ void SCR_HUD_DrawScoresTeam(hud_t *hud)
 	{
 		for(i = 0; i < n_teams; i++)
 		{
-			// playing qwd demo || mvd spec/demo || playing 
+			// playing qwd demo || mvd spec/demo || playing
 			if( (cls.demoplayback && !cl.spectator && !cls.mvdplayback && strcmp(sorted_teams[i].name, cl.players[cl.playernum].team) == 0) ||
 				((cls.demoplayback || cl.spectator) && ((strcmp(cl.players[spec_track].team, sorted_teams[i].name) == 0) && (Cam_TrackNum() >= 0))) ||
 				(strcmp(sorted_teams[i].name, cl.players[cl.playernum].team) == 0) )
@@ -6193,7 +6193,7 @@ void SCR_HUD_DrawScoresEnemy(hud_t *hud)
 		align		= HUD_FindVar(hud, "align");
 		colorize	= HUD_FindVar(hud, "colorize");
 	}
-	
+
 	//
 	// AAS: voodoo, again
 	//
@@ -6201,7 +6201,7 @@ void SCR_HUD_DrawScoresEnemy(hud_t *hud)
 	{
 		for(i = 0; i < n_teams; i++)
 		{
-			
+
 			if(	(cls.demoplayback && !cl.spectator && !cls.mvdplayback && strcmp(sorted_teams[i].name, cl.players[cl.playernum].team) == 0) ||
 				((cls.demoplayback || cl.spectator) && ((strcmp(cl.players[spec_track].team, sorted_teams[i].name) == 0) && (Cam_TrackNum() >= 0))) ||
 				(strcmp(sorted_teams[i].name, cl.players[cl.playernum].team) == 0) )
@@ -6487,7 +6487,7 @@ void SCR_HUD_DrawScoresBar(hud_t *hud)
 							temp = NULL;
 							break;
 					}
-					
+
 					if(temp != NULL)
 					{
 						strlcpy(out, temp, sizeof(buf) - (out - buf));
@@ -6504,7 +6504,7 @@ void SCR_HUD_DrawScoresBar(hud_t *hud)
 			break;
 
 		// Small
-		case 0:	
+		case 0:
 		default:
 			in = TP_ParseFunChars(format_small->string);
 			buf[0] = 0;
@@ -6589,7 +6589,7 @@ void SCR_HUD_DrawBarArmor(hud_t *hud)
 	int		x, y;
 	int		armor = HUD_Stats(STAT_ARMOR);
 	qbool	alive = cl.stats[STAT_HEALTH] > 0;
-	
+
 	if (width == NULL)  // first time called
 	{
 		width			= HUD_FindVar(hud, "width");
@@ -6601,7 +6601,7 @@ void SCR_HUD_DrawBarArmor(hud_t *hud)
 		color_ra		= HUD_FindVar(hud, "color_ra");
 		color_unnatural	= HUD_FindVar(hud, "color_unnatural");
 	}
-	
+
 	if(HUD_PrepareDraw(hud, width->ival, height->ival, &x, &y))
 	{
 		if(!width->ival || !height->ival)
@@ -6859,11 +6859,11 @@ void SCR_HUD_DrawKeys(hud_t *hud)
 	scale = vscale->value;
 	scale = max(0, scale);
 
-	snprintf(line1, sizeof(line1), "^{%x}^{%x}^{%x}", 
+	snprintf(line1, sizeof(line1), "^{%x}^{%x}^{%x}",
 		0xe000 + 'x' + ((b.buttons & 1)?0x80:0),
 		0xe000 + '^' + ((b.forwardmove > 0)?0x80:0),
 		0xe000 + 'J' + ((b.buttons & 2)?0x80:0));
-	snprintf(line2, sizeof(line2), "^{%x}^{%x}^{%x}", 
+	snprintf(line2, sizeof(line2), "^{%x}^{%x}^{%x}",
 		0xe000 + '<' + ((b.sidemove < 0)?0x80:0),
 		0xe000 + '_' + ((b.forwardmove < 0)?0x80:0),
 		0xe000 + '>' + ((b.sidemove > 0)?0x80:0));
@@ -8836,5 +8836,3 @@ void CommonDraw_Init(void)
 */
 
 }
-
-

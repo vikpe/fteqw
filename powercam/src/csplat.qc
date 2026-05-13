@@ -1840,6 +1840,9 @@ string(float stnum) getstats = #332; /*
 __variant(float playernum, float statnum, float stattype) getplayerstat = #0:getplayerstat; /*
 		Retrieves a specific player's stat, matching the type specified on the server. This builtin is primarily intended for mvd playback where ALL players are known. Return value matches the specified EV_ stattype. For EV_ENTITY, world will be returned if the entity is not in the pvs, use type-punning with EV_INTEGER to get the entity number if you just want to see if its set. STAT_ITEMS should be queried as an EV_INTEGER on account of runes and items2 being packed into the upper bits. */
 
+float() getmatchelapsed = #0:getmatchelapsed; /*
+		Match elapsed time in seconds, derived from "X min[s] left" prints and demtime for demos. Returns -1 when no match clock is available (pre-match standby, countdown, live QTV before the first time announcement). */
+
 void(entity e, float mdlindex) setmodelindex = #333; /*
 		Sets a model by precache index instead of by name. Otherwise identical to setmodel. */
 

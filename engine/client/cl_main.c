@@ -413,26 +413,40 @@ void CL_UpdateWindowTitle(void)
 #ifdef __GLIBC__
 #include <malloc.h>
 #endif
-// Print-derived match clock state. Kept fully separate from the engine's
-// cl.matchgametimestart / cl.matchstate so we never write to engine-owned
-// fields. Populated by CL_ParseOvertimeLine / CL_ParseMatchTimeLeftLine in
-// cl_parse.c (driven off "N minutes overtime follows" and "X min[s] left"
-// console prints), cleared by CL_ResetMatchState on demo seek.
+// Print-derived match clock for QTV (live streams). cl.gametime / demtime
+// can't be trusted as a QTV match clock - they're keyed to when the client
+// joined, may stall during packet gaps, and don't survive reconnects
+// cleanly. Instead qtvMatchElapsed is a self-contained counter:
 //
-// Units: cl_demoMatchClockStart is demtime (demo playback position) at the
-// moment the match started. CL_GetMatchTime returns demtime - start.
-double   cl_demoMatchClockStart;
-int      cl_demoMatchOvertimeSecs;
-qboolean cl_demoMatchClockValid;
+//   -1               : unknown (initial state, no "X min[s] left" print
+//                      seen, or reset after map change / demo seek).
+//   >= 0             : seconds elapsed since the match started, advanced
+//                      every Host_Frame by the frame delta so it ticks at
+//                      one second per real second. "X min[s] left" prints
+//                      reset it to (total - remaining).
+//
+// matchTotalOvertime is shared with the demo path because demos can
+// have overtime announcements too; it just isn't used to derive demo
+// elapsed time (demtime serves that role for recorded demos).
+double qtvMatchElapsed = -1;
+int    matchTotalOvertime;
 
-// Clear the cached match clock state. Called when seeking a demo so stale
-// values from forward playback don't leak across the seek; the next batch
-// of "X min[s] left" / overtime prints during fast-parse rebuilds state.
+// Recorded demos: demtime offset where the match began. Set by
+// CL_ParseMatchTimeLeftLine using a STABLE formula (demtime_at_print -
+// (total - remaining)) so any "X min[s] left" print, no matter when it
+// fires during normal playback or fast-parse, yields the same anchor.
+// -1 until the first such print is parsed.
+double demoMatchStartedAt = -1;
+
+
+// Clear the cached match clock state. Called when seeking a demo and on
+// every map activation, so stale values don't leak across the boundary;
+// the next batch of "X min[s] left" / overtime prints rebuilds it.
 void CL_ResetMatchState(void)
 {
-	cl_demoMatchClockStart = 0;
-	cl_demoMatchOvertimeSecs = 0;
-	cl_demoMatchClockValid = false;
+	qtvMatchElapsed    = -1;
+	demoMatchStartedAt = -1;
+	matchTotalOvertime = 0;
 }
 
 // Whole seconds of demo playback position (demtime). -1 when not playing
@@ -440,7 +454,7 @@ void CL_ResetMatchState(void)
 // engine restarts the demo for backward seeks and demtime briefly reads 0
 // until the fast-parse catches up, which would otherwise yank a progress
 // bar back to the start.
-int CL_GetDemoTime(void)
+int CL_GetDemoElapsed(void)
 {
 	extern float demtime;
 	if (cls.demoplayback == DPB_NONE)
@@ -463,32 +477,43 @@ int CL_GetDemoDuration(void)
 	timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
 	if (timelimit <= 0)
 		return -1;
-	return (int)(timelimit * 60) + cl_demoMatchOvertimeSecs;
+	return (int)(timelimit * 60) + matchTotalOvertime;
 }
 
 // Whole seconds elapsed since the match started (floored).
 //   >= 0  match clock available
-//   -1    no match context: disconnected, not yet active, live connection
-//         (not a demo/QTV), or no "X min[s] left" print has been parsed yet
-//         on a QTV stream.
+//   -1    no match context: disconnected, not yet active, no clock yet.
 //
-// Time base: demtime, the demo playback clock (0-based, resets cleanly on
-// seek/replay/map change). For recorded demos that start at the match's
-// first server frame, demtime itself IS the elapsed match time until a
-// print-derived clock supersedes it. For QTV streams we have to wait for
-// the first "X min[s] left" print to land before we can return anything.
-int CL_GetMatchTime(void)
+// Two paths:
+//   Recorded demo (cls.lastdemoname set): elapsed = demtime - demoMatchStartedAt.
+//     The anchor is computed from "X min[s] left" prints (see
+//     CL_ParseMatchTimeLeftLine) as demtime_at_print - (total - remaining).
+//     That formula yields the same value for every print, so the anchor
+//     converges to a stable demtime offset across forward/backward seeks.
+//   QTV (live stream, lastdemoname empty): read qtvMatchElapsed, which
+//     Host_Frame advances each tick and the "X min[s] left" parser resets
+//     to (total - remaining) when it fires.
+int CL_GetMatchElapsed(void)
 {
-	extern float demtime;
 	if (cls.state != ca_active)
 		return -1;
 	if (cls.demoplayback == DPB_NONE)
 		return -1;
-	if (cl_demoMatchClockValid)
-		return (int)floor(demtime - cl_demoMatchClockStart);
+
 	if (cls.lastdemoname[0])
-		return (int)floor(demtime < 0 ? 0 : demtime);
-	return -1;
+	{
+		extern float demtime;
+		if (demoMatchStartedAt < 0)
+			return -1;
+		double elapsed = demtime - demoMatchStartedAt;
+		if (elapsed < 0)
+			return -1;
+		return (int)floor(elapsed);
+	}
+
+	if (qtvMatchElapsed < 0)
+		return -1;
+	return (int)floor(qtvMatchElapsed);
 }
 
 void CL_MakeActive(char *gamename)
@@ -500,6 +525,7 @@ void CL_MakeActive(char *gamename)
 		fs_finds = 0;
 	}
 	cl.matchgametimestart = 0;
+	CL_ResetMatchState();
 	cls.state = ca_active;
 
 	//this might be expensive, don't count any of this as time spent *playing* the demo. this avoids skipping the first $LOADDURATION seconds.
@@ -7220,6 +7246,15 @@ double Host_Frame (double time)
 
 	if (cl.paused)
 		cl.gametimemark += time;
+
+	// QTV match clock: tick at one second per real second once a print
+	// initialised it. Recorded demos use demtime directly and don't care.
+	// Force back to -1 during pre-match standby / countdown so a stale
+	// clock from a previous match doesn't leak into the new one.
+	if (cl.matchstate == MATCH_STANDBY || cl.matchstate == MATCH_COUNTDOWN)
+		qtvMatchElapsed = -1;
+	else if (qtvMatchElapsed >= 0)
+		qtvMatchElapsed += time;
 
 	//if we're at a menu/console/thing
 //	idle = !Key_Dest_Has_Higher(kdm_menu);

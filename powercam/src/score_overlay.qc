@@ -95,7 +95,24 @@ void(vector pos, vector size, float radius, float corners, vector color, float a
     R_EndPolygon();
 };
 
-void(vector main_min, vector main_size) ScoreOverlayDraw =
+// Reserved vertical footprint (top margin + box + bottom margin) the score
+// overlay occupies inside the player viewport. Callers placing other UI
+// near the top of the viewport (e.g. powerup-cam PiP) can shift down by
+// this amount so they don't overlap.
+float(vector main_size) ScoreOverlayReservedHeight =
+{
+    float scale  = main_size.y / 720;
+    if (scale < 0.6) scale = 0.6;
+    if (scale > 2.0) scale = 2.0;
+    float fs        = floor(12 * scale);
+    float pad_y     = ceil(4 * scale);
+    float margin    = ceil(16 * scale);
+    float clock_h   = floor(10 * scale) + ceil(2 * scale);
+    float box_h     = fs + pad_y * 2;
+    return margin + box_h + clock_h + margin;
+};
+
+void(vector main_min, vector main_size, float vwidth, float vheight) ScoreOverlayDraw =
 {
     if (serverkeyfloat("deathmatch") <= 0) {
         return;
@@ -236,15 +253,16 @@ void(vector main_min, vector main_size) ScoreOverlayDraw =
     float b1w   = i1w + pad_x * 2;
     float b2w   = i2w + pad_x * 2;
 
-    // Anchor: the midpoint of the gap between the two score boxes sits
-    // exactly on the viewport's vertical center line. Names extend
-    // outward and don't shift the score boxes around.
-    float top     = main_min.y + ceil(12 * scale);
-    float center_x = main_min.x + main_size.x * 0.5;
-    float box1_x  = center_x - gap * 0.5 - b1w;
-    float box2_x  = center_x + gap * 0.5;
-    float name1_x = box1_x - gap - n1w;
-    float name2_x = box2_x + b2w + gap;
+    // Always centered on the full screen (highest z-index UI element -
+    // rendered last on top of player view, minimap, and PiP). Names extend
+    // outward and don't shift the score boxes.
+    float margin   = ceil(16 * scale);
+    float top      = margin;
+    float center_x = vwidth * 0.5;
+    float box1_x   = center_x - gap * 0.5 - b1w;
+    float box2_x   = center_x + gap * 0.5;
+    float name1_x  = box1_x - gap - n1w;
+    float name2_x  = box2_x + b2w + gap;
 
     // Name 1 (right-aligned to score 1).
     drawstring([name1_x, top + pad_y, 0], part_name[0], font, '1 1 1', 1, 0);
@@ -269,4 +287,20 @@ void(vector main_min, vector main_size) ScoreOverlayDraw =
 
     // Name 2 (left-aligned to score 2).
     drawstring([name2_x, top + pad_y, 0], part_name[1], font, '1 1 1', 1, 0);
+
+    // Match elapsed clock, centered just below the score boxes. -1 means
+    // no clock yet (standby, countdown, QTV before first time print) - in
+    // that case we skip drawing so the slot doesn't read "00:00".
+    float elapsed = getmatchelapsed();
+    if (elapsed >= 0)
+    {
+        float  mins  = floor(elapsed / 60);
+        float  secs  = floor(elapsed - mins * 60);
+        string clock = sprintf("%02d:%02d", mins, secs);
+        vector cfont = [floor(12 * scale), floor(12 * scale), 0];
+        float  cw    = stringwidth(clock, 0, cfont);
+        float  cx    = center_x - cw * 0.5;
+        float  cy    = top + box_h + ceil(4 * scale);
+        drawstring([cx, cy, 0], clock, cfont, '1 1 0.2', 1, 0);
+    }
 };

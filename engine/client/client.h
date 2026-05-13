@@ -1251,18 +1251,26 @@ extern 	kbutton_t 	in_speed;
 extern	float in_sensitivityscale;
 
 void CL_MakeActive(char *gamename);
-int  CL_GetMatchTime(void);
-int  CL_GetDemoTime(void);
+int  CL_GetMatchElapsed(void);
+int  CL_GetDemoElapsed(void);
 int  CL_GetDemoDuration(void);
 void CL_ResetMatchState(void);
 //Print-derived match clock state. Owned entirely by our additive code in
 //cl_main.c / cl_parse.c - the engine's cl.matchgametimestart / cl.matchstate
-//are never touched. cl_demoMatchClockStart is in demtime units (the demo
-//playback position when the match started); cl_demoMatchOvertimeSecs is the
-//accumulated "N minutes overtime follows" prints in seconds.
-extern double   cl_demoMatchClockStart;
-extern int      cl_demoMatchOvertimeSecs;
-extern qboolean cl_demoMatchClockValid;
+//are never touched.
+//
+//qtvMatchElapsed is the QTV match clock in seconds: -1 = unknown (initial
+//state, or reset on map change / demo seek), >= 0 = seconds elapsed.
+//Host_Frame advances it by frame delta; the "X min[s] left" parser resets
+//it to (total - remaining). Recorded demos use demtime directly and ignore
+//it.
+//
+//matchTotalOvertime accumulates "N minutes overtime follows" prints
+//and is consulted by CL_GetDemoDuration / the "X min[s] left" parser in
+//both modes.
+extern double qtvMatchElapsed;
+extern double demoMatchStartedAt;
+extern int    matchTotalOvertime;
 void CL_UpdateWindowTitle(void);
 
 #ifdef QUAKESTATS

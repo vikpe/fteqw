@@ -6222,6 +6222,14 @@ static void QCBUILTIN PF_getentity(pubprogfuncs_t *prinst, struct globalvars_s *
 }
 
 
+// Thin wrapper so CSQC can read the engine's match-elapsed clock instead
+// of duplicating the QTV print parser. Returns int seconds, -1 = unknown.
+extern int CL_GetMatchElapsed(void);
+static void QCBUILTIN PF_cl_getmatchelapsed(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
+{
+	G_FLOAT(OFS_RETURN) = (float)CL_GetMatchElapsed();
+}
+
 static void QCBUILTIN PF_cs_getplayerstat(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 {
 	unsigned int playernum = G_FLOAT(OFS_PARM0);
@@ -7056,6 +7064,7 @@ static struct {
 	{"getstatf",				PF_cs_getstat_float,			331},	// #331 float(float stnum) getstatf (EXT_CSQC)
 	{"getstats",				PF_cs_getstat_string,			332},	// #332 string(float firststnum) getstats (EXT_CSQC)
 	{"getplayerstat",			PF_cs_getplayerstat,			0},		// #0 __variant(float playernum, float statnum, float stattype) getplayerstat
+	{"getmatchelapsed",			PF_cl_getmatchelapsed,			0},		// float() getmatchelapsed - seconds, -1 if no match clock yet
 	{"setmodelindex",			PF_cs_SetModelIndex,			333},	// #333 void(entity e, float mdlindex) setmodelindex (EXT_CSQC)
 	{"modelnameforindex",		PF_cs_ModelnameForIndex,		334},	// #334 string(float mdlindex) modelnameforindex (EXT_CSQC)
 	{"soundnameforindex",		PF_cs_SoundnameForIndex,		0},

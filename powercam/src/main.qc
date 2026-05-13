@@ -399,18 +399,18 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
         addentities(MASK_XRAY);
         setviewprop(VF_DRAWWORLD, 0);
         renderscene();
-
-        ScoreOverlayDraw(main_min, main_size);
     }
 
     if (time < camera_start) {
         SelectNextCamera();
         MinimapRender(vwidth, vheight);
+        ScoreOverlayDraw('0 0 0', [vwidth, vheight, 0], vwidth, vheight);
         return;
     }
 
     if (!autocvar_pip_enabled || !draw_main) {
         MinimapRender(vwidth, vheight);
+        ScoreOverlayDraw('0 0 0', [vwidth, vheight, 0], vwidth, vheight);
         return;
     }
 
@@ -424,13 +424,18 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 
     float margin = width / 10.0;
     float x_offset = main_min.x + main_size.x - margin - width;
-    float y_anchor = main_min.y;
+    // Shift down by the score overlay's reserved height so the PiP doesn't
+    // overlap it. We always reserve the space (even when the overlay would
+    // skip drawing) so the PiP doesn't jump around when the overlay toggles.
+    float y_anchor = main_min.y + ScoreOverlayReservedHeight(main_size);
 
     float delta = 0.0;
     float slide_offset = 0;
 
     itemtimer_t *timer = PipGetTimer(camera_index);
     if (!timer) {
+        MinimapRender(vwidth, vheight);
+        ScoreOverlayDraw('0 0 0', [vwidth, vheight, 0], vwidth, vheight);
         return;
     }
 
@@ -525,4 +530,5 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     }
 
     MinimapRender(vwidth, vheight);
+    ScoreOverlayDraw('0 0 0', [vwidth, vheight, 0], vwidth, vheight);
 };
