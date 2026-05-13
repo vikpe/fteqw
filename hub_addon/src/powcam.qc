@@ -24,9 +24,9 @@ var float match_start_time = -1;
 // when no camera is scheduled.
 typedef struct {
     int    index;               // index into item_timers[] (-1 = unscheduled)
-    float  intro_seconds;       // snapshot of autocvar_qdw_powcam_intro
-    float  outro_seconds;       // snapshot of autocvar_qdw_powcam_outro
-    float  transition_seconds;  // snapshot of autocvar_qdw_powcam_transition
+    float  intro_seconds;       // snapshot of autocvar_powcam_intro
+    float  outro_seconds;       // snapshot of autocvar_powcam_outro
+    float  transition_seconds;  // snapshot of autocvar_powcam_transition
     float  start;               // render begins
     float  start_transition;    // slide-in completes
     float  end_transition;      // slide-out begins
@@ -38,12 +38,12 @@ typedef struct {
 var powcam_schedule_t powcam;
 
 // Cvars (auto-prefixed accessors). Read at PowcamSelectNext time.
-var float  autocvar_qdw_powcam_enabled         = 1;
-var float  autocvar_qdw_powcam_intro           = 5.0;
-var float  autocvar_qdw_powcam_outro           = 3.5;
-var float  autocvar_qdw_powcam_transition      = 0.8;
-var vector autocvar_qdw_powcam_bg_quad_color   = '0.2 0.2 0.5';
-var vector autocvar_qdw_powcam_bg_pent_color   = '0.5 0.2 0.2';
+var float  autocvar_powcam_enabled         = 1;
+var float  autocvar_powcam_intro           = 5.0;
+var float  autocvar_powcam_outro           = 3.5;
+var float  autocvar_powcam_transition      = 0.8;
+var vector autocvar_powcam_bg_quad_color   = '0.2 0.2 0.5';
+var vector autocvar_powcam_bg_pent_color   = '0.5 0.2 0.2';
 
 void() PowcamReset =
 {
@@ -92,9 +92,9 @@ void() PowcamSelectNext =
     }
     if (candidate_index != -1) {
         // Reload any cvar changes.
-        powcam.intro_seconds      = autocvar_qdw_powcam_intro;
-        powcam.outro_seconds      = autocvar_qdw_powcam_outro;
-        powcam.transition_seconds = autocvar_qdw_powcam_transition;
+        powcam.intro_seconds      = autocvar_powcam_intro;
+        powcam.outro_seconds      = autocvar_powcam_outro;
+        powcam.transition_seconds = autocvar_powcam_transition;
 
         powcam.index            = candidate_index;
         powcam.start            = max(match_start_time, candidate_respawn - powcam.intro_seconds);
@@ -104,11 +104,11 @@ void() PowcamSelectNext =
 
         switch (candidate_type) {
         case IT_QUAD:
-            powcam.bg_color  = autocvar_qdw_powcam_bg_quad_color;
+            powcam.bg_color  = autocvar_powcam_bg_quad_color;
             powcam.item_name = "Quad";
             break;
         case IT_PENT:
-            powcam.bg_color  = autocvar_qdw_powcam_bg_pent_color;
+            powcam.bg_color  = autocvar_powcam_bg_pent_color;
             powcam.item_name = "Pent";
             break;
         default:

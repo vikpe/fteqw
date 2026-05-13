@@ -7,243 +7,27 @@
  * through walls.
  */
 
-// Sanitize a player name for display via drawstring: keep printable ASCII,
-// QW ^X color codes, and any chars Quake's font can render (high-bit bronze
-// bytes when utf8_enable is off; qchar codepoints 0xE000..0xE0FF when on).
-// Both ranges are accepted unconditionally - whichever the engine actually
-// uses depends on utf8_enable, the other range will simply be empty in
-// practice.
-string(string raw) MinimapNormalizeName =
-{
-    string out = "";
-    float length = strlen(raw);
-    float i;
-    for (i = 0; i < length; i++) {
-        float c = str2chr(raw, i);
-        // ^X is a 2-byte color marker; keep both bytes verbatim (^^ -> literal ^).
-        if (c == '^' && i + 1 < length) {
-            float next_c = str2chr(raw, i + 1);
-            out = strcat(out, chr2str(c));
-            out = strcat(out, chr2str(next_c));
-            i++;
-            continue;
-        }
-        // Quake's font has renderable glyphs across the full byte range:
-        //   16..17    brackets [ ]
-        //   18..27    gold numbers 0-9
-        //   33..126   standard ASCII
-        //   144..145  brackets [ ] (high-bit duplicate)
-        //   146..155  gold numbers 0-9 (high-bit duplicate)
-        //   161..254  brown ASCII a-z, A-Z, 0-9, punctuation
-        // We accept bytes 16..255 (drop only the few leading control-range
-        // chars that all render as blank) and the full UTF-8 qchar range
-        // 0xE000..0xE0FF used when utf8_enable is on.
-        if ((c >= 16 && c <= 255) || (c >= 0xE000 && c <= 0xE0FF)) {
-            out = strcat(out, chr2str(c));
-        }
-    }
-    return out;
-};
+// Forward declarations (top-down ordering).
+float(vector cam_origin, vector player_origin) MinimapPlayerOccluded;
+vector(float pnum)                             MinimapPlayerColor;
+void()                                         MinimapBuildPlayerLabels;
+string(float pi)                               MinimapShortestUniquePrefix;
+string(string colored, float n_visible)        MinimapColoredPrefix;
+string(string raw)                             MinimapNormalizeName;
 
-// Returns the first `n_visible` characters of a colored name, copying any ^X
-// markup verbatim alongside the kept chars so drawstring still recolors them.
-string(string colored, float n_visible) MinimapColoredPrefix =
-{
-    string out = "";
-    float length = strlen(colored);
-    float visible = 0;
-    float i;
-    for (i = 0; i < length; i++) {
-        if (visible >= n_visible) {
-            break;
-        }
-        float c = str2chr(colored, i);
-        if (c == '^' && i + 1 < length) {
-            float next_c = str2chr(colored, i + 1);
-            out = strcat(out, chr2str(c));
-            out = strcat(out, chr2str(next_c));
-            i++;
-            if (next_c == '^') {
-                visible++;  // ^^ unescapes to a single visible '^'
-            }
-            continue;
-        }
-        out = strcat(out, chr2str(c));
-        visible++;
-    }
-    return out;
-};
+// ----- entry points (called from minimap.qc:MinimapRender) ------------------
 
-void() MinimapBuildPlayerLabels =
-{
-    float player_model_index = getmodelindex("progs/player.mdl");
-    for (int i = 0; i < MINIMAP_MAX_PLAYERS; i++) {
-        minimap_label_name [i] = "";
-        minimap_label_plain[i] = "";
-        if (i >= maxclients) {
-            continue;
-        }
-        float entnum = i + 1;
-        float active = getentity(entnum, GE_ACTIVE);
-        if (!active) {
-            continue;
-        }
-        float model_index = getentity(entnum, GE_MODELINDEX);
-        if (model_index != player_model_index) {
-            continue;
-        }
-        string raw = getplayerkeyvalue(i, "name");
-        minimap_label_name [i] = MinimapNormalizeName(raw);
-        minimap_label_plain[i] = strdecolorize(minimap_label_name[i]);
-    }
-};
-
-// Returns the shortest visible-character prefix of player `pi`'s name that no
-// other active player's name starts with. Comparison uses the decolored plain
-// form so two players named e.g. "^1Foo" and "^2Foo" still need disambiguation,
-// but the returned string keeps its color markup for drawstring.
-string(float pi) MinimapShortestUniquePrefix =
-{
-    string mine_plain = minimap_label_plain[pi];
-    float my_length = strlen(mine_plain);
-    if (my_length == 0) {
-        return "";
-    }
-    for (float n = 1; n <= my_length; n++) {
-        string my_prefix = substring(mine_plain, 0, n);
-        float unique = 1;
-        for (int j = 0; j < MINIMAP_MAX_PLAYERS; j++) {
-            if (j == pi) continue;
-            string other = minimap_label_plain[j];
-            if (other == "") continue;
-            if (substring(other, 0, n) == my_prefix) {
-                unique = 0;
-                break;
-            }
-        }
-        if (unique) {
-            return MinimapColoredPrefix(minimap_label_name[pi], n);
-        }
-    }
-    return minimap_label_name[pi];
-};
-
-// Pick a color for a player relative to the tracked POV. While spectating,
-// player_localnum points at the spectator slot (no team), so all players
-// would read as "enemy". player_localentnum is the entity the engine is
-// actually viewing through - the tracked player. Team coloring keys off
-// that player's team instead, so teammates of whoever you're tracking
-// render as team-colored.
-//
-// Mirrors the engine's TP_PlayerTeam / cl.teamplay pattern (zqtp.c:328,
-// cl_cam.c:446): same-team only counts in teamplay mode. In FFA every
-// non-self player is an enemy regardless of userinfo team strings.
-vector(float pnum) MinimapPlayerColor =
-{
-    float pov_pnum = (player_localentnum > 0) ? (player_localentnum - 1) : player_localnum;
-    if (pnum == pov_pnum) {
-        return autocvar_qdw_minimap_player_color_self;
-    }
-    float same_team = 0;
-    if (serverkeyfloat("teamplay") > 0) {
-        string pov_team = getplayerkeyvalue(pov_pnum, "team");
-        string his_team = getplayerkeyvalue(pnum, "team");
-        same_team = (pov_team == his_team && pov_team != "");
-    }
-    vector color = same_team ? autocvar_qdw_minimap_player_color_team : autocvar_qdw_minimap_player_color_enemy;
-    if (color == '0 0 0') {
-        return same_team ? minimap_default_color_team : minimap_default_color_enemy;
-    }
-    return color;
-};
-
-// Returns 1 if the line from cam_origin to the player's head is blocked by
-// world geometry that isn't part of a minimap cull volume. Mirrors the
-// xray-style traceline pattern from main.qc:301, with extra walking through
-// cull volumes since the minimap camera looks down through roofs that are
-// intentionally hidden in the render.
-float(vector cam_origin, vector player_origin) MinimapPlayerOccluded =
-{
-    vector head = [player_origin.x, player_origin.y, player_origin.z + 24];
-    // Start just inside the BSP. cam_origin sits above the outer hull, and
-    // tracing from outside into BSP space hits the hull's top first, which
-    // would falsely flag every player as occluded.
-    vector trace_from = [cam_origin.x, cam_origin.y, minimap_world_top_z - 1];
-    if (trace_from.z <= head.z) {
-        return 0;
-    }
-    float steps = 8;
-    while (steps > 0) {
-        steps--;
-        traceline(trace_from, head, MOVE_NORMAL | MOVE_NOMONSTERS, world);
-        if (trace_fraction == 1) {
-            return 0;
-        }
-        float vol = MinimapPointInCullVolume(trace_endpos);
-        if (vol < 0) {
-            return 1;
-        }
-        trace_from = [trace_endpos.x, trace_endpos.y, minimap_volumes[vol].mins.z - 1];
-        if (trace_from.z <= head.z) {
-            return 0;
-        }
-    }
-    return 0;
-};
-
-void(vector cam_origin) MinimapSpawnOccludedDoppelgangers =
-{
-    float player_model_index = getmodelindex("progs/player.mdl");
-    minimap_doppel_count = 0;
-    for (int i = 1; i <= maxclients; i++) {
-        if (minimap_doppel_count >= MINIMAP_MAX_PLAYERS) break;
-        float active = getentity(i, GE_ACTIVE);
-        if (!active) continue;
-        float model_index = getentity(i, GE_MODELINDEX);
-        if (model_index != player_model_index) continue;
-        vector origin = getentity(i, GE_ORIGIN);
-        if (origin == '0 0 0') continue;
-        if (!MinimapPlayerOccluded(cam_origin, origin)) continue;
-
-        float occ_alpha = autocvar_qdw_minimap_player_alpha_occluded > 0
-                          ? autocvar_qdw_minimap_player_alpha_occluded : 0.8;
-
-        entity doppel = spawn();
-        setmodelindex(doppel, player_model_index);
-        setorigin(doppel, origin);
-        doppel.angles  = getentity(i, GE_ANGLES);
-        doppel.frame   = getentity(i, GE_FRAME);
-        doppel.skin    = getentity(i, GE_SKIN);
-        doppel.alpha   = occ_alpha;
-        doppel.effects = EF_NODEPTHTEST;
-        addentity(doppel);
-
-        minimap_doppel_ents[minimap_doppel_count] = doppel;
-        minimap_doppel_count++;
-    }
-};
-
-void() MinimapRemoveDoppelgangers =
-{
-    for (int i = 0; i < minimap_doppel_count; i++) {
-        if (minimap_doppel_ents[i]) {
-            remove(minimap_doppel_ents[i]);
-            minimap_doppel_ents[i] = nil;
-        }
-    }
-    minimap_doppel_count = 0;
-};
-
+// 2D player overlay drawn over the minimap scene after renderscene.
 void(vector cam_origin) MinimapDrawPlayers =
 {
     // Hard-coded fallbacks ensure markers render even when cvars are left at
     // 0 (e.g. from a stale config).
-    float radius      = autocvar_qdw_minimap_player_radius         > 0 ? autocvar_qdw_minimap_player_radius         : 7;
-    float alpha_occ   = autocvar_qdw_minimap_player_alpha_occluded > 0 ? autocvar_qdw_minimap_player_alpha_occluded : 0.5;
+    float radius      = autocvar_minimap_player_radius         > 0 ? autocvar_minimap_player_radius         : 7;
+    float alpha_occ   = autocvar_minimap_player_alpha_occluded > 0 ? autocvar_minimap_player_alpha_occluded : 0.5;
     // Name labels use a cvar-controlled font size; weapon labels are fixed
     // at the same reduced size. Both default to 6 (25% smaller than 8).
-    float name_font_size = autocvar_qdw_minimap_player_label_font_size > 0
-                           ? autocvar_qdw_minimap_player_label_font_size : 6;
+    float name_font_size = autocvar_minimap_player_label_font_size > 0
+                           ? autocvar_minimap_player_label_font_size : 6;
     vector label_size  = [name_font_size, name_font_size, 0];
     vector weapon_size = '6 6 0';
 
@@ -256,7 +40,7 @@ void(vector cam_origin) MinimapDrawPlayers =
 
     // Highlight the player the main view is tracking when there is one.
     // Skipped in FULL mode since there is no main view to correlate with.
-    float highlight_enabled = autocvar_qdw_minimap_mode != MINIMAP_FULL;
+    float highlight_enabled = autocvar_minimap_mode != MINIMAP_FULL;
     vector highlight_color  = '0 1 1';  // #00ffff
 
     float player_model_index = getmodelindex("progs/player.mdl");
@@ -380,8 +164,8 @@ void(vector cam_origin) MinimapDrawPlayers =
         // this player. Both forms keep any ^X markup in front of each kept
         // char so drawstring can recolor them.
         string label;
-        if (autocvar_qdw_minimap_player_label_name_length > 0) {
-            label = MinimapColoredPrefix(minimap_label_name[player_index], autocvar_qdw_minimap_player_label_name_length);
+        if (autocvar_minimap_player_label_name_length > 0) {
+            label = MinimapColoredPrefix(minimap_label_name[player_index], autocvar_minimap_player_label_name_length);
         } else {
             label = MinimapShortestUniquePrefix(player_index);
         }
@@ -504,4 +288,240 @@ void(vector cam_origin) MinimapDrawPlayers =
             }
         }
     }
+};
+
+// Spawns throwaway QC entities mirroring each occluded player, added with
+// EF_NODEPTHTEST + alpha so they show through walls/roofs in the minimap
+// renderscene pass.
+void(vector cam_origin) MinimapSpawnOccludedDoppelgangers =
+{
+    float player_model_index = getmodelindex("progs/player.mdl");
+    minimap_doppel_count = 0;
+    for (int i = 1; i <= maxclients; i++) {
+        if (minimap_doppel_count >= MINIMAP_MAX_PLAYERS) break;
+        float active = getentity(i, GE_ACTIVE);
+        if (!active) continue;
+        float model_index = getentity(i, GE_MODELINDEX);
+        if (model_index != player_model_index) continue;
+        vector origin = getentity(i, GE_ORIGIN);
+        if (origin == '0 0 0') continue;
+        if (!MinimapPlayerOccluded(cam_origin, origin)) continue;
+
+        float occ_alpha = autocvar_minimap_player_alpha_occluded > 0
+                          ? autocvar_minimap_player_alpha_occluded : 0.8;
+
+        entity doppel = spawn();
+        setmodelindex(doppel, player_model_index);
+        setorigin(doppel, origin);
+        doppel.angles  = getentity(i, GE_ANGLES);
+        doppel.frame   = getentity(i, GE_FRAME);
+        doppel.skin    = getentity(i, GE_SKIN);
+        doppel.alpha   = occ_alpha;
+        doppel.effects = EF_NODEPTHTEST;
+        addentity(doppel);
+
+        minimap_doppel_ents[minimap_doppel_count] = doppel;
+        minimap_doppel_count++;
+    }
+};
+
+// Removes the doppelganger entities spawned above. Called right after
+// renderscene so they don't linger into the next pass.
+void() MinimapRemoveDoppelgangers =
+{
+    for (int i = 0; i < minimap_doppel_count; i++) {
+        if (minimap_doppel_ents[i]) {
+            remove(minimap_doppel_ents[i]);
+            minimap_doppel_ents[i] = nil;
+        }
+    }
+    minimap_doppel_count = 0;
+};
+
+// ----- helpers --------------------------------------------------------------
+
+// Returns 1 if the line from cam_origin to the player's head is blocked by
+// world geometry that isn't part of a minimap cull volume. Mirrors the
+// xray-style traceline pattern, with extra walking through cull volumes
+// since the minimap camera looks down through roofs that are intentionally
+// hidden in the render.
+float(vector cam_origin, vector player_origin) MinimapPlayerOccluded =
+{
+    vector head = [player_origin.x, player_origin.y, player_origin.z + 24];
+    // Start just inside the BSP. cam_origin sits above the outer hull, and
+    // tracing from outside into BSP space hits the hull's top first, which
+    // would falsely flag every player as occluded.
+    vector trace_from = [cam_origin.x, cam_origin.y, minimap_world_top_z - 1];
+    if (trace_from.z <= head.z) {
+        return 0;
+    }
+    float steps = 8;
+    while (steps > 0) {
+        steps--;
+        traceline(trace_from, head, MOVE_NORMAL | MOVE_NOMONSTERS, world);
+        if (trace_fraction == 1) {
+            return 0;
+        }
+        float vol = MinimapPointInCullVolume(trace_endpos);
+        if (vol < 0) {
+            return 1;
+        }
+        trace_from = [trace_endpos.x, trace_endpos.y, minimap_volumes[vol].mins.z - 1];
+        if (trace_from.z <= head.z) {
+            return 0;
+        }
+    }
+    return 0;
+};
+
+// Pick a color for a player relative to the tracked POV. While spectating,
+// player_localnum points at the spectator slot (no team), so all players
+// would read as "enemy". player_localentnum is the entity the engine is
+// actually viewing through - the tracked player. Team coloring keys off
+// that player's team instead, so teammates of whoever you're tracking
+// render as team-colored.
+//
+// Mirrors the engine's TP_PlayerTeam / cl.teamplay pattern (zqtp.c:328,
+// cl_cam.c:446): same-team only counts in teamplay mode. In FFA every
+// non-self player is an enemy regardless of userinfo team strings.
+vector(float pnum) MinimapPlayerColor =
+{
+    float pov_pnum = (player_localentnum > 0) ? (player_localentnum - 1) : player_localnum;
+    if (pnum == pov_pnum) {
+        return autocvar_minimap_player_color_self;
+    }
+    float same_team = 0;
+    if (serverkeyfloat("teamplay") > 0) {
+        string pov_team = getplayerkeyvalue(pov_pnum, "team");
+        string his_team = getplayerkeyvalue(pnum, "team");
+        same_team = (pov_team == his_team && pov_team != "");
+    }
+    vector color = same_team ? autocvar_minimap_player_color_team : autocvar_minimap_player_color_enemy;
+    if (color == '0 0 0') {
+        return same_team ? minimap_default_color_team : minimap_default_color_enemy;
+    }
+    return color;
+};
+
+// Refreshes the per-frame label cache. Called once at the top of
+// MinimapDrawPlayers.
+void() MinimapBuildPlayerLabels =
+{
+    float player_model_index = getmodelindex("progs/player.mdl");
+    for (int i = 0; i < MINIMAP_MAX_PLAYERS; i++) {
+        minimap_label_name [i] = "";
+        minimap_label_plain[i] = "";
+        if (i >= maxclients) {
+            continue;
+        }
+        float entnum = i + 1;
+        float active = getentity(entnum, GE_ACTIVE);
+        if (!active) {
+            continue;
+        }
+        float model_index = getentity(entnum, GE_MODELINDEX);
+        if (model_index != player_model_index) {
+            continue;
+        }
+        string raw = getplayerkeyvalue(i, "name");
+        minimap_label_name [i] = MinimapNormalizeName(raw);
+        minimap_label_plain[i] = strdecolorize(minimap_label_name[i]);
+    }
+};
+
+// Returns the shortest visible-character prefix of player `pi`'s name that no
+// other active player's name starts with. Comparison uses the decolored plain
+// form so two players named e.g. "^1Foo" and "^2Foo" still need disambiguation,
+// but the returned string keeps its color markup for drawstring.
+string(float pi) MinimapShortestUniquePrefix =
+{
+    string mine_plain = minimap_label_plain[pi];
+    float my_length = strlen(mine_plain);
+    if (my_length == 0) {
+        return "";
+    }
+    for (float n = 1; n <= my_length; n++) {
+        string my_prefix = substring(mine_plain, 0, n);
+        float unique = 1;
+        for (int j = 0; j < MINIMAP_MAX_PLAYERS; j++) {
+            if (j == pi) continue;
+            string other = minimap_label_plain[j];
+            if (other == "") continue;
+            if (substring(other, 0, n) == my_prefix) {
+                unique = 0;
+                break;
+            }
+        }
+        if (unique) {
+            return MinimapColoredPrefix(minimap_label_name[pi], n);
+        }
+    }
+    return minimap_label_name[pi];
+};
+
+// Returns the first `n_visible` characters of a colored name, copying any ^X
+// markup verbatim alongside the kept chars so drawstring still recolors them.
+string(string colored, float n_visible) MinimapColoredPrefix =
+{
+    string out = "";
+    float length = strlen(colored);
+    float visible = 0;
+    float i;
+    for (i = 0; i < length; i++) {
+        if (visible >= n_visible) {
+            break;
+        }
+        float c = str2chr(colored, i);
+        if (c == '^' && i + 1 < length) {
+            float next_c = str2chr(colored, i + 1);
+            out = strcat(out, chr2str(c));
+            out = strcat(out, chr2str(next_c));
+            i++;
+            if (next_c == '^') {
+                visible++;  // ^^ unescapes to a single visible '^'
+            }
+            continue;
+        }
+        out = strcat(out, chr2str(c));
+        visible++;
+    }
+    return out;
+};
+
+// Sanitize a player name for display via drawstring: keep printable ASCII,
+// QW ^X color codes, and any chars Quake's font can render (high-bit bronze
+// bytes when utf8_enable is off; qchar codepoints 0xE000..0xE0FF when on).
+// Both ranges are accepted unconditionally - whichever the engine actually
+// uses depends on utf8_enable, the other range will simply be empty in
+// practice.
+string(string raw) MinimapNormalizeName =
+{
+    string out = "";
+    float length = strlen(raw);
+    float i;
+    for (i = 0; i < length; i++) {
+        float c = str2chr(raw, i);
+        // ^X is a 2-byte color marker; keep both bytes verbatim (^^ -> literal ^).
+        if (c == '^' && i + 1 < length) {
+            float next_c = str2chr(raw, i + 1);
+            out = strcat(out, chr2str(c));
+            out = strcat(out, chr2str(next_c));
+            i++;
+            continue;
+        }
+        // Quake's font has renderable glyphs across the full byte range:
+        //   16..17    brackets [ ]
+        //   18..27    gold numbers 0-9
+        //   33..126   standard ASCII
+        //   144..145  brackets [ ] (high-bit duplicate)
+        //   146..155  gold numbers 0-9 (high-bit duplicate)
+        //   161..254  brown ASCII a-z, A-Z, 0-9, punctuation
+        // We accept bytes 16..255 (drop only the few leading control-range
+        // chars that all render as blank) and the full UTF-8 qchar range
+        // 0xE000..0xE0FF used when utf8_enable is on.
+        if ((c >= 16 && c <= 255) || (c >= 0xE000 && c <= 0xE0FF)) {
+            out = strcat(out, chr2str(c));
+        }
+    }
+    return out;
 };

@@ -77,10 +77,10 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     // schedule when the current pick has expired (or never existed).
     PowcamSelectNext();
 
-    if (draw_main && autocvar_qdw_powcam_enabled) {
+    if (draw_main && autocvar_powcam_enabled) {
         PowcamRender(main_view.min, main_view.size, vwidth, vheight);
     }
 
     MinimapRender(vwidth, vheight);
-    ScoreOverlayDraw('0 0 0', [vwidth, vheight, 0], vwidth, vheight);
+    ScoreOverlayDraw([vwidth, vheight, 0], vwidth);
 };

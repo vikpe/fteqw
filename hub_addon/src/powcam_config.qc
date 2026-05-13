@@ -108,6 +108,14 @@ var powcam_item_t* powcam_active_items = nil;
 var int   powcam_active_item_count   = 0;
 var float powcam_active_item_counted = 0;
 
+// Forward declarations (top-down ordering).
+powcam_item_t*(vector org, float model_index)                                  PowcamFindItem;
+powcam_item_t*(vector origin, vector tolerance, itemtype_t expected_type)      PowcamFindItemInternal;
+powcam_item_t*()                                                                PowcamGetCurrentItems;
+int()                                                                           PowcamCountItems;
+
+// Binds the active map's entry from powcam_map_database. Returns 1 if the
+// current map has cameras defined.
 float() PowcamLoadItems =
 {
     for (int i = 0; i < powcam_map_database.length; i++) {
@@ -119,27 +127,33 @@ float() PowcamLoadItems =
     return 0;
 };
 
-powcam_item_t*() PowcamGetCurrentItems =
+// Looks up an item by server entity number.
+powcam_item_t*(float entnum) PowcamFindItemByEntity =
 {
-    if (!powcam_active_items)
+    vector org = getentity(entnum, GE_ORIGIN);
+    float model_index = getentity(entnum, GE_MODELINDEX);
+    return PowcamFindItem(org, model_index);
+};
+
+// Looks up an item by current origin + model. Returns nil if either is
+// the zero sentinel.
+powcam_item_t*(vector org, float model_index) PowcamFindItem =
+{
+    if (org == '0 0 0') {
+        debug("zero origin, skipping");
         return nil;
-    return powcam_active_items;
-};
-
-int() PowcamCountItems =
-{
-    if (!powcam_active_item_counted) {
-        powcam_item_t *items = PowcamGetCurrentItems();
-        for (int i = 0; items && i < MAX_POWERUPS; i++) {
-            if (items[i].type == IT_NONE)
-                break;
-            powcam_active_item_count += 1;
-        }
-        powcam_active_item_counted = 1;
     }
-    return powcam_active_item_count;
+    if (model_index == 0) {
+        debug("zero type, skipping");
+        return nil;
+    }
+    itemtype_t type = ItemTypeByModelIndex(model_index);
+    return PowcamFindItemInternal(org, '0 0 64', type);
 };
 
+// Inner lookup: scan powcam_active_items for an entry matching `origin`
+// (within `tolerance`) and `expected_type`. Falls back to the only entry
+// on single-item maps.
 powcam_item_t*(vector origin, vector tolerance, itemtype_t expected_type) PowcamFindItemInternal =
 {
     powcam_item_t *items = PowcamGetCurrentItems();
@@ -170,24 +184,26 @@ powcam_item_t*(vector origin, vector tolerance, itemtype_t expected_type) Powcam
     return nil;
 };
 
-powcam_item_t*(vector org, float model_index) PowcamFindItem =
+// Returns the active map's item array, or nil if the map has no entry.
+powcam_item_t*() PowcamGetCurrentItems =
 {
-    if (org == '0 0 0') {
-        debug("zero origin, skipping");
+    if (!powcam_active_items)
         return nil;
-    }
-    if (model_index == 0) {
-        debug("zero type, skipping");
-        return nil;
-    }
-    itemtype_t type = ItemTypeByModelIndex(model_index);
-    return PowcamFindItemInternal(org, '0 0 64', type);
+    return powcam_active_items;
 };
 
-powcam_item_t*(float entnum) PowcamFindItemByEntity =
+// Counts entries in powcam_active_items up to the first IT_NONE sentinel.
+// Lazy-cached on first call.
+int() PowcamCountItems =
 {
-    vector org = getentity(entnum, GE_ORIGIN);
-    float model_index = getentity(entnum, GE_MODELINDEX);
-    return PowcamFindItem(org, model_index);
+    if (!powcam_active_item_counted) {
+        powcam_item_t *items = PowcamGetCurrentItems();
+        for (int i = 0; items && i < MAX_POWERUPS; i++) {
+            if (items[i].type == IT_NONE)
+                break;
+            powcam_active_item_count += 1;
+        }
+        powcam_active_item_counted = 1;
+    }
+    return powcam_active_item_count;
 };
-

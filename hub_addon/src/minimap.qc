@@ -8,10 +8,10 @@
  * The 2D player overlay is drawn after renderscene by minimap_players.qc.
  *
  * Cvars (override file values when non-zero):
- *   qdw_minimap_mode             0=off 1=pip 2=split 3=full
- *   qdw_minimap_ortho            half-extent override
- *   qdw_minimap_height_offset    Z offset override
- *   qdw_minimap_center_override  vector override
+ *   minimap_mode             0=off 1=pip 2=split 3=full
+ *   minimap_ortho            half-extent override
+ *   minimap_height_offset    Z offset override
+ *   minimap_center_override  vector override
  *
  * Requires engine support for VF_CULLVOLUME.
  */
@@ -20,68 +20,12 @@
 // the right. 0.50 = each gets half the screen width.
 #define MINIMAP_SPLIT_MAIN_FRAC 0.50
 
-// Player view rect. .size = '0 0 0' means the main view should not render
-// (minimap is in FULL mode).
-void(float vw, float vh, __out minimap_rect_t r) MinimapMainViewport =
-{
-    r.min = '0 0 0';
-    switch (autocvar_qdw_minimap_mode) {
-    case MINIMAP_SPLIT:
-        r.size = [vw * MINIMAP_SPLIT_MAIN_FRAC, vh, 0];
-        break;
-    case MINIMAP_FULL:
-        r.size = '0 0 0';
-        break;
-    default:
-        r.size = [vw, vh, 0];
-        break;
-    }
-};
-
-void(float mode, float vw, float vh, __out minimap_rect_t r) MinimapViewport =
-{
-    r.min  = '0 0 0';
-    r.size = '0 0 0';
-    switch (mode) {
-    case MINIMAP_PIP:
-        {
-            float w = vw / 4;
-            float h = vh / 4;
-            float m = w / 10;
-            r.min  = [vw - m - w, m, 0];
-            r.size = [w, h, 0];
-        }
-        break;
-    case MINIMAP_SPLIT:
-        r.min  = [vw * MINIMAP_SPLIT_MAIN_FRAC, 0, 0];
-        r.size = [vw * (1 - MINIMAP_SPLIT_MAIN_FRAC), vh, 0];
-        break;
-    default:
-        // FULL: letterbox the viewport to the map's aspect so the map
-        // actually fills the visible area instead of leaving large empty
-        // margins. Without this, a portrait map in a wide screen looks
-        // tiny and centered.
-        if (minimap_world_dx > 0 && minimap_world_dy > 0) {
-            float map_aspect = minimap_world_dx / minimap_world_dy;
-            float target_w = vh * map_aspect;
-            float target_h = vh;
-            if (target_w > vw) {
-                target_w = vw;
-                target_h = vw / map_aspect;
-            }
-            r.min  = [(vw - target_w) * 0.5, (vh - target_h) * 0.5, 0];
-            r.size = [target_w, target_h, 0];
-        } else {
-            r.min  = '0 0 0';
-            r.size = [vw, vh, 0];
-        }
-        break;
-    }
-};
+// Forward declarations (top-down ordering).
+void(float mode, float vw, float vh, __out minimap_rect_t r) MinimapViewport;
 
 void(float vwidth, float vheight) MinimapRender =
 {
-    float mode = autocvar_qdw_minimap_mode;
+    float mode = autocvar_minimap_mode;
     if (mode <= MINIMAP_OFF) {
         return;
     }
@@ -90,12 +34,12 @@ void(float vwidth, float vheight) MinimapRender =
         MinimapLoad();
     }
 
-    vector center = autocvar_qdw_minimap_center_override;
+    vector center = autocvar_minimap_center_override;
     if (center == '0 0 0') {
         center = minimap_center;
     }
-    float ortho        = autocvar_qdw_minimap_ortho         > 0 ? autocvar_qdw_minimap_ortho         : minimap_ortho;
-    float height_above = autocvar_qdw_minimap_height_offset > 0 ? autocvar_qdw_minimap_height_offset : minimap_height;
+    float ortho        = autocvar_minimap_ortho         > 0 ? autocvar_minimap_ortho         : minimap_ortho;
+    float height_above = autocvar_minimap_height_offset > 0 ? autocvar_minimap_height_offset : minimap_height;
 
     minimap_rect_t viewport;
     MinimapViewport(mode, vwidth, vheight, viewport);
@@ -195,4 +139,64 @@ void(float vwidth, float vheight) MinimapRender =
 
     // Overlay players (project() reads the view state we just set).
     MinimapDrawPlayers(cam_origin);
+};
+
+// Player view rect. .size = '0 0 0' means the main view should not render
+// (minimap is in FULL mode). Called from main.qc CSQC_UpdateView.
+void(float vw, float vh, __out minimap_rect_t r) MinimapMainViewport =
+{
+    r.min = '0 0 0';
+    switch (autocvar_minimap_mode) {
+    case MINIMAP_SPLIT:
+        r.size = [vw * MINIMAP_SPLIT_MAIN_FRAC, vh, 0];
+        break;
+    case MINIMAP_FULL:
+        r.size = '0 0 0';
+        break;
+    default:
+        r.size = [vw, vh, 0];
+        break;
+    }
+};
+
+// Minimap viewport rect for the given display mode.
+void(float mode, float vw, float vh, __out minimap_rect_t r) MinimapViewport =
+{
+    r.min  = '0 0 0';
+    r.size = '0 0 0';
+    switch (mode) {
+    case MINIMAP_PIP:
+        {
+            float w = vw / 4;
+            float h = vh / 4;
+            float m = w / 10;
+            r.min  = [vw - m - w, m, 0];
+            r.size = [w, h, 0];
+        }
+        break;
+    case MINIMAP_SPLIT:
+        r.min  = [vw * MINIMAP_SPLIT_MAIN_FRAC, 0, 0];
+        r.size = [vw * (1 - MINIMAP_SPLIT_MAIN_FRAC), vh, 0];
+        break;
+    default:
+        // FULL: letterbox the viewport to the map's aspect so the map
+        // actually fills the visible area instead of leaving large empty
+        // margins. Without this, a portrait map in a wide screen looks
+        // tiny and centered.
+        if (minimap_world_dx > 0 && minimap_world_dy > 0) {
+            float map_aspect = minimap_world_dx / minimap_world_dy;
+            float target_w = vh * map_aspect;
+            float target_h = vh;
+            if (target_w > vw) {
+                target_w = vw;
+                target_h = vw / map_aspect;
+            }
+            r.min  = [(vw - target_w) * 0.5, (vh - target_h) * 0.5, 0];
+            r.size = [target_w, target_h, 0];
+        } else {
+            r.min  = '0 0 0';
+            r.size = [vw, vh, 0];
+        }
+        break;
+    }
 };

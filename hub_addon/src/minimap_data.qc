@@ -53,19 +53,19 @@ typedef struct {
 // Cvars.
 // ----------------------------------------------------------------------------
 
-var float  autocvar_qdw_minimap_mode             = MINIMAP_SPLIT;
-var float  autocvar_qdw_minimap_ortho            = 0;
-var float  autocvar_qdw_minimap_height_offset    = 0;
-var vector autocvar_qdw_minimap_center_override  = '0 0 0';
-var float  autocvar_qdw_minimap_player_radius             = 7;
-var float  autocvar_qdw_minimap_player_alpha_occluded     = 0.8;
-var float  autocvar_qdw_minimap_player_label_name_length  = 4;
-var float  autocvar_qdw_minimap_player_label_font_size    = 6;
+var float  autocvar_minimap_mode             = MINIMAP_SPLIT;
+var float  autocvar_minimap_ortho            = 0;
+var float  autocvar_minimap_height_offset    = 0;
+var vector autocvar_minimap_center_override  = '0 0 0';
+var float  autocvar_minimap_player_radius             = 7;
+var float  autocvar_minimap_player_alpha_occluded     = 0.8;
+var float  autocvar_minimap_player_label_name_length  = 4;
+var float  autocvar_minimap_player_label_font_size    = 6;
 // '0 0 0' = sentinel for "use the built-in default" (green for team, red
 // for enemy). Any non-zero value overrides.
-var vector autocvar_qdw_minimap_player_color_team         = '0 0 0';
-var vector autocvar_qdw_minimap_player_color_enemy        = '0 0 0';
-var vector autocvar_qdw_minimap_player_color_self         = '1 1 0';
+var vector autocvar_minimap_player_color_team         = '0 0 0';
+var vector autocvar_minimap_player_color_enemy        = '0 0 0';
+var vector autocvar_minimap_player_color_self         = '1 1 0';
 
 // Built-in defaults used when the team/enemy color cvars are left at '0 0 0'.
 var vector minimap_default_color_team  = '0 1 0';
@@ -117,7 +117,7 @@ var string minimap_label_plain[MINIMAP_MAX_PLAYERS];
 
 // Per-frame doppelganger overlays for players the minimap camera can't see
 // directly. Engine-side player entities aren't exposed as QC entities
-// (deltalisten isn't registered unless qdw_xray is on), so we can't flip
+// (deltalisten isn't registered unless xray is on), so we can't flip
 // EF_NODEPTHTEST on them. Instead, for each occluded player we spawn a
 // throwaway QC entity that mirrors the player's pose and add it to the
 // scene with NODEPTHTEST + alpha so it shows through walls/roofs.

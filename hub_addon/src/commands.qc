@@ -10,6 +10,34 @@
  * one record per line for tabular data ("[i] k=v k=v ...").
  */
 
+// Forward declarations (top-down ordering).
+float()                      PowcamCmdActive;
+float()                      PowcamCmdTimers;
+float()                      PowcamCmdRecheck;
+float()                      PowcamCmdHelp;
+string(itemtype_t type)      PowcamItemTypeLabel;
+
+float(string cmd) CSQC_ConsoleCommand =
+{
+    tokenize_console(cmd);
+    if (argv(0) == "minimap") {
+        switch (argv(1)) {
+        case "reload":  return MinimapCmdReload();
+        case "status":  return MinimapCmdStatus();
+        default:        return MinimapCmdHelp();
+        }
+    }
+    if (argv(0) == "powcam") {
+        switch (argv(1)) {
+        case "active":  return PowcamCmdActive();
+        case "timers":  return PowcamCmdTimers();
+        case "recheck": return PowcamCmdRecheck();
+        default:        return PowcamCmdHelp();
+        }
+    }
+    return 0;
+};
+
 float() PowcamCmdActive =
 {
     println("Powcam schedule:");
@@ -23,15 +51,6 @@ float() PowcamCmdActive =
     println("  end             %4.2f", powcam.end);
     println("  now             %4.2f", time);
     return 1;
-};
-
-string(itemtype_t type) PowcamItemTypeLabel =
-{
-    switch (type) {
-    case IT_QUAD: return "&c55fquad&r";
-    case IT_PENT: return "&cf55pent&r";
-    default:      return "none";
-    }
 };
 
 float() PowcamCmdTimers =
@@ -91,23 +110,12 @@ float() PowcamCmdHelp =
     return 1;
 };
 
-float(string cmd) CSQC_ConsoleCommand =
+// Returns a colored label for an item type, used by PowcamCmdTimers.
+string(itemtype_t type) PowcamItemTypeLabel =
 {
-    tokenize_console(cmd);
-    if (argv(0) == "minimap") {
-        switch (argv(1)) {
-        case "reload":  return MinimapCmdReload();
-        case "status":  return MinimapCmdStatus();
-        default:        return MinimapCmdHelp();
-        }
+    switch (type) {
+    case IT_QUAD: return "&c55fquad&r";
+    case IT_PENT: return "&cf55pent&r";
+    default:      return "none";
     }
-    if (argv(0) == "powcam") {
-        switch (argv(1)) {
-        case "active":  return PowcamCmdActive();
-        case "timers":  return PowcamCmdTimers();
-        case "recheck": return PowcamCmdRecheck();
-        default:        return PowcamCmdHelp();
-        }
-    }
-    return 0;
 };

@@ -44,8 +44,11 @@ Build
 -----
 
 ```
-make            # produces csaddon.dat (requires fteqcc / fteqcc64 in PATH)
+make                       # uses `fteqcc` from PATH
+FTEQCC=fteqcc64 make       # uses fteqcc64
 ```
+
+Produces `csaddon.dat` (the engine looks for this filename; do not rename).
 
 Contributing cameras
 --------------------
@@ -53,7 +56,7 @@ Contributing cameras
 The cameras are declared in `src/powcam_config.qc` via an embedded DSL to
 make it a bit more accessible for non-programmers:
 
-```
+```c
 map("e2m5",
     quad('8 -416 -16', camera(origin('169 -210 100'), angles('27 227 0'))),
     quad('-32 2432 88', camera(origin('54 2432 191'), angles('22 180 0'))),
@@ -92,39 +95,48 @@ Cvars
 
 Powcam:
 
-* `qdw_powcam_enabled` - `0` or `1`.
-* `qdw_powcam_intro` - seconds of lead-in before spawn.
-* `qdw_powcam_outro` - seconds to keep camera up after pickup.
-* `qdw_powcam_transition` - slide in/out duration (seconds).
-* `qdw_powcam_bg_quad_color` - frame color for quad cameras.
-* `qdw_powcam_bg_pent_color` - frame color for pent cameras.
+* `powcam_enabled` - `0` or `1`.
+* `powcam_intro` - seconds of lead-in before spawn.
+* `powcam_outro` - seconds to keep camera up after pickup.
+* `powcam_transition` - slide in/out duration (seconds).
+* `powcam_bg_quad_color` - frame color for quad cameras.
+* `powcam_bg_pent_color` - frame color for pent cameras.
 
 X-ray:
 
-* `qdw_xray` - `0` or `1`.
-* `qdw_xray_alpha` - silhouette alpha at zero distance.
-* `qdw_xray_distance` - how far through walls to see until faded out.
-* `qdw_xray_color_team` - `r g b` team color.
-* `qdw_xray_color_enemy` - `r g b` enemy color.
+* `xray` - `0` or `1`.
+* `xray_alpha` - silhouette alpha at zero distance.
+* `xray_distance` - how far through walls to see until faded out.
+* `xray_color_team` - `r g b` team color.
+* `xray_color_enemy` - `r g b` enemy color.
 
 Minimap (see `minimap help` for in-game descriptions):
 
-* `qdw_minimap_mode` - 0=off, 1=pip, 2=split, 3=full.
-* `qdw_minimap_ortho`, `qdw_minimap_height_offset`,
-  `qdw_minimap_center_override` - override auto-derived projection.
-* `qdw_minimap_player_radius`, `_alpha_occluded`,
+* `minimap_mode` - 0=off, 1=pip, 2=split, 3=full.
+* `minimap_ortho`, `minimap_height_offset`,
+  `minimap_center_override` - override auto-derived projection.
+* `minimap_player_radius`, `_alpha_occluded`,
   `_color_team`/`_color_enemy`/`_color_self`,
   `_label_name_length`, `_label_font_size`.
 
+Score overlay: no cvars. Visibility is rule-based (hidden in coop; clock
+hidden during pre-match standby; participant scores require exactly two
+players or two teams).
+
 Debug:
 
-* `qdw_debug` - `0` or `1`; toggles diagnostic logging.
+* `debug` - `0` or `1`; toggles diagnostic logging.
 
 Commands
 --------
 
-* `powcam`  - subcommands: `active`, `timers`, `recheck`, `help`.
-* `minimap` - subcommands: `reload`, `status`, `help`.
+Both commands print full descriptions when invoked with `help`.
+
+* `powcam <subcmd>` - `active` (current schedule), `timers` (all tracked
+  pickup timers), `recheck` (force-reschedule), `help`.
+* `minimap <subcmd>` - `reload` (reparse cull file and re-derive
+  bounds), `status` (current mode, map, volume count, view params),
+  `help`.
 
 Compatibility
 -------------
