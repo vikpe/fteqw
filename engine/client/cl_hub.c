@@ -9,7 +9,7 @@
 extern char *Macro_Match_Status(void);
 
 int      hub_remaining_ms         = -1;
-int      hub_overtime_duration_ms = 0;
+int      hub_overtime_ms = 0;
 qboolean hub_match_in_progress    = false;
 double   hub_match_elapsed_ms     = -1;
 
@@ -34,7 +34,7 @@ static int hub_parse_status_remaining_ms(void)
 void Hub_ResetMatchState(void)
 {
 	hub_remaining_ms         = -1;
-	hub_overtime_duration_ms = 0;
+	hub_overtime_ms = 0;
 	hub_match_in_progress    = false;
 	hub_match_elapsed_ms     = -1;
 	hub_prev_status[0]       = 0;
@@ -79,12 +79,12 @@ void Hub_CheckServerInfo(void)
 	// Track "X min left" to detect overtime announcements. ktx-style
 	// mods announce OT by jumping the status remaining back up (e.g.
 	// "1 min left" -> "5 min left"); any increase over the previously
-	// observed value is OT, accumulated into hub_overtime_duration_ms.
+	// observed value is OT, accumulated into hub_overtime_ms.
 	int remaining_ms = hub_parse_status_remaining_ms();
 	if (remaining_ms >= 0)
 	{
 		if (hub_remaining_ms >= 0 && remaining_ms > hub_remaining_ms)
-			hub_overtime_duration_ms += remaining_ms - hub_remaining_ms;
+			hub_overtime_ms += remaining_ms - hub_remaining_ms;
 		hub_remaining_ms = remaining_ms;
 	}
 
@@ -99,7 +99,7 @@ void Hub_CheckServerInfo(void)
 		hub_match_elapsed_ms     = -1;
 		hub_match_in_progress    = false;
 		hub_remaining_ms         = -1;
-		hub_overtime_duration_ms = 0;
+		hub_overtime_ms = 0;
 	}
 	else if (!strcmp(status, "standby"))
 	{
@@ -113,7 +113,7 @@ void Hub_CheckServerInfo(void)
 		{
 			extern float demtime;
 			double captured_ms = demtime * 1000.0 - hub_demo_countdown_ms;
-			double max_ms      = hub_demo_timelimit_ms + hub_overtime_duration_ms;
+			double max_ms      = hub_demo_timelimit_ms + hub_overtime_ms;
 			captured_ms = floor(captured_ms / 1000.0 + 0.5) * 1000.0;
 			hub_match_elapsed_ms = (captured_ms > max_ms) ? max_ms : captured_ms;
 		}
@@ -131,7 +131,7 @@ void Hub_CheckServerInfo(void)
 			// left" status string. Demos use the scan-captured
 			// countdown anchor instead (see Hub_HostFrame).
 			float timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
-			int   total_ms  = (int)(timelimit * 60 * 1000) + hub_overtime_duration_ms;
+			int   total_ms  = (int)(timelimit * 60 * 1000) + hub_overtime_ms;
 			if (remaining_ms >= 0 && total_ms > 0)
 				hub_match_elapsed_ms = total_ms - remaining_ms;
 		}

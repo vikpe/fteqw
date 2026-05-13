@@ -1256,7 +1256,8 @@ int  Hub_GetDemoElapsedMs(void);
 void Hub_ResetMatchState(void);
 
 //cl_hub.c
-extern int hub_overtime_duration_ms;
+extern int hub_overtime_ms;
+
 void CL_UpdateWindowTitle(void);
 
 #ifdef QUAKESTATS

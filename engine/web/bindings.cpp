@@ -330,11 +330,20 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			extern int hub_demo_total_ms;
 			if (hub_demo_total_ms <= 0)
 				return emscripten::val::null();
+			// Split the post-match remainder into overtime + intermission.
+			// timelimit and overtimes are always multiples of 60s; the
+			// intermission is the leftover (typically a few seconds).
+			int post_match_ms   = hub_demo_total_ms - hub_demo_countdown_ms - hub_demo_timelimit_ms;
+			if (post_match_ms < 0) post_match_ms = 0;
+			int overtime_ms     = (post_match_ms / 60000) * 60000;
+			int intermission_ms = post_match_ms - overtime_ms;
 			emscripten::val result = emscripten::val::object();
-			result.set("elapsed_ms",   elapsed_ms);
-			result.set("total_ms",     hub_demo_total_ms);
-			result.set("timelimit_ms", hub_demo_timelimit_ms);
-			result.set("countdown_ms", hub_demo_countdown_ms);
+			result.set("elapsed_ms",      elapsed_ms);
+			result.set("total_ms",        hub_demo_total_ms);
+			result.set("timelimit_ms",    hub_demo_timelimit_ms);
+			result.set("countdown_ms",    hub_demo_countdown_ms);
+			result.set("overtime_ms",     overtime_ms);
+			result.set("intermission_ms", intermission_ms);
 			return result;
 		})
 		.function("getItemTimer", +[](client_state_t& self) -> client_state_t::itemtimer_s* {
