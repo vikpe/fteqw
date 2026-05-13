@@ -1276,7 +1276,7 @@ void(float vwidth, float vheight) MinimapRender =
                     minimap_volumes[i].maxs);
     }
 
-    // MASK_LOCAL pulls in the POV player. PipResetPlayer sets the local
+    // MASK_LOCAL pulls in the POV player. XrayResetPlayer sets the local
     // player's drawmask to MASK_LOCAL (and 0 for everyone else), so the
     // engine's normal "hide self in first-person" suppression is bypassed.
     vector cam_origin = [center.x, center.y, center.z + hoff];
