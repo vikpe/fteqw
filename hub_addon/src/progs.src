@@ -41,6 +41,7 @@ score_overlay.qc
 // Powerup-cam: schedule then render
 powcam.qc
 powcam_render.qc
+powcam_commands.qc
 
 // Console commands (depend on all feature state above)
 commands.qc
