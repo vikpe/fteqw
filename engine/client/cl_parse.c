@@ -6867,38 +6867,6 @@ static void CL_PrintStandardMessage(char *msgtext, int printlevel)
 }
 
 static char printtext[4096];
-//Catches "<N> minute[s] overtime follows" lines emitted by ktx/ktpro and
-//accumulates seconds into hub_match_total_overtime (our own state, not the
-//engine's cl.matchstate / cl.matchgametimestart). The number is at the
-//start of the line (optionally preceded by whitespace).
-static void CL_ParseOvertimeLine(const char *line)
-{
-	const char *p = line;
-	int minutes;
-	while (*p && (*p < '0' || *p > '9'))
-		p++;
-	if (!*p)
-		return;
-	minutes = atoi(p);
-	while (*p >= '0' && *p <= '9')
-		p++;
-	while (*p && *p != 'm')
-	{
-		if (*p == '\n' || *p == '\r')
-			return;
-		p++;
-	}
-	if (strncmp(p, "minute", 6))
-		return;
-	p += 6;
-	if (*p == 's')
-		p++;
-	if (strncmp(p, " overtime follows", 17))
-		return;
-	if (minutes <= 0)
-		return;
-	hub_match_total_overtime += minutes * 60;
-}
 
 static void CL_ParsePrint(const char *msg, int level)
 {
@@ -6918,8 +6886,6 @@ static void CL_ParsePrint(const char *msg, int level)
 	{
 		n = e[1];
 		e[1] = 0;
-
-		CL_ParseOvertimeLine(printtext);
 
 //		QTube wants all the stats
 //		if (!cls.demoseeking)

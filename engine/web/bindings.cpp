@@ -319,17 +319,17 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			// callers should use getMatchElapsed instead.
 			if (!cls.lastdemoname[0])
 				return emscripten::val::null();
-			int elapsed = Hub_GetDemoElapsed();
-			int duration = Hub_GetDemoDuration();
-			if (elapsed < 0 || duration < 0)
+			int elapsed  = Hub_GetDemoElapsed();
+			int todal_duration = Hub_GetDemoEstimatedTotalDuration();
+			if (elapsed < 0 || todal_duration < 0)
 				return emscripten::val::null();
+			extern double hub_countdown_duration;
+			extern int    hub_overtime_duration;
 			emscripten::val result = emscripten::val::object();
 			result.set("elapsed", elapsed);
-			result.set("duration", duration);
-			// match_started_at: demtime offset where the match started.
-			// Defaults to 10s (standard countdown duration), pulled back
-			// to current demtime if the demo joined mid-game / standby.
-			result.set("match_started_at", (int)floor(hub_demo_match_started_at));
+			result.set("countdown_duration", (int)floor(hub_countdown_duration));
+			result.set("overtime_duration", hub_overtime_duration);
+			result.set("estimated_total_duration", todal_duration);
 			return result;
 		})
 		.function("getItemTimer", +[](client_state_t& self) -> client_state_t::itemtimer_s* {

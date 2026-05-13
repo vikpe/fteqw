@@ -7,64 +7,40 @@
 // "connecting", "normal", "countdown", "standby".
 extern char *Macro_Match_Status(void);
 
-qboolean hub_qtv_match_in_progress = false;
-double   hub_qtv_match_time       = -1;
+int      hub_seconds_left       = -1;
+int      hub_overtime_duration  = 0;
+qboolean hub_match_in_progress  = false;
+double   hub_match_elapsed      = -1;
+double   hub_countdown_duration = 10;
 
-// Recorded demos: demtime offset where the match began. Defaults to 10
-// (the standard countdown duration) so a demo that records the full
-// pre-match countdown reads 00:00 at the moment the match starts. If
-// the matchstate becomes non-COUNTDOWN while demtime is still below the
-// anchor, we joined mid-game or in standby and pull the anchor back to
-// current demtime. demtime is authoritative for demos, so the "X min[s]
-// left" print parser is not consulted here.
-double hub_demo_match_started_at = 10;
-
-// Accumulates "N minutes overtime follows" prints (see
-// cl_parse.c:CL_ParseOvertimeLine). Shared with the demo path because
-// demos can have overtime announcements too; it just isn't used to
-// derive demo elapsed time (demtime serves that role for recorded
-// demos).
-int hub_match_total_overtime;
-
-// Last status seen on the previous Hub_CheckServerInfo. We only act on
-// qtv match clock transitions when this changes, so repeated serverinfo
-// refreshes carrying the same status are no-ops for that branch. Sized
-// to MAX_INFO_KEY so any value reachable through cl.serverinfo fits
-// without truncation; Q_strncpyz is bounded regardless.
 static char hub_prev_status[MAX_INFO_KEY] = "";
 
 // Parse "<N> min[s]/sec[s]/hour[s] left" from cl.serverinfo "status",
 // returning remaining match seconds or -1 if the string isn't in that
 // form (e.g. it reads "Standby" or "Countdown").
-static float hub_parse_status_remaining(void)
+static int hub_parse_status_remaining(void)
 {
-	char *s = InfoBuf_ValueForKey(&cl.serverinfo, "status");
-	float t = strtod(s, &s);
-	if (!strcmp(s, " min left") || !strcmp(s, " mins left"))
-		return t * 60;
-	if (!strcmp(s, " sec left") || !strcmp(s, " secs left"))
-		return t;
-	if (!strcmp(s, " hour left") || !strcmp(s, " hours left"))
-		return t * 60 * 60;
+	char *status = InfoBuf_ValueForKey(&cl.serverinfo, "status");
+	int value = (int)strtol(status, &status, 10);
+	if (!strcmp(status, " min left") || !strcmp(status, " mins left"))
+		return value * 60;
+	if (!strcmp(status, " sec left") || !strcmp(status, " secs left"))
+		return value;
+	if (!strcmp(status, " hour left") || !strcmp(status, " hours left"))
+		return value * 60 * 60;
 	return -1;
 }
 
-// Clear the cached match clock state. Called from CL_MakeActive and
-// from demo seek paths so stale values don't leak across boundaries.
 void Hub_ResetMatchState(void)
 {
-	hub_qtv_match_in_progress = false;
-	hub_qtv_match_time       = -1;
-	hub_demo_match_started_at = 10;
-	hub_match_total_overtime = 0;
+	hub_seconds_left       = -1;
+	hub_overtime_duration  = 0;
+	hub_match_in_progress  = false;
+	hub_match_elapsed      = -1;
+	hub_countdown_duration = 10;
 	hub_prev_status[0]     = 0;
 }
 
-// Whole seconds of demo playback position (demtime). -1 when not
-// playing back a demo or stream. While seeking, report the target
-// position - the engine restarts the demo for backward seeks and
-// demtime briefly reads 0 until the fast-parse catches up, which would
-// otherwise yank a progress bar back to the start.
 int Hub_GetDemoElapsed(void)
 {
 	extern float demtime;
@@ -77,105 +53,116 @@ int Hub_GetDemoElapsed(void)
 	return (int)floor(demtime);
 }
 
-// Total demo length in whole seconds, i.e. timelimit + any overtime
-// announcements parsed so far. -1 when not playing back a demo or
-// stream, or when no timelimit is known.
-int Hub_GetDemoDuration(void)
+int Hub_GetDemoEstimatedTotalDuration(void)
 {
-	float timelimit;
 	if (cls.demoplayback == DPB_NONE)
 		return -1;
-	timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
+
+	float timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
 	if (timelimit <= 0)
 		return -1;
-	return (int)(timelimit * 60) + hub_match_total_overtime;
+	return (int)(timelimit * 60) + hub_overtime_duration;
 }
 
-// Whole seconds elapsed since the match started (floored).
-//   >= 0  match clock available
-//   -1    no match context: disconnected, not yet active, no clock yet.
-//
-// Two paths:
-//   Recorded demo (cls.lastdemoname set): elapsed = demtime - hub_demo_match_started_at.
-//     The anchor defaults to 10 (standard countdown) and is pulled to
-//     current demtime by Hub_CheckServerInfo if a non-COUNTDOWN status
-//     is observed while still inside that window.
-//   QTV (live stream, lastdemoname empty): hub_qtv_match_time, maintained by
-//     Hub_CheckServerInfo + Hub_HostFrame.
 int Hub_GetMatchElapsed(void)
 {
 	if (cls.state != ca_active)
 		return -1;
 	if (cls.demoplayback == DPB_NONE)
 		return -1;
-
-	if (cls.lastdemoname[0])
-	{
-		extern float demtime;
-		double elapsed;
-		if (hub_demo_match_started_at < 0)
-			return -1;
-		elapsed = demtime - hub_demo_match_started_at;
-		if (elapsed < 0)
-			return -1;
-		return (int)floor(elapsed);
-	}
-
-	if (hub_qtv_match_time < 0)
+	if (hub_match_elapsed < 0)
 		return -1;
-	return (int)floor(hub_qtv_match_time);
+	return (int)floor(hub_match_elapsed);
 }
 
 void Hub_CheckServerInfo(void)
 {
+	// Track "X min left" to detect overtime announcements. ktx-style
+	// mods announce OT by jumping the status remaining back up (e.g.
+	// "1 min left" -> "5 min left"); any increase over the previously
+	// observed value is OT, accumulated into hub_overtime_duration.
+	int remaining = hub_parse_status_remaining();
+	if (remaining >= 0)
+	{
+		if (hub_seconds_left >= 0 && remaining > hub_seconds_left)
+			hub_overtime_duration += remaining - hub_seconds_left;
+		hub_seconds_left = remaining;
+	}
+
 	const char *status = Macro_Match_Status();
+	if (strcmp(status, hub_prev_status) == 0)
+		return;
 
-	// QTV match clock: act on status transitions.
-	if (strcmp(status, hub_prev_status) != 0)
+	if (!strcmp(status, "countdown"))
 	{
-		if (!strcmp(status, "countdown"))
+		// New match starting - clear accumulators so the next OT
+		// detection cycle starts fresh. Reset the countdown anchor to
+		// the assumed default; Hub_HostFrame extends it if the actual
+		// countdown runs longer.
+		hub_match_elapsed      = -1;
+		hub_match_in_progress  = false;
+		hub_seconds_left       = -1;
+		hub_overtime_duration     = 0;
+		hub_countdown_duration = 10;
+	}
+	else if (!strcmp(status, "standby"))
+	{
+		hub_match_in_progress = false;
+	}
+	else if (!strcmp(status, "normal"))
+	{
+		hub_match_in_progress = true;
+		if (!strcmp(hub_prev_status, "countdown"))
 		{
-			hub_qtv_match_time       = -1;
-			hub_qtv_match_in_progress = false;
+			hub_match_elapsed = 0;
 		}
-		else if (!strcmp(status, "standby"))
+		else if (hub_match_elapsed < 0 && !cls.lastdemoname[0])
 		{
-			hub_qtv_match_in_progress = false;
+			// Live join mid-match: derive elapsed from the "X min left"
+			// status string. Demos rely on demtime + hub_countdown_duration
+			// (see Hub_HostFrame); the pull-down anchor handles them.
+			float timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
+			float total     = 60 * timelimit + hub_overtime_duration;
+			if (remaining >= 0 && total > 0)
+				hub_match_elapsed = total - remaining;
 		}
-		else if (!strcmp(status, "normal"))
-		{
-			hub_qtv_match_in_progress = true;
-			if (!strcmp(hub_prev_status, "countdown"))
-			{
-				hub_qtv_match_time = 0;
-			}
-			else if (hub_qtv_match_time < 0)
-			{
-				// Joined mid-match: derive elapsed from the "X min
-				// left" status string.
-				float remaining = hub_parse_status_remaining();
-				float timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
-				float total     = 60 * timelimit + hub_match_total_overtime;
-				if (remaining >= 0 && total > 0)
-					hub_qtv_match_time = total - remaining;
-			}
-		}
-		Q_strncpyz(hub_prev_status, status, sizeof(hub_prev_status));
 	}
 
-	// Recorded demo: anchor pull-down. Fires on every serverinfo
-	// refresh (not just transitions) - the comparison is idempotent
-	// once the anchor reaches the minimum demtime observed.
-	if (cls.lastdemoname[0] && strcmp(status, "countdown") != 0)
-	{
-		extern float demtime;
-		if (demtime >= 0 && demtime < hub_demo_match_started_at)
-			hub_demo_match_started_at = demtime;
-	}
+	Q_strncpyz(hub_prev_status, status, sizeof(hub_prev_status));
 }
 
 void Hub_HostFrame(double frametime)
 {
-	if (hub_qtv_match_in_progress && hub_qtv_match_time >= 0)
-		hub_qtv_match_time += frametime;
+	// Live (non-demo) match clock: tick by real-time frame delta. Demos
+	// derive the clock from demtime below so the value is exact across
+	// pause / seek / variable playback speed.
+	if (!cls.lastdemoname[0])
+	{
+		if (hub_match_in_progress && hub_match_elapsed >= 0)
+			hub_match_elapsed += frametime;
+	}
+
+	if (cls.lastdemoname[0])
+	{
+		extern float demtime;
+		if (demtime < 0)
+			return;
+
+		// Track the demtime offset where the match begins. While in
+		// COUNTDOWN, extend the anchor up to current demtime if the
+		// countdown runs longer than the default 10s. Once INPROGRESS,
+		// pull the anchor down if demtime is earlier than the anchor
+		// (shorter countdown, or demo joined mid-match with no prior
+		// status-derived seed).
+		if (cl.matchstate == MATCH_COUNTDOWN && demtime > hub_countdown_duration)
+			hub_countdown_duration = demtime;
+		else if (cl.matchstate == MATCH_INPROGRESS && demtime < hub_countdown_duration)
+			hub_countdown_duration = demtime;
+
+		// Demo match clock: demtime is authoritative, derive from the
+		// anchor. STANDBY/COUNTDOWN don't update so the clock freezes
+		// during intermission and stays -1 during countdown.
+		if (cl.matchstate == MATCH_INPROGRESS)
+			hub_match_elapsed = demtime - hub_countdown_duration;
+	}
 }

@@ -1253,17 +1253,11 @@ extern	float in_sensitivityscale;
 void CL_MakeActive(char *gamename);
 int  Hub_GetMatchElapsed(void);
 int  Hub_GetDemoElapsed(void);
-int  Hub_GetDemoDuration(void);
+int  Hub_GetDemoEstimatedTotalDuration(void);
 void Hub_ResetMatchState(void);
-//Match clock state owned by our additive code. The QTV path lives in
-//cl_hub.c (see cl_hub.h for hub_qtv_match_in_progress / hub_qtv_match_time).
-//hub_demo_match_started_at is the demtime offset where the match began on a
-//recorded demo (defaults to 10s, pulled back to current demtime if a
-//non-COUNTDOWN status is observed before the anchor is reached).
-//hub_match_total_overtime accumulates "N minutes overtime follows" prints
-//and is consulted by Hub_GetDemoDuration.
-extern double hub_demo_match_started_at;
-extern int    hub_match_total_overtime;
+
+//cl_hub.c:Hub_GetMatchElapsed.
+extern int hub_overtime_duration;
 void CL_UpdateWindowTitle(void);
 
 #ifdef QUAKESTATS
