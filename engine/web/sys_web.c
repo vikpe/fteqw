@@ -7,6 +7,11 @@ qboolean isDedicated;
 
 quakeparms_t	parms;
 
+// Toggle for forwarding engine console output to the browser's console.log.
+// Flip via JS bindings (setWebLogEnabled) when you want to silence the engine
+// (e.g. to keep the host page's console clean during demo playback).
+qboolean web_log_enabled = false;
+
 void Sys_Error (const char *error, ...)
 {
 	va_list argptr;
@@ -128,12 +133,15 @@ static size_t ApplyColour(char *out, size_t outsize, unsigned int chrflags)
 //print into stdout
 void Sys_Printf (char *fmt, ...)
 {
-	va_list		argptr;	
+	va_list		argptr;
 	char text[65536];
 	conchar_t	ctext[countof(text)], *e, *c;
 	unsigned int len = 0;
 	unsigned int w, codeflags;
-		
+
+	if (!web_log_enabled)
+		return;
+
 	va_start (argptr,fmt);
 	vsnprintf (text, sizeof(text), fmt, argptr);
 	va_end (argptr);

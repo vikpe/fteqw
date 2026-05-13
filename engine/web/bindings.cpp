@@ -538,4 +538,9 @@ EMSCRIPTEN_BINDINGS(browser_api) {
         return std::string(host_mapname.string);
     });
 
+	function("setWebLogEnabled", +[](bool enabled) {
+		extern qboolean web_log_enabled;
+		web_log_enabled = enabled ? (qboolean)true : (qboolean)false;
+	});
+
 }

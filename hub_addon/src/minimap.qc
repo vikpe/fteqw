@@ -30,6 +30,13 @@ void(float vwidth, float vheight) MinimapRender =
         return;
     }
 
+    // Pause while the engine fast-parses through a demo seek - player
+    // positions/stats churn through transient mid-seek values and would
+    // just flicker the overlay.
+    if (isdemoseeking()) {
+        return;
+    }
+
     if (minimap_loaded_for != mapname) {
         MinimapLoad();
     }

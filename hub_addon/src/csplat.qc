@@ -1843,6 +1843,9 @@ __variant(float playernum, float statnum, float stattype) getplayerstat = #0:get
 float() getmatchelapsed = #0:getmatchelapsed; /*
 		Match elapsed time in seconds, derived from "X min[s] left" prints and demtime for demos. Returns -1 when no match clock is available (pre-match standby, countdown, live QTV before the first time announcement). */
 
+float() isdemoseeking = #0:isdemoseeking; /*
+		Returns 1 while the engine is fast-parsing a demo to reach a seek target, 0 otherwise. Useful for skipping overlay work that would just flicker through transient mid-seek state. */
+
 void(entity e, float mdlindex) setmodelindex = #333; /*
 		Sets a model by precache index instead of by name. Otherwise identical to setmodel. */
 

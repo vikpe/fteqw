@@ -6230,6 +6230,14 @@ static void QCBUILTIN PF_cl_getmatchelapsed(pubprogfuncs_t *prinst, struct globa
 	G_FLOAT(OFS_RETURN) = (float)Hub_GetMatchElapsedMs();
 }
 
+// 1 while the engine is fast-parsing a demo to reach a seek target,
+// 0 otherwise. Lets CSQC overlays skip work that would just flicker
+// through transient mid-seek state.
+static void QCBUILTIN PF_cl_isdemoseeking(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
+{
+	G_FLOAT(OFS_RETURN) = (cls.demoseeking != DEMOSEEK_NOT) ? 1 : 0;
+}
+
 static void QCBUILTIN PF_cs_getplayerstat(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 {
 	unsigned int playernum = G_FLOAT(OFS_PARM0);
@@ -7065,6 +7073,7 @@ static struct {
 	{"getstats",				PF_cs_getstat_string,			332},	// #332 string(float firststnum) getstats (EXT_CSQC)
 	{"getplayerstat",			PF_cs_getplayerstat,			0},		// #0 __variant(float playernum, float statnum, float stattype) getplayerstat
 	{"getmatchelapsed",			PF_cl_getmatchelapsed,			0},		// float() getmatchelapsed - seconds, -1 if no match clock yet
+	{"isdemoseeking",			PF_cl_isdemoseeking,			0},		// float() isdemoseeking - 1 if demo fast-parse is in progress
 	{"setmodelindex",			PF_cs_SetModelIndex,			333},	// #333 void(entity e, float mdlindex) setmodelindex (EXT_CSQC)
 	{"modelnameforindex",		PF_cs_ModelnameForIndex,		334},	// #334 string(float mdlindex) modelnameforindex (EXT_CSQC)
 	{"soundnameforindex",		PF_cs_SoundnameForIndex,		0},
