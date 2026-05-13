@@ -2,16 +2,25 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## General coding standards
+
+- Never read or reference code in `.bak` directories — treat it as if it doesn't exist.
+- Always match the style and conventions already present in the codebase.
+- Code must read from top to bottom: public API first, then private helpers/types.
+- Always prefix boolean variables and fields with a word that makes them explicitly boolean: `is_`, `has_`, `was_`, `should_`, `can_`, `with_`, etc. For example: `is_first` not `first`, `has_cache` not `cache`, `is_active` not `active`.
+- Variables holding counts, should be named x_count, example "user_count"
+
 ## Output
 
 - Never express emotions.
 - Answer briefly and objectively.
 - If unsure, say so. Never guess.
-- No em dashes, smart quotes, or Unicode. ASCII only.
 - Drop: filler (just/really/basically/actually/simply), pleasantries (sure/certainly/of course/happy to), hedging. Fragments OK. Short synonyms (big not extensive, fix not "implement a solution for"). Technical terms exact. Code blocks unchanged. Errors quoted exact.
   - Pattern: [thing] [action] [reason]. [next step]
   - Not: "Sure! I'd be happy to help you with that. The issue you're experiencing is likely caused by..."
   - Yes: "Bug in auth middleware. Token expiry check use < not <=. Fix:"
+
+- No em dashes, smart quotes, or Unicode. ASCII only.
 
 ## Project Overview
 
