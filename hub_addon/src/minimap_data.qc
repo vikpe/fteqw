@@ -53,7 +53,7 @@ typedef struct {
 // Cvars.
 // ----------------------------------------------------------------------------
 
-var float  autocvar_minimap_mode             = MINIMAP_SPLIT;
+var float  autocvar_minimap_mode             = MINIMAP_OFF;
 var float  autocvar_minimap_ortho            = 0;
 var float  autocvar_minimap_height_offset    = 0;
 var vector autocvar_minimap_center_override  = '0 0 0';
