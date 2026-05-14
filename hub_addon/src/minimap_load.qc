@@ -2,25 +2,28 @@
 
 /*
  * Minimap load pipeline:
- *   - Auto-derive camera/projection from the worldmodel AABB
- *   - Narrow to the convex hull of locs/<mapname>.loc when available
- *   - Parse maps/<mapname>.cull for overrides and cull volumes
- *   - Lazy pickup-ceiling scan for per-region auto-cull volumes
+ *   - Seed bounds from the worldmodel AABB
+ *   - Grid-traceline narrowing: at each cell, do a top-down trace for the
+ *     ceiling and a follow-up trace beneath it for the floor; keep the
+ *     cell only if there's a real air gap (a room) under the topmost
+ *     surface. Sky/clip-tagged hits are also rejected via content bits.
+ *     Bbox = AABB of kept cells; camera Z = topmost kept ceiling.
+ *   - Parse maps/<mapname>.cull for cull volumes (optional)
+ *   - Re-derive the camera height from the cull volumes' highest floor Z
+ *     when a .cull file is loaded
  *
  * Cull file format:
  *   # comments allowed; blank lines ignored
- *   center X Y Z           # camera XY and reference Z (override auto)
- *   ortho HALF_SIZE        # half-extent in QU per side (override auto)
- *   height OFFSET          # camera Z added to center.z (override auto)
- *   # any line with 6 numbers: mins.x mins.y mins.z  maxs.x maxs.y maxs.z
+ *   # each volume is one line with 6 numbers:
+ *   #   mins.x mins.y mins.z  maxs.x maxs.y maxs.z
  *   -512 -384 192    512 384 99999
  */
 
 // Forward declarations (top-down ordering).
 void()             MinimapAutoBounds;
-void()             MinimapApplyHeightOverride;
-float()            MinimapNarrowToLocFile;
+float()            MinimapNarrowByTraceline;
 float(string line) MinimapParseLine;
+void()             MinimapDeriveBoundsFromVolumes;
 
 float() MinimapLoad =
 {
@@ -33,13 +36,12 @@ float() MinimapLoad =
     }
 
     MinimapAutoBounds();
-    MinimapNarrowToLocFile();
-    MinimapApplyHeightOverride();
+    MinimapNarrowByTraceline();
 
     string cull_path = sprintf("maps/%s.cull", mapname);
     filestream fh = fopen(cull_path, FILE_READ);
     if (fh < 0) {
-        debug("minimap: no cull file '%s'", cull_path);
+        println("[minimap] no cull file '%s'", cull_path);
         return 0;
     }
 
@@ -50,127 +52,37 @@ float() MinimapLoad =
     fclose(fh);
 
     minimap_loaded = 1;
-    debug("minimap: %d volumes loaded from %s", (float)minimap_num_volumes, cull_path);
+    MinimapDeriveBoundsFromVolumes();
+    println("[minimap] loaded custom cull file %s (%d volumes)",
+            cull_path, (float)minimap_num_volumes);
     return 1;
 };
 
-// Per-map camera height overrides for maps where the auto-derived value
-// is off (usually due to tall arches / skybox geometry inflating the BSP
-// AABB). Applied after auto-bounds and .loc narrowing but before .cull
-// file parsing, so a maps/<name>.cull "height N" line still wins if
-// present. The autocvar_minimap_height_offset cvar overrides everything.
-struct {
-    string name;
-    float  height;
-} minimap_height_overrides[] = {
-    {"e1m2", 540},
-};
-
-void() MinimapApplyHeightOverride =
-{
-    for (int i = 0; i < minimap_height_overrides.length; i++) {
-        if (minimap_height_overrides[i].name == mapname) {
-            minimap_height = minimap_height_overrides[i].height;
-            debug("minimap: hardcoded height %g for %s",
-                  minimap_height, mapname);
-            return;
-        }
-    }
-};
-
-// Scan baseline/networked entities once per map. For each pickup, trace
-// straight up to find the local ceiling and add a cull volume covering an
-// XY region around the pickup above that ceiling. This gives per-region
-// auto-cull, which handles multi-level maps where a single global ceiling
-// height would leak (lower roofs ignored) or over-cull (upper floors cut off).
+// Derive the camera height from the highest cull-volume floor Z. Volume.mins.z
+// is "everything above this Z gets culled", i.e. approximates the room's
+// ceiling; the highest such value tells us how high the camera must sit to
+// float above the tallest covered room.
 //
-// Returns 1 if at least one pickup was found, 0 to retry next frame
-// (entities probably not yet populated).
-float() MinimapScanPickupCeiling =
+// XY bounds are intentionally NOT derived here - cull volumes are sized for
+// culling (often extending beyond the playable area to safely cover walls
+// and hallways), so using them for bounds produces oversized AABBs with
+// black slack on the side of the loosest volume. XY bounds come from the
+// BSP AABB (auto-bounds) optionally narrowed by the .loc file.
+void() MinimapDeriveBoundsFromVolumes =
 {
-    float region_pad     = 256;   // half-width of the cull column around each pickup, in QU
-    float ceiling_margin = 8;     // QU above the detected ceiling to start culling
-    float min_items      = 10;    // skip auto-cull entirely if the map has fewer than this many pickups
-    int   added       = 0;
-    int   pad_outdoor = 0;
+    if (minimap_num_volumes <= 0) return;
 
-    // First pass: count pickups. Stops us adding partial cull volumes on
-    // tiny / training / non-DM maps whose pickup geometry isn't a useful
-    // signal for "where the play floor is".
-    int found = 0;
-    float ent_count = getentity(0, GE_MAXENTS);
-    for (float i = 1; i < ent_count; i++) {
-        float active = getentity(i, GE_ACTIVE);
-        if (!active) continue;
-        float model_index = getentity(i, GE_MODELINDEX);
-        if (model_index == 0) continue;
-        string model_name = modelnameforindex(model_index);
-        if (MinimapIsPickupModel(model_name)) found++;
-    }
-    if (!found) {
-        // Entities probably not yet networked - retry next frame.
-        return 0;
-    }
-    if (found < min_items) {
-        // Map has too few pickups to derive a sensible ceiling. Mark known
-        // so we don't keep rescanning every frame.
-        minimap_auto_pickup_known = 1;
-        debug("minimap: only %d pickups (< %d required), skipping auto-cull",
-              (float)found, min_items);
-        return 1;
+    float max_floor_z = -99999;
+    for (int i = 0; i < minimap_num_volumes; i++) {
+        float mnz = minimap_volumes[i].mins.z;
+        if (mnz > max_floor_z) max_floor_z = mnz;
     }
 
-    // Second pass: actually trace and add cull volumes.
-    for (float j = 1; j < ent_count && minimap_num_volumes < MINIMAP_MAX_CULL_VOLUMES; j++) {
-        float active = getentity(j, GE_ACTIVE);
-        if (!active) continue;
-        float model_index = getentity(j, GE_MODELINDEX);
-        if (model_index == 0) continue;
-        string model_name = modelnameforindex(model_index);
-        if (!MinimapIsPickupModel(model_name)) continue;
-
-        vector org = getentity(j, GE_ORIGIN);
-
-        // Brushmodel pickups (maps/b_*.bsp) have their origin below the
-        // visible floor - tracing straight up from origin would hit the
-        // floor surface itself, not the ceiling. Start above the entity's
-        // bounding-box top (or a safe player-head offset if absmax is
-        // missing) so the trace only sees what is genuinely above.
-        vector absmax = getentity(j, GE_ABSMAX);
-        float start_z = (absmax.z > org.z + 1) ? absmax.z + 1 : org.z + 56;
-        traceline([org.x, org.y, start_z],
-                  [org.x, org.y, start_z + 100000],
-                  MOVE_NORMAL | MOVE_NOMONSTERS, world);
-        if (trace_fraction == 1) {
-            // Open sky above (no roof) - no auto-cull needed for this pickup.
-            pad_outdoor++;
-            continue;
-        }
-        float ceiling_z = trace_endpos.z;
-        // If the trace hit the BSP outer hull (near world_top_z), treat as
-        // outdoor too - we don't want to cull the skybox itself.
-        if (ceiling_z >= minimap_world_top_z - 32) {
-            pad_outdoor++;
-            continue;
-        }
-
-        minimap_volumes[minimap_num_volumes].mins =
-            [org.x - region_pad, org.y - region_pad, ceiling_z + ceiling_margin];
-        minimap_volumes[minimap_num_volumes].maxs =
-            [org.x + region_pad, org.y + region_pad,  99999];
-        minimap_num_volumes++;
-        added++;
-
-        // Keep the legacy summary value (used by the world_top_z safety in
-        // MinimapPlayerOccluded) - max ceiling seen so far.
-        if (ceiling_z > minimap_auto_pickup_max_z) {
-            minimap_auto_pickup_max_z = ceiling_z;
-        }
+    if (max_floor_z > -99999) {
+        minimap_height = max_floor_z - minimap_center.z;
     }
-    minimap_auto_pickup_known = 1;
-    debug("minimap: scanned %d pickups (%d added cull volumes, %d outdoor)",
-          (float)found, (float)added, (float)pad_outdoor);
-    return 1;
+    debug("minimap: derived height %g from %d volumes",
+          minimap_height, (float)minimap_num_volumes);
 };
 
 // Derive center/ortho/height from the worldmodel AABB.
@@ -190,110 +102,130 @@ void() MinimapAutoBounds =
         minimap_world_dx = tmp.maxs.x - tmp.mins.x;
         minimap_world_dy = tmp.maxs.y - tmp.mins.y;
 
-        // Legacy single-extent value retained for .cull file overrides and
-        // the loc-file narrowing helper; the actual viewport-aspect-aware
-        // scale is now computed in MinimapRender.
+        // Single-extent fallback used by narrowing helpers to decide whether
+        // their result is actually tighter than the BSP-derived bounds.
         float ext = max(minimap_world_dx, minimap_world_dy);
-        minimap_ortho = ext * 0.5 + 64;
+        minimap_ortho = ext * 0.5;
 
-        // probe highest geometry directly above the center; fall back to maxs.z
-        vector top    = [minimap_center.x, minimap_center.y, tmp.maxs.z - 1];
-        vector bottom = [minimap_center.x, minimap_center.y, tmp.mins.z + 1];
-        traceline(top, bottom, MOVE_NORMAL | MOVE_NOMONSTERS, tmp);
-        float highest_z = trace_fraction < 1 ? trace_endpos.z : tmp.maxs.z;
+        // Camera Z = BSP top. Guarantees the orthographic camera sits above
+        // every brush in the map regardless of where minimap_center.xy lands
+        // (a traceline at center can hit a low interior ceiling and place
+        // the camera under taller roofs elsewhere).
+        minimap_height = tmp.maxs.z - minimap_center.z;
 
-        minimap_height = (highest_z - minimap_center.z) + 512;
-
-        debug("minimap: auto bounds %v..%v, top %g, height %g",
-              tmp.mins, tmp.maxs, highest_z, minimap_height);
+        debug("minimap: auto bounds %v..%v, height %g",
+              tmp.mins, tmp.maxs, minimap_height);
     }
 
     remove(tmp);
 };
 
-// Optionally narrow the minimap projection to the convex hull of points in
-// locs/<mapname>.loc. Useful when the BSP outer hull encloses outlier
-// brushes that aren't part of the playable area. Two .loc formats are
-// supported:
-//   - QW classic: "X Y Z name..."         (XYZ in 1/8 quake units, atoi'd)
-//   - FTE comma:  "minX,minY,minZ,maxX,maxY,maxZ,name"
+// Narrow XY bounds by sampling BSP geometry directly. For each cell of a
+// grid laid over the current AABB, trace down to find a ceiling; if the
+// ceiling is a sky/clip surface (rejected via content bits) or there's no
+// open room beneath it (a follow-up trace finds no floor within
+// min_room_height), the cell is skipped. The AABB of the remaining cells
+// is the playable bbox, and the topmost kept ceiling becomes the camera Z.
+//
+// Works without .loc files or a populated entity table, and copes with
+// maps whose outer shell is plain solid brushes (no sky/clip tag) - those
+// cells reject because they have no air gap beneath the top surface.
+//
+// Resolution is fixed at 48 cells on the dominant axis with the
+// perpendicular axis scaled to preserve aspect, so half-cell error is
+// ~world_extent/96 (typically <50 QU).
 // Returns 1 if bounds were narrowed.
-float() MinimapNarrowToLocFile =
+#define MINIMAP_PROBE_COLS 48
+float() MinimapNarrowByTraceline =
 {
-    string loc_path = sprintf("locs/%s.loc", mapname);
-    filestream fh = fopen(loc_path, FILE_READ);
-    if (fh < 0) {
+    if (minimap_world_dx <= 0 || minimap_world_dy <= 0) {
         return 0;
     }
 
+    float cols = MINIMAP_PROBE_COLS;
+    float rows = floor(cols * minimap_world_dx / minimap_world_dy);
+    if (rows < 4)   rows = 4;
+    if (rows > 128) rows = 128;
+
+    float bsp_min_x = minimap_center.x - minimap_world_dx * 0.5;
+    float bsp_min_y = minimap_center.y - minimap_world_dy * 0.5;
+    float top_z    = minimap_world_top_z + 1;
+    float bottom_z = minimap_center.z - 1;
+    float cell_dx  = minimap_world_dx / rows;
+    float cell_dy  = minimap_world_dy / cols;
+
+    // A "playable" cell is one where there's an open room below the topmost
+    // solid - ceiling + air + floor. Cells over the outer wall mass (which
+    // on maps like dm2 isn't sky/clip-tagged so content bits don't filter
+    // it) are solid from top to bottom and have no air gap, so they fail
+    // this check.
+    //
+    // Sky and player/monster-clip brushes are also rejected up front via
+    // content bits, since trace_endpos there isn't a real ceiling.
+    float reject_bits = CONTENTBIT_SKY | CONTENTBIT_PLAYERCLIP | CONTENTBIT_MONSTERCLIP;
+    float min_room_height = 32;
     float min_x =  99999, min_y =  99999;
     float max_x = -99999, max_y = -99999;
-    float count = 0;
-
-    string line;
-    while ((line = fgets(fh))) {
-        if (line == "") continue;
-
-        if (strstrofs(line, ",", 0) >= 0) {
-            // FTE AABB format - six comma-separated coords
-            float num_tokens = tokenizebyseparator(line, ",");
-            if (num_tokens < 6) continue;
-            float a = stof(argv(0)), b = stof(argv(1));
-            float c = stof(argv(3)), d = stof(argv(4));
-            if (a < min_x) min_x = a;
-            if (c < min_x) min_x = c;
-            if (a > max_x) max_x = a;
-            if (c > max_x) max_x = c;
-            if (b < min_y) min_y = b;
-            if (d < min_y) min_y = d;
-            if (b > max_y) max_y = b;
-            if (d > max_y) max_y = d;
-            count++;
-            continue;
+    float max_hit_z = -99999;
+    float hits = 0;
+    for (float row = 0; row < rows; row++) {
+        float wx = bsp_min_x + (row + 0.5) * cell_dx;
+        for (float col = 0; col < cols; col++) {
+            float wy = bsp_min_y + (col + 0.5) * cell_dy;
+            traceline([wx, wy, top_z], [wx, wy, bottom_z],
+                      MOVE_NORMAL | MOVE_NOMONSTERS, world);
+            if (trace_fraction >= 1) continue;
+            if (trace_endcontents & reject_bits) continue;
+            float roof_z = trace_endpos.z;
+            // Probe for a floor below the ceiling. If there's no room
+            // beneath the topmost solid (we're standing on the outer wall),
+            // the trace bottoms out at bottom_z with no further hit.
+            traceline([wx, wy, roof_z - 1], [wx, wy, bottom_z],
+                      MOVE_NORMAL | MOVE_NOMONSTERS, world);
+            if (trace_fraction >= 1) continue;
+            if (trace_endcontents & reject_bits) continue;
+            if (roof_z - trace_endpos.z < min_room_height) continue;
+            if (wx < min_x) min_x = wx;
+            if (wy < min_y) min_y = wy;
+            if (wx > max_x) max_x = wx;
+            if (wy > max_y) max_y = wy;
+            if (roof_z > max_hit_z) max_hit_z = roof_z;
+            hits++;
         }
-
-        // QW classic: integer eighths, space-separated
-        num_tokens = tokenize_console(line);
-        if (num_tokens < 4) continue;
-        if (argv(0) == "" || !(stof(argv(0)) != 0 || argv(0) == "0")) continue;
-        float x = stof(argv(0)) / 8;
-        float y = stof(argv(1)) / 8;
-        if (x < min_x) min_x = x;
-        if (y < min_y) min_y = y;
-        if (x > max_x) max_x = x;
-        if (y > max_y) max_y = y;
-        count++;
     }
-    fclose(fh);
 
-    if (count == 0 || max_x <= min_x) {
+    if (hits == 0 || max_x <= min_x) {
         return 0;
     }
 
-    // .loc files only mark named landmarks, not the full playable extent.
-    // Inflate generously so corners/walls of the playable area aren't
-    // cropped, then only adopt the result if it's actually tighter than
-    // the BSP-derived bounds.
-    float pad = 256;
-    min_x -= pad;  min_y -= pad;
-    max_x += pad;  max_y += pad;
+    // Expand the hit AABB by half a cell on each side so the cell centers
+    // map back to a bbox that fully contains the sampled cells.
+    min_x -= cell_dx * 0.5;
+    max_x += cell_dx * 0.5;
+    min_y -= cell_dy * 0.5;
+    max_y += cell_dy * 0.5;
 
     float new_extent = max(max_x - min_x, max_y - min_y);
-    float new_ortho  = new_extent * 0.5 + 64;
+    float new_ortho  = new_extent * 0.5;
     if (new_ortho >= minimap_ortho) {
         return 0;
     }
 
     minimap_center.x = (min_x + max_x) * 0.5;
     minimap_center.y = (min_y + max_y) * 0.5;
-    minimap_ortho = new_ortho;
-    // Also feed the tighter bounds into the world extents so MinimapRender's
-    // scale calc uses them. Otherwise the render keeps padding 15% around the
-    // full BSP and you get ugly empty borders on maps that .loc has tightened.
+    minimap_ortho    = new_ortho;
     minimap_world_dx = max_x - min_x;
     minimap_world_dy = max_y - min_y;
-    debug("minimap: locs/%s.loc narrowed bounds (%g points), center %v, ortho %g",
-          mapname, count, minimap_center, minimap_ortho);
+
+    // Camera Z = topmost surface inside the narrowed playable area, not the
+    // BSP maxs.z (which is usually a sky shell brush far above gameplay).
+    // Placing the camera at sky height pushes the floor outside the
+    // orthographic far clip and the whole minimap renders black.
+    if (max_hit_z > -99999) {
+        minimap_height = max_hit_z - minimap_center.z;
+    }
+    debug("minimap: traceline probe narrowed bounds (%g hits / %g cells), center %v, ortho %g, height %g",
+          hits, cols * rows, minimap_center, minimap_ortho, minimap_height);
     return 1;
 };
 
@@ -307,19 +239,6 @@ float(string line) MinimapParseLine =
     string head = argv(0);
     if (substring(head, 0, 1) == "#") {
         return 0;
-    }
-
-    if (head == "center" && num_tokens >= 4) {
-        minimap_center = [stof(argv(1)), stof(argv(2)), stof(argv(3))];
-        return 1;
-    }
-    if (head == "ortho" && num_tokens >= 2) {
-        minimap_ortho = stof(argv(1));
-        return 1;
-    }
-    if (head == "height" && num_tokens >= 2) {
-        minimap_height = stof(argv(1));
-        return 1;
     }
 
     if (num_tokens >= 6 && minimap_num_volumes < MINIMAP_MAX_CULL_VOLUMES) {

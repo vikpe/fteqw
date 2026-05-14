@@ -14,6 +14,7 @@ float(string cmd) CSQC_ConsoleCommand =
         switch (argv(1)) {
         case "reload":  return MinimapCmdReload();
         case "status":  return MinimapCmdStatus();
+        case "probe":   return MinimapCmdProbe();
         default:        return MinimapCmdHelp();
         }
     }
@@ -25,5 +26,9 @@ float(string cmd) CSQC_ConsoleCommand =
         default:        return PowcamCmdHelp();
         }
     }
+    if (argv(0) == "minimap_editor_add")    return CullEditAddCmd();
+    if (argv(0) == "minimap_editor_remove") return CullEditRemoveCmd();
+    if (argv(0) == "minimap_editor_undo")   return CullEditUndoCmd();
+    if (argv(0) == "minimap_editor_export")   return CullEditExportCmd();
     return 0;
 };

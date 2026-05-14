@@ -1,7 +1,7 @@
 all: csaddon.dat
 
 FTEQCC ?= fteqcc
-FTEQCCFLAGS ?= -O3
+FTEQCCFLAGS ?= -O0
 
 csaddon.dat: $(wildcard src/*.qc) src/progs.src
 	$(FTEQCC) $(FTEQCCFLAGS) -src src

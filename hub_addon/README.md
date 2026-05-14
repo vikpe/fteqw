@@ -28,14 +28,16 @@ src/
   powcam.qc             - powcam scheduler
   powcam_config.qc      - per-map powerup/camera database
   powcam_render.qc      - powcam overlay rendering
+  powcam_commands.qc    - powcam console handlers
   xray.qc               - through-wall silhouettes
   score_overlay.qc      - 1v1 / 2-team header
   minimap.qc            - minimap render pass
   minimap_data.qc       - minimap shared state, primitives, color tables
-  minimap_load.qc       - cull-file/locs/auto-bounds loading
+  minimap_load.qc       - BSP auto-bounds + traceline narrowing + cull-file loading
+  minimap_editor.qc     - interactive cull-volume editor (add/remove/export)
   minimap_players.qc    - player markers, labels, doppelgangers
   minimap_commands.qc   - minimap console handlers
-  commands.qc           - top-level console dispatcher + powcam handlers
+  commands.qc           - top-level console dispatcher
   main.qc               - CSQC lifecycle hooks
   progs.src             - build manifest
 ```
@@ -113,11 +115,13 @@ X-ray:
 Minimap (see `minimap help` for in-game descriptions):
 
 * `minimap_mode` - 0=off, 1=pip, 2=split, 3=full.
-* `minimap_ortho`, `minimap_height_offset`,
-  `minimap_center_override` - override auto-derived projection.
-* `minimap_player_radius`, `_alpha_occluded`,
-  `_color_team`/`_color_enemy`/`_color_self`,
-  `_label_name_length`, `_label_font_size`.
+* `minimap_player_radius`, `_alpha`,
+  `_teamcolor`/`_enemycolor`/`_selfcolor`,
+  `_name_length`, `_name_size`.
+* `minimap_editor` - 0/1; toggles the cull-volume editor (wireframes,
+  highlight, bounding-box outline, add/remove/undo/export commands).
+* `minimap_editor_show_all` - 0/1; when the editor is on, draw every
+  volume regardless of distance from the player.
 
 Score overlay: no cvars. Visibility is rule-based (hidden in coop; clock
 hidden during pre-match standby; participant scores require exactly two
@@ -135,8 +139,15 @@ Both commands print full descriptions when invoked with `help`.
 * `powcam <subcmd>` - `active` (current schedule), `timers` (all tracked
   pickup timers), `recheck` (force-reschedule), `help`.
 * `minimap <subcmd>` - `reload` (reparse cull file and re-derive
-  bounds), `status` (current mode, map, volume count, view params),
+  bounds), `status` (current mode, map, volume count, view params,
+  bbox), `probe` (top-down ASCII traceline coverage map of the BSP),
   `help`.
+* `minimap_editor_add` - first call records the player's origin as
+  one AABB corner; second call closes the volume at the current origin.
+* `minimap_editor_remove` - delete the currently highlighted volume.
+* `minimap_editor_undo` - reverse the most recent add or remove.
+* `minimap_editor_export` - write current volumes to
+  `maps/<mapname>.cull` and copy to the system clipboard.
 
 Compatibility
 -------------

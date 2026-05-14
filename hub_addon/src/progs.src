@@ -31,6 +31,11 @@ xray.qc
 
 // Minimap: shared data and primitives first, then load, players, render, commands.
 minimap_data.qc
+
+// Minimap cull-volume editor - needs minimap_volumes from minimap_data,
+// and is called from main.qc render flow below.
+minimap_editor.qc
+
 minimap_load.qc
 minimap_players.qc
 minimap.qc

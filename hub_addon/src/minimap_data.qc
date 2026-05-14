@@ -53,19 +53,16 @@ typedef struct {
 // Cvars.
 // ----------------------------------------------------------------------------
 
-var float  autocvar_minimap_mode             = MINIMAP_OFF;
-var float  autocvar_minimap_ortho            = 0;
-var float  autocvar_minimap_height_offset    = 0;
-var vector autocvar_minimap_center_override  = '0 0 0';
-var float  autocvar_minimap_player_radius             = 7;
-var float  autocvar_minimap_player_alpha_occluded     = 0.8;
-var float  autocvar_minimap_player_label_name_length  = 4;
-var float  autocvar_minimap_player_label_font_size    = 6;
+var float  autocvar_minimap_mode               = MINIMAP_OFF;
+var float  autocvar_minimap_player_radius      = 7;
+var float  autocvar_minimap_player_alpha       = 0.8;
+var float  autocvar_minimap_player_name_length = 4;
+var float  autocvar_minimap_player_name_size   = 6;
 // '0 0 0' = sentinel for "use the built-in default" (green for team, red
 // for enemy). Any non-zero value overrides.
-var vector autocvar_minimap_player_color_team         = '0 0 0';
-var vector autocvar_minimap_player_color_enemy        = '0 0 0';
-var vector autocvar_minimap_player_color_self         = '1 1 0';
+var vector autocvar_minimap_player_teamcolor         = '0 0 0';
+var vector autocvar_minimap_player_enemycolor        = '0 0 0';
+var vector autocvar_minimap_player_selfcolor         = '1 1 0';
 
 // Built-in defaults used when the team/enemy color cvars are left at '0 0 0'.
 var vector minimap_default_color_team  = '0 1 0';
@@ -77,15 +74,16 @@ var vector minimap_default_color_enemy = '1 0 0';
 // ----------------------------------------------------------------------------
 
 // Cull volumes (AABBs) suppressed from the minimap render. Populated from
-// the .cull file and the lazy pickup-ceiling scan.
+// the .cull file or the runtime editor.
 var minimap_volume_t minimap_volumes[MINIMAP_MAX_CULL_VOLUMES];
 var int    minimap_num_volumes = 0;
 
 // Derived camera and projection params for the minimap render. Computed
-// from the BSP AABB (MinimapAutoBounds) and optionally overridden by the
-// .cull file or the *_override cvars. minimap_height is the camera Z above
-// minimap_center, minimap_ortho is the legacy half-extent used as a lower
-// bound on the auto-computed scale.
+// from the BSP AABB (MinimapAutoBounds), narrowed by MinimapNarrowByTraceline,
+// and finally height-adjusted by MinimapDeriveBoundsFromVolumes if a .cull
+// file is loaded. minimap_height is the camera Z above minimap_center;
+// minimap_ortho is a single-axis extent used as a lower bound on the
+// auto-computed scale in MinimapRender.
 var vector minimap_center      = '0 0 0';
 var float  minimap_ortho       = 2048;
 var float  minimap_height      = 4096;
@@ -96,13 +94,6 @@ var float  minimap_world_dy    = 0;   // BSP depth  (maxs.y - mins.y)
 // 1 once MinimapLoad has finished its first pass for a map; reported by
 // the status command.
 var float  minimap_loaded      = 0;
-
-// Auto-cull state. Populated lazily on the first render after world load,
-// once the server has sent baseline entities for the pickups. Highest pickup
-// origin Z (weapons, armor, health, ammo) defines the play-floor ceiling -
-// anything above that is roof/upper geometry the minimap should see through.
-var float  minimap_auto_pickup_max_z = -99999;
-var float  minimap_auto_pickup_known = 0;
 
 // Name of the last map MinimapLoad processed. Used to re-run the load
 // pipeline when `mapname` changes mid-session (e.g. demo seek across maps).
@@ -129,12 +120,10 @@ var int    minimap_doppel_count = 0;
 
 void() MinimapResetState =
 {
-    minimap_num_volumes       = 0;
-    minimap_center            = '0 0 0';
-    minimap_ortho             = 2048;
-    minimap_height            = 4096;
-    minimap_auto_pickup_max_z = -99999;
-    minimap_auto_pickup_known = 0;
+    minimap_num_volumes = 0;
+    minimap_center      = '0 0 0';
+    minimap_ortho       = 2048;
+    minimap_height      = 4096;
 };
 
 // ----------------------------------------------------------------------------
@@ -176,6 +165,33 @@ vector(float idx) MinimapHealthColorAt =
     return minimap_health_colors[(int)idx];
 };
 
+// True when the local seat is a free-flying spectator - i.e. a spec
+// without a tracked player to view through. Used to drive minimap UI
+// that needs to know whether the seat already has its own player marker
+// (a tracked spec or live player does), or needs an explicit "you are
+// here" indicator (free-fly).
+//
+// Detection:
+//   - Spectator if any of: MVD demo (isdemo == 2), seat slot past real
+//     players, or *spectator userinfo flag.
+//   - Free-fly iff player_localentnum doesn't reference an active
+//     player entity. Tracking sets it to the followed player's entity
+//     (in the 1..maxclients range and active); free-fly leaves it at
+//     the seat's own playernum+1 which has no live entity in either
+//     live or MVD demo playback.
+float() MinimapIsFreeflySpectator =
+{
+    float is_spectator = (isdemo() > 0) ||
+                         (player_localnum >= maxclients) ||
+                         (stof(getplayerkeyvalue(player_localnum, "*spectator")) > 0);
+    if (!is_spectator) return 0;
+    if (player_localentnum < 1 || player_localentnum > maxclients) {
+        return 1;
+    }
+    float active = getentity(player_localentnum, GE_ACTIVE);
+    return !active;
+};
+
 // Armor tier colors. Indexed by armor type with two entries each (dim, full).
 //   [0]=GA dim, [1]=GA full, [2]=YA dim, [3]=YA full, [4]=RA dim, [5]=RA full.
 const vector minimap_armor_colors[6] = {
@@ -188,13 +204,20 @@ const vector minimap_armor_colors[6] = {
 };
 
 // ----------------------------------------------------------------------------
-// Pickup-model whitelist. Used by the load-time pickup-ceiling scan.
+// Pickup-model whitelist. Used by the /minimap status pickup probe as a
+// diagnostic for sizing manual .cull volumes.
 // ----------------------------------------------------------------------------
 
 // Known Quake 1 pickup model names. Anything in this set sits on the play
-// floor when spawned, so their Z values give a clean baseline for the
-// minimap's auto-cull height. Excludes monsters, gibs, dropped backpacks.
-float(string mname) MinimapIsPickupModel =
+// floor when spawned. Excludes monsters, gibs, dropped backpacks.
+//
+// Teleport entrances/destinations and player spawn points would also be
+// useful but they have no client-visible model in vanilla Quake
+// (info_teleport_destination sets self.model = "" explicitly; spawn
+// points have no model at all; trigger_teleport is a brush trigger). CSQC
+// has no way to query entity classname (no GE_CLASSNAME), so they can't
+// be detected here without engine help.
+float(string mname) MinimapIsFloorAnchor =
 {
     switch (mname) {
     // Weapons.

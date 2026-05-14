@@ -23,11 +23,11 @@ void(vector cam_origin) MinimapDrawPlayers =
     // Hard-coded fallbacks ensure markers render even when cvars are left at
     // 0 (e.g. from a stale config).
     float radius      = autocvar_minimap_player_radius         > 0 ? autocvar_minimap_player_radius         : 7;
-    float alpha_occ   = autocvar_minimap_player_alpha_occluded > 0 ? autocvar_minimap_player_alpha_occluded : 0.5;
+    float alpha_occ   = autocvar_minimap_player_alpha > 0 ? autocvar_minimap_player_alpha : 0.5;
     // Name labels use a cvar-controlled font size; weapon labels are fixed
     // at the same reduced size. Both default to 6 (25% smaller than 8).
-    float name_font_size = autocvar_minimap_player_label_font_size > 0
-                           ? autocvar_minimap_player_label_font_size : 6;
+    float name_font_size = autocvar_minimap_player_name_size > 0
+                           ? autocvar_minimap_player_name_size : 6;
     vector label_size  = [name_font_size, name_font_size, 0];
     vector weapon_size = '6 6 0';
 
@@ -160,12 +160,12 @@ void(vector cam_origin) MinimapDrawPlayers =
         R_EndPolygon();
 
         // Label is either a fixed-length visible-char prefix (when
-        // minimap_player_label_name_length > 0) or the shortest prefix unique to
+        // minimap_player_name_length > 0) or the shortest prefix unique to
         // this player. Both forms keep any ^X markup in front of each kept
         // char so drawstring can recolor them.
         string label;
-        if (autocvar_minimap_player_label_name_length > 0) {
-            label = MinimapColoredPrefix(minimap_label_name[player_index], autocvar_minimap_player_label_name_length);
+        if (autocvar_minimap_player_name_length > 0) {
+            label = MinimapColoredPrefix(minimap_label_name[player_index], autocvar_minimap_player_name_length);
         } else {
             label = MinimapShortestUniquePrefix(player_index);
         }
@@ -307,8 +307,8 @@ void(vector cam_origin) MinimapSpawnOccludedDoppelgangers =
         if (origin == '0 0 0') continue;
         if (!MinimapPlayerOccluded(cam_origin, origin)) continue;
 
-        float occ_alpha = autocvar_minimap_player_alpha_occluded > 0
-                          ? autocvar_minimap_player_alpha_occluded : 0.8;
+        float occ_alpha = autocvar_minimap_player_alpha > 0
+                          ? autocvar_minimap_player_alpha : 0.8;
 
         entity doppel = spawn();
         setmodelindex(doppel, player_model_index);
@@ -388,7 +388,7 @@ vector(float pnum) MinimapPlayerColor =
 {
     float pov_pnum = (player_localentnum > 0) ? (player_localentnum - 1) : player_localnum;
     if (pnum == pov_pnum) {
-        return autocvar_minimap_player_color_self;
+        return autocvar_minimap_player_selfcolor;
     }
     float same_team = 0;
     if (serverkeyfloat("teamplay") > 0) {
@@ -396,7 +396,7 @@ vector(float pnum) MinimapPlayerColor =
         string his_team = getplayerkeyvalue(pnum, "team");
         same_team = (pov_team == his_team && pov_team != "");
     }
-    vector color = same_team ? autocvar_minimap_player_color_team : autocvar_minimap_player_color_enemy;
+    vector color = same_team ? autocvar_minimap_player_teamcolor : autocvar_minimap_player_enemycolor;
     if (color == '0 0 0') {
         return same_team ? minimap_default_color_team : minimap_default_color_enemy;
     }

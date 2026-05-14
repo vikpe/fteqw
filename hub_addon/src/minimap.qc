@@ -7,11 +7,8 @@
  * geometry hidden via per-map AABB cull volumes (loaded in minimap_load.qc).
  * The 2D player overlay is drawn after renderscene by minimap_players.qc.
  *
- * Cvars (override file values when non-zero):
+ * Cvars:
  *   minimap_mode             0=off 1=pip 2=split 3=full
- *   minimap_ortho            half-extent override
- *   minimap_height_offset    Z offset override
- *   minimap_center_override  vector override
  *
  * Requires engine support for VF_CULLVOLUME.
  */
@@ -19,6 +16,10 @@
 // Split-mode horizontal partition: player view on the left, minimap on
 // the right. 0.50 = each gets half the screen width.
 #define MINIMAP_SPLIT_MAIN_FRAC 0.50
+
+// Screen-pixel margin between the world AABB and the viewport edge, applied
+// uniformly on all four sides.
+#define MINIMAP_MARGIN_PX 8
 
 // Forward declarations (top-down ordering).
 void(float mode, float vw, float vh, __out minimap_rect_t r) MinimapViewport;
@@ -41,12 +42,8 @@ void(float vwidth, float vheight) MinimapRender =
         MinimapLoad();
     }
 
-    vector center = autocvar_minimap_center_override;
-    if (center == '0 0 0') {
-        center = minimap_center;
-    }
-    float ortho        = autocvar_minimap_ortho         > 0 ? autocvar_minimap_ortho         : minimap_ortho;
-    float height_above = autocvar_minimap_height_offset > 0 ? autocvar_minimap_height_offset : minimap_height;
+    vector center      = minimap_center;
+    float height_above = minimap_height;
 
     minimap_rect_t viewport;
     MinimapViewport(mode, vwidth, vheight, viewport);
@@ -54,31 +51,23 @@ void(float vwidth, float vheight) MinimapRender =
     vector vsize = viewport.size;
 
     // VF_FOV in orthographic mode is "world units across the viewport".
-    // Scale = world units per screen pixel. Computed to fit the world AABB
-    // into the viewport along both axes (uniform scale, no stretching).
+    // Scale = world units per screen pixel, uniform on both axes; pick the
+    // tighter dimension so the world AABB just fits without stretching.
     //
-    // Padding is shape-aware: square-ish maps (in any non-square viewport)
-    // already get implicit slack on one axis from the aspect mismatch, so
-    // we taper padding down toward small values. Elongated maps don't have
-    // that extra slack and use the full 0.15.
-    float largest_extent  = (minimap_world_dx > minimap_world_dy) ? minimap_world_dx : minimap_world_dy;
-    float smallest_extent = (minimap_world_dx < minimap_world_dy) ? minimap_world_dx : minimap_world_dy;
-    float aspect          = (smallest_extent > 0) ? (largest_extent / smallest_extent) : 1;
-    float pad_factor;
-    if (aspect >= 2)
-        pad_factor = 0.10;
-    else
-        pad_factor = 0.05 + (aspect - 1) * 0.05;  // square -> 0.05, 2:1 -> 0.10
-    float pad    = largest_extent * pad_factor;
-    float need_x = (minimap_world_dx + pad * 2) / vsize.x;
-    float need_y = (minimap_world_dy + pad * 2) / vsize.y;
-    float scale  = (need_x > need_y) ? need_x : need_y;
-    if (ortho > 0) {
-        float ortho_scale = (ortho * 2) / vsize.x;
-        if (ortho_scale > scale) scale = ortho_scale;
-    }
-    float fov_x = vsize.x * scale;
-    float fov_y = vsize.y * scale;
+    // Camera angles '90 0 0' (looking straight down) rotate the world axes:
+    // screen horizontal = world Y, screen vertical = world X. So fov_x
+    // covers world_dy and fov_y covers world_dx.
+    //
+    // MINIMAP_MARGIN_PX of slack on each side: shrink the effective fit-to
+    // area, then let the larger fov values expand the rendered world range
+    // so the world AABB lands MARGIN_PX inside the viewport.
+    float inner_w = max(1, vsize.x - MINIMAP_MARGIN_PX * 2);
+    float inner_h = max(1, vsize.y - MINIMAP_MARGIN_PX * 2);
+    float need_x  = minimap_world_dy / inner_w;
+    float need_y  = minimap_world_dx / inner_h;
+    float scale   = (need_x > need_y) ? need_x : need_y;
+    float fov_x   = vsize.x * scale;
+    float fov_y   = vsize.y * scale;
 
     // PVS-culling is keyed to the player's position. With the camera lifted
     // far above the map the player's PVS doesn't cover the visible
@@ -104,6 +93,13 @@ void(float vwidth, float vheight) MinimapRender =
     float prev_fastsky = cvar("r_fastsky");
     cvar_set("r_fastsky", "1");
 
+    // Black background: 2D draws issued before clearscene/renderscene land
+    // behind the scene (renderscene leaves non-geometry pixels alone), so a
+    // drawfill here gives empty viewport regions a solid black canvas
+    // instead of bleeding the main game view through (matters most in PIP).
+    drawfill(vmin, vsize, '0 0 0', 1);
+    drawfill('0 0 0', '0 0 0', '1 1 1', 1);  // reset blendmode (FTE quirk)
+
     clearscene();
     setviewprop(VF_DRAWWORLD,      1);
     setviewprop(VF_VIEWENTITY,     0);
@@ -116,18 +112,21 @@ void(float vwidth, float vheight) MinimapRender =
     setviewprop(VF_MIN,            vmin);
     setviewprop(VF_SIZE,           vsize);
 
-    // Try the pickup-ceiling scan if we haven't yet. Pickup baselines arrive
-    // a few frames after world load, so this runs lazily on each render
-    // until it succeeds. The scan appends per-pickup cull volumes directly
-    // to minimap_volumes alongside any volumes from the .cull file.
-    if (!minimap_auto_pickup_known) {
-        MinimapScanPickupCeiling();
-    }
-
     for (int i = 0; i < minimap_num_volumes; i++) {
         setviewprop(VF_CULLVOLUME, i,
                     minimap_volumes[i].mins,
                     minimap_volumes[i].maxs);
+    }
+    // Live preview: apply the editor's in-flight volume as a temporary
+    // extra cull volume so the user sees its culling effect on the
+    // minimap as they move around adjusting the second corner. Only
+    // appended (engine resets numcullvolumes on next clearscene) and
+    // only if there's room under the cap.
+    vector edit_mins, edit_maxs;
+    if (CullEditInFlightBounds(edit_mins, edit_maxs) &&
+        minimap_num_volumes < MINIMAP_MAX_CULL_VOLUMES) {
+        setviewprop(VF_CULLVOLUME, minimap_num_volumes,
+                    edit_mins, edit_maxs);
     }
 
     // MASK_LOCAL pulls in the POV player. XrayResetPlayer sets the local
@@ -146,6 +145,52 @@ void(float vwidth, float vheight) MinimapRender =
 
     // Overlay players (project() reads the view state we just set).
     MinimapDrawPlayers(cam_origin);
+
+    drawsetcliparea(vmin.x, vmin.y, vsize.x, vsize.y);
+
+    // "You are here" magenta dot for free-fly spectators (tracked specs
+    // and live players already get a real player marker above).
+    if (MinimapIsFreeflySpectator()) {
+        vector cam_screen = project(CullEditPlayerOrigin());
+        drawfill([cam_screen.x - 2, cam_screen.y - 2, 0], '4 4 0', '1 0 1', 1);
+    }
+
+    // In-flight cull-volume editor preview: yellow stroked rectangle of
+    // the volume's XY footprint. Helps the user see where the second
+    // corner will land before they commit. Minimap is orthographic
+    // top-down, so any Z inside the AABB projects to the same XY screen
+    // coords - pick the midpoint.
+    vector ce_mins, ce_maxs;
+    if (CullEditInFlightBounds(ce_mins, ce_maxs)) {
+        float z = (ce_mins.z + ce_maxs.z) * 0.5;
+        vector p00 = project([ce_mins.x, ce_mins.y, z]);
+        vector p10 = project([ce_maxs.x, ce_mins.y, z]);
+        vector p11 = project([ce_maxs.x, ce_maxs.y, z]);
+        vector p01 = project([ce_mins.x, ce_maxs.y, z]);
+        drawline(1, p00, p10, '1 1 0', 1);
+        drawline(1, p10, p11, '1 1 0', 1);
+        drawline(1, p11, p01, '1 1 0', 1);
+        drawline(1, p01, p00, '1 1 0', 1);
+    }
+
+    // Debug: cyan outline of the world bounding box used by the minimap
+    // projection (post-derivation). Editor-only - helps confirm
+    // center/extents match the playable area while tuning cull volumes.
+    float hx = minimap_world_dx * 0.5;
+    float hy = minimap_world_dy * 0.5;
+    if (autocvar_minimap_editor && hx > 0 && hy > 0) {
+        float bz = minimap_center.z;
+        vector b00 = project([minimap_center.x - hx, minimap_center.y - hy, bz]);
+        vector b10 = project([minimap_center.x + hx, minimap_center.y - hy, bz]);
+        vector b11 = project([minimap_center.x + hx, minimap_center.y + hy, bz]);
+        vector b01 = project([minimap_center.x - hx, minimap_center.y + hy, bz]);
+        drawline(1, b00, b10, '0 1 1', 1);
+        drawline(1, b10, b11, '0 1 1', 1);
+        drawline(1, b11, b01, '0 1 1', 1);
+        drawline(1, b01, b00, '0 1 1', 1);
+    }
+
+    drawresetcliparea();
 };
 
 // Player view rect. .size = '0 0 0' means the main view should not render
@@ -174,35 +219,66 @@ void(float mode, float vw, float vh, __out minimap_rect_t r) MinimapViewport =
     switch (mode) {
     case MINIMAP_PIP:
         {
-            float w = vw / 4;
-            float h = vh / 4;
-            float m = w / 10;
-            r.min  = [vw - m - w, m, 0];
-            r.size = [w, h, 0];
+            // Inner area sized to the map's screen-space aspect, capped at
+            // 16:9 so very wide maps don't produce an ultra-thin strip. Plus
+            // MINIMAP_MARGIN_PX on every side. Width is capped at 25% of
+            // the screen; height falls out from the aspect. Pinned to the
+            // top-right corner with the same margin from both edges.
+            //
+            // Camera angles '90 0 0' map world Y to screen X and world X to
+            // screen Y, so screen aspect = world_dy / world_dx.
+            float margin = MINIMAP_MARGIN_PX;
+            float aspect = 16.0 / 9.0;
+            if (minimap_world_dx > 0 && minimap_world_dy > 0) {
+                aspect = minimap_world_dy / minimap_world_dx;
+                if (aspect > 16.0 / 9.0) aspect = 16.0 / 9.0;
+            }
+            float inner_w = vw * 0.25 - margin * 2;
+            float inner_h = inner_w / aspect;
+            float max_inner_h = vh - margin * 4;
+            if (inner_h > max_inner_h) {
+                inner_h = max_inner_h;
+                inner_w = inner_h * aspect;
+            }
+            float pip_w = inner_w + margin * 2;
+            float pip_h = inner_h + margin * 2;
+            r.min  = [vw - margin - pip_w, margin, 0];
+            r.size = [pip_w, pip_h, 0];
         }
         break;
     case MINIMAP_SPLIT:
-        r.min  = [vw * MINIMAP_SPLIT_MAIN_FRAC, 0, 0];
-        r.size = [vw * (1 - MINIMAP_SPLIT_MAIN_FRAC), vh, 0];
-        break;
     default:
-        // FULL: letterbox the viewport to the map's aspect so the map
-        // actually fills the visible area instead of leaving large empty
-        // margins. Without this, a portrait map in a wide screen looks
-        // tiny and centered.
-        if (minimap_world_dx > 0 && minimap_world_dy > 0) {
-            float map_aspect = minimap_world_dx / minimap_world_dy;
-            float target_w = vh * map_aspect;
-            float target_h = vh;
-            if (target_w > vw) {
-                target_w = vw;
-                target_h = vw / map_aspect;
+        {
+            // Letterbox to the map's aspect inside the allotted region so
+            // the world AABB fills the available space on both axes.
+            // SPLIT confines the box to the right half; FULL uses the whole
+            // viewport. Camera angles '90 0 0' map world Y to screen X and
+            // world X to screen Y, so screen-aspect = world_dy / world_dx.
+            float avail_w;
+            float avail_h = vh;
+            float origin_x;
+            if (mode == MINIMAP_SPLIT) {
+                avail_w  = vw * (1 - MINIMAP_SPLIT_MAIN_FRAC);
+                origin_x = vw * MINIMAP_SPLIT_MAIN_FRAC;
+            } else {
+                avail_w  = vw;
+                origin_x = 0;
             }
-            r.min  = [(vw - target_w) * 0.5, (vh - target_h) * 0.5, 0];
-            r.size = [target_w, target_h, 0];
-        } else {
-            r.min  = '0 0 0';
-            r.size = [vw, vh, 0];
+            if (minimap_world_dx > 0 && minimap_world_dy > 0) {
+                float map_aspect = minimap_world_dy / minimap_world_dx;
+                float target_w = avail_h * map_aspect;
+                float target_h = avail_h;
+                if (target_w > avail_w) {
+                    target_w = avail_w;
+                    target_h = avail_w / map_aspect;
+                }
+                r.min  = [origin_x + (avail_w - target_w) * 0.5,
+                          (avail_h - target_h) * 0.5, 0];
+                r.size = [target_w, target_h, 0];
+            } else {
+                r.min  = [origin_x, 0, 0];
+                r.size = [avail_w, avail_h, 0];
+            }
         }
         break;
     }

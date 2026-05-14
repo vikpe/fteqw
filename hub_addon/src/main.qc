@@ -6,6 +6,10 @@ void(float apilevel, string enginename, float engineversion) CSQC_Init =
 {
     registercommand("powcam");
     registercommand("minimap", "Top-down minimap. Subcommands: reload, status, help");
+    registercommand("minimap_editor_add",    "Add a minimap cull volume. Run once at the first corner, then again at the opposite corner. Requires minimap_editor 1; doesn't write the file (use minimap_editor_export).");
+    registercommand("minimap_editor_remove", "Remove the currently highlighted cull volume (the closest one in range, shown brighter with a yellow accent border).");
+    registercommand("minimap_editor_undo",   "Undo the last minimap_editor_add or minimap_editor_remove. Single level - no redo.");
+    registercommand("minimap_editor_export",   "Write the current in-memory cull volumes to maps/<map>.cull. The only command that touches the file system.");
     MinimapRegisterDescriptions();
 };
 
@@ -22,8 +26,11 @@ void() CSQC_WorldLoaded =
         deltalisten("progs/invulner.mdl", ItemTimerSpawnListener, RSES_NOLERP);
     }
 
+    CullEditResetState();
     MinimapRegisterShaders();
-    MinimapLoad();
+    // MinimapLoad is deferred to the first MinimapRender frame so the
+    // entity-scan narrowing pass can see pickups (the engine populates the
+    // CSQC entity table after CSQC_WorldLoaded returns).
 };
 
 void() CSQC_ServerInfoChanged =
@@ -84,6 +91,19 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
             setviewprop(VF_DRAWENGINESBAR, 1);
             setviewprop(VF_DRAWCROSSHAIR, 1);
             renderscene();
+            // Cache the player's view origin while this seat's view is
+            // active. The minimap pass below uses a high-altitude camera,
+            // so reading VF_ORIGIN there would give the minimap camera
+            // position instead of the player - which would break the
+            // highlight and in-flight box. Capture it once here.
+            CullEditCachePlayerOrigin();
+            // Cull-volume wireframes use project() against the view we
+            // just rendered. drawline/R_BeginPolygon are 2D so they would
+            // happily paint outside the seat rect into the minimap split
+            // area; scissor to the seat's viewport for the duration.
+            drawsetcliparea(seat_min.x, seat_min.y, seat_size.x, seat_size.y);
+            CullEditDrawWireframes();
+            drawresetcliparea();
             clearscene();
 
             setviewprop(VF_MIN, seat_min);
