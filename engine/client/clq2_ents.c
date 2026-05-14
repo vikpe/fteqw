@@ -10,6 +10,7 @@
 //events are keyed to not renew twice within the same 10fps window, unless the entity was actually updated.
 
 extern cvar_t r_drawviewmodel;
+extern cvar_t cl_item_timers;
 
 extern cvar_t cl_nopred;
 typedef enum
@@ -2205,7 +2206,8 @@ static void CLQ2_AddPacketEntities (q2frame_t *frame)
 					continue;
 //				VectorCopy(le->origin, timer->origin);
 			}*/
-			R_AddItemTimer(timer->origin, cl.time*90 + timer->origin[0] + timer->origin[1] + timer->origin[2], timer->radius, (cl.time - timer->start) / timer->duration, timer->rgb);
+			if (cl_item_timers.ival)
+				R_AddItemTimer(timer->origin, cl.time*90 + timer->origin[0] + timer->origin[1] + timer->origin[2], timer->radius, (cl.time - timer->start) / timer->duration, timer->rgb);
 		}
 	}
 

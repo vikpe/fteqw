@@ -33,6 +33,7 @@ extern  cvar_t	cl_lerp_maxinterval;
 extern	cvar_t	cl_lerp_maxdistance;
 extern	cvar_t	cl_solid_players;
 extern	cvar_t	cl_item_bobbing;
+extern	cvar_t	cl_item_timers;
 
 extern	cvar_t	r_rocketlight;
 extern	cvar_t	r_lightflicker;
@@ -4323,7 +4324,10 @@ void CL_LinkPacketEntities (void)
 				percent = (timer->start - (float) cl.time) / timer->duration;
 			else
 				percent = ((float) cl.time - timer->start) / timer->duration;
-			R_AddItemTimer(timer->origin, cl.time*90 + timer->origin[0] + timer->origin[1] + timer->origin[2], timer->radius, percent, timer->rgb);
+			// Keep tracking the timer (state stays consistent if the cvar
+			// is toggled mid-match); only skip the visual.
+			if (cl_item_timers.ival)
+				R_AddItemTimer(timer->origin, cl.time*90 + timer->origin[0] + timer->origin[1] + timer->origin[2], timer->radius, percent, timer->rgb);
 		}
 	}
 
