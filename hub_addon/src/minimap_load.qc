@@ -18,6 +18,7 @@
 
 // Forward declarations (top-down ordering).
 void()             MinimapAutoBounds;
+void()             MinimapApplyHeightOverride;
 float()            MinimapNarrowToLocFile;
 float(string line) MinimapParseLine;
 
@@ -33,6 +34,7 @@ float() MinimapLoad =
 
     MinimapAutoBounds();
     MinimapNarrowToLocFile();
+    MinimapApplyHeightOverride();
 
     string cull_path = sprintf("maps/%s.cull", mapname);
     filestream fh = fopen(cull_path, FILE_READ);
@@ -50,6 +52,30 @@ float() MinimapLoad =
     minimap_loaded = 1;
     debug("minimap: %d volumes loaded from %s", (float)minimap_num_volumes, cull_path);
     return 1;
+};
+
+// Per-map camera height overrides for maps where the auto-derived value
+// is off (usually due to tall arches / skybox geometry inflating the BSP
+// AABB). Applied after auto-bounds and .loc narrowing but before .cull
+// file parsing, so a maps/<name>.cull "height N" line still wins if
+// present. The autocvar_minimap_height_offset cvar overrides everything.
+struct {
+    string name;
+    float  height;
+} minimap_height_overrides[] = {
+    {"e1m2", 540},
+};
+
+void() MinimapApplyHeightOverride =
+{
+    for (int i = 0; i < minimap_height_overrides.length; i++) {
+        if (minimap_height_overrides[i].name == mapname) {
+            minimap_height = minimap_height_overrides[i].height;
+            debug("minimap: hardcoded height %g for %s",
+                  minimap_height, mapname);
+            return;
+        }
+    }
 };
 
 // Scan baseline/networked entities once per map. For each pickup, trace
