@@ -1804,7 +1804,12 @@ qboolean COM_WriteFile (const char *filename, enum fs_relative fsroot, const voi
 	Sys_Printf ("COM_WriteFile: %s\n", filename);
 
 	FS_CreatePath(filename, fsroot);
-	vfs = FS_OpenVFS(filename, "wb", fsroot);
+	// "wbp" - the 'p' flag asks the web FS to persist the file into
+	// localStorage on close (see fs_web.c VFSWEB_ClosePersist). Other
+	// platforms ignore the 'p' character. Without this, CSQC fopen
+	// FILE_WRITE / FILE_APPEND output lives only in the in-memory buffer
+	// table for the web build and is lost when the page unloads.
+	vfs = FS_OpenVFS(filename, "wbp", fsroot);
 	if (vfs)
 	{
 		VFS_WRITE(vfs, data, len);
