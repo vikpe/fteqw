@@ -61,6 +61,12 @@ void() PowcamReset =
 
 void() PowcamSelectNext =
 {
+    // Powcam is demo-only: outside demo playback we never load camera
+    // items (powcam_active_items is nil) and never want to schedule.
+    if (!isdemo()) {
+        return;
+    }
+
     if (match_start_time == -1) {
         return;
     }

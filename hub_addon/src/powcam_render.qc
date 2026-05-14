@@ -13,6 +13,12 @@
 
 float(vector main_min, vector main_size, float vwidth, float vheight) PowcamRender =
 {
+    // Powcam is demo-only - the schedule is never populated during live
+    // play, but guard here too in case PowcamRender is reached by other
+    // means.
+    if (!isdemo()) {
+        return 0;
+    }
     if (time < powcam.start) {
         return 0;
     }

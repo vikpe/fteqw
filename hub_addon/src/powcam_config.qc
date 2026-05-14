@@ -116,8 +116,16 @@ int()                                                                           
 
 // Binds the active map's entry from powcam_map_database. Returns 1 if the
 // current map has cameras defined.
+//
+// Powcam is a demo-only feature - the camera scheduler relies on knowing
+// when items respawn, which is only meaningful when reviewing a recorded
+// match. Outside demo playback, return 0 so main.qc skips deltalisten
+// registration and no spawn listeners get attached.
 float() PowcamLoadItems =
 {
+    if (!isdemo()) {
+        return 0;
+    }
     for (int i = 0; i < powcam_map_database.length; i++) {
         if (powcam_map_database[i].name == mapname) {
             powcam_active_items = powcam_map_database[i].items;
