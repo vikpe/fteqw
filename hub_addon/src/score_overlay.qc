@@ -254,16 +254,13 @@ void(so_layout_t L, vector anchor, float side, so_participant_t p) SO_DrawPartic
 // Match elapsed clock. Positioned just below the score boxes when
 // participants were drawn; otherwise sits in the score row's slot at
 // `anchor.y`. getmatchelapsed returns -1 during
-// standby/countdown/QTV-before-first-time-print; we skip drawing in
-// that case so the slot doesn't read "00:00".
+// standby/QTV-before-first-time-print; we skip drawing in that case so
+// the slot doesn't read "-1:59" (floor(-1/1000)=-1 -> mm=-1, ss=59).
+// Countdown is shown as a literal "Countdown" label, independent of the
+// elapsed clock.
 void(so_layout_t L, vector anchor) SO_DrawClock =
 {
-    // Hide only when we have no match clock yet AND we're in pre-match
-    // standby - during intermission we keep showing the frozen clock.
-    float  elapsed_ms = getmatchelapsed();
-    string status     = serverkey("status");
-    if (elapsed_ms < 0 && !strcasecmp(status, "standby"))
-        return;
+    string status = serverkey("status");
 
     string text;
     vector color;
@@ -271,6 +268,13 @@ void(so_layout_t L, vector anchor) SO_DrawClock =
         text  = "Countdown";
         color = '1 1 1';
     } else {
+        // No valid clock yet: pre-match standby, or QTV joined mid-match
+        // before the first "X min left" status update lets Hub_CheckServerInfo
+        // derive elapsed. Skip entirely; intermission has elapsed_ms frozen
+        // at the match-end value, so the clock keeps showing post-match.
+        float elapsed_ms = getmatchelapsed();
+        if (elapsed_ms < 0)
+            return;
         float elapsed = floor(elapsed_ms / 1000);
         float minutes = floor(elapsed / 60);
         float seconds = elapsed - minutes * 60;
