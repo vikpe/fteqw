@@ -125,7 +125,7 @@ float(vector main_size) ScoreOverlayReservedHeight =
     so_layout_t L;
     SO_LayoutFor(main_size, L);
     float clock_height = L.clock_font_size.y + L.vertical_gap;
-    return L.margin + L.score.box_height + clock_height + L.margin;
+    return L.margin + L.score.box_height + clock_height;
 };
 
 // ----- participants ---------------------------------------------------------
