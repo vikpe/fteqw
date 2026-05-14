@@ -97,7 +97,24 @@ cvar_t	cl_defaultport		=
 
 cvar_t	cfg_save_name = CVARFD("cfg_save_name", "fte", CVAR_ARCHIVE|CVAR_NOTFROMSERVER, "This is the config name that is saved by default when no argument is specified.");
 
-cvar_t	cl_splitscreen = CVARD("cl_splitscreen", "0", "Enables splitscreen support. See also: allow_splitscreen, in_rawinput*, the \"p\" command.");
+// Forward decl; defined further down so it can reach into cls.demoplayback.
+static void QDECL CL_Splitscreen_Callback(struct cvar_s *var, char *oldvalue);
+cvar_t	cl_splitscreen = CVARCD("cl_splitscreen", "0", CL_Splitscreen_Callback, "Enables splitscreen support. See also: allow_splitscreen, in_rawinput*, the \"p\" command.");
+static void QDECL CL_Splitscreen_Callback(struct cvar_s *var, char *oldvalue)
+{
+	// Activating a new seat doesn't refresh the visible frame until the
+	// next demo packet arrives, so during demo playback (especially when
+	// paused) the user sees no change and assumes the cvar didn't take.
+	// Nudge the demo by +1 then -1 to force a re-render without moving
+	// the timeline. Only fires when enabling (value > 0); disabling falls
+	// through to the engine's normal repaint path. Live play also doesn't
+	// need this - input keeps the frame loop ticking.
+	if (var->value > 0 && cls.demoplayback && *cls.lastdemoname)
+	{
+		Cbuf_AddText("demo_nudge 1\n", RESTRICT_LOCAL);
+		Cbuf_AddText("demo_nudge -1\n", RESTRICT_LOCAL);
+	}
+}
 
 cvar_t	lookspring = CVARFD("lookspring","0", CVAR_ARCHIVE, "Recentre the camera when the mouse-look is released.");
 cvar_t	lookstrafe = CVARFD("lookstrafe","0", CVAR_ARCHIVE, "Mouselook enables mouse strafing.");
