@@ -93,7 +93,7 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: powercam-${{ steps.version.outputs.short_sha }}
+          name: hub-addon-${{ steps.version.outputs.short_sha }}
           path: |
-            powercam/csaddon.*
+            hub_addon/csaddon.*
           compression-level: 9
