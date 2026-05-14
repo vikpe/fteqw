@@ -648,7 +648,7 @@ int EZHud_Draw(int seat, float viewx, float viewy, float viewwidth, float viewhe
 	sb_showscores = showscores & 1;
 	sb_showteamscores = showscores & 2;
 
-	clientfuncs->GetStats(0, cl.stats, sizeof(cl.stats)/sizeof(cl.stats[0]));
+	clientfuncs->GetStats(seat, cl.stats, sizeof(cl.stats)/sizeof(cl.stats[0]));
 	for (i = 0; i < 32; i++)
 		clientfuncs->GetPlayerInfo(i, &cl.players[i]);
 
