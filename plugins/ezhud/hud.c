@@ -1499,6 +1499,13 @@ void HUD_Draw(void)
 {
     hud_t *hud;
 
+	// Free-flying spectator has no player POV - cl.stats reflect nothing
+	// useful, so the HUD elements (ammo, health, weapons, frags being
+	// tracked, etc.) would show stale/empty values. Render only when a
+	// player is tracked.
+	if (cl.spectator && cl.tracknum < 0)
+		return;
+
 	if (doreorder)
 	{
 		doreorder = false;
