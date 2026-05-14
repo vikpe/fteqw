@@ -113,15 +113,41 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     ScoreOverlayDraw([vwidth, vheight, 0], vwidth);
 };
 
-// Per-seat sub-rect inside the main player view. Mirrors the engine's
-// SCR_VRectForPlayer (view.c): grow a w*h grid until it covers seat_count,
-// adding the axis whose per-cell aspect stays closer to 16:10.
+// Per-seat sub-rect inside the main player view.
+//
+// 3 seats get a special L-layout (avoids the empty bottom-right cell a 2x2
+// grid would leave):
+//   seat 0: top-left quadrant (50% w, 50% h)
+//   seat 1: bottom-left quadrant (50% w, 50% h)
+//   seat 2: full right half (50% w, 100% h)
+//
+// 2 / 4+ seats fall back to a regular grid that mirrors the engine's
+// SCR_VRectForPlayer (view.c): grow w*h until it covers seat_count, adding
+// the axis whose per-cell aspect stays closer to 16:10.
 void(float seat, float seat_count, vector view_min, vector view_size,
      __out vector r_min, __out vector r_size) MainViewSeatRect =
 {
     if (seat_count <= 1) {
         r_min  = view_min;
         r_size = view_size;
+        return;
+    }
+
+    int seat_i = (int)seat;
+
+    if (seat_count == 3) {
+        float half_w = view_size.x * 0.5;
+        float half_h = view_size.y * 0.5;
+        if (seat_i == 0) {
+            r_min  = view_min;
+            r_size = [half_w, half_h, 0];
+        } else if (seat_i == 1) {
+            r_min  = [view_min.x, view_min.y + half_h, 0];
+            r_size = [half_w, half_h, 0];
+        } else {
+            r_min  = [view_min.x + half_w, view_min.y, 0];
+            r_size = [half_w, view_size.y, 0];
+        }
         return;
     }
 
@@ -136,7 +162,6 @@ void(float seat, float seat_count, vector view_min, vector view_size,
 
     float cell_w = view_size.x / w;
     float cell_h = view_size.y / h;
-    int seat_i = (int)seat;
     int col = seat_i % w;
     int row = seat_i / w;
     r_min  = [view_min.x + col * cell_w, view_min.y + row * cell_h, 0];
