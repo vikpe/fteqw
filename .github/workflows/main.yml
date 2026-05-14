@@ -63,7 +63,7 @@ jobs:
             !engine/release/*.db
           compression-level: 9
 
-  powercam:
+  hub_addon:
     runs-on: ubuntu-latest
     timeout-minutes: 5
 
@@ -87,8 +87,8 @@ jobs:
         id: version
         run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
 
-      - name: Compile powercam
-        working-directory: powercam
+      - name: Compile hub_addon
+        working-directory: hub_addon
         run: make FTEQCC=fteqcc64
 
       - uses: actions/upload-artifact@v4
