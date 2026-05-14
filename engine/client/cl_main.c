@@ -207,6 +207,7 @@ cvar_t	cl_muzzleflash			= CVAR("cl_muzzleflash", "1");
 
 cvar_t	gl_simpleitems			= CVARFD("gl_simpleitems", "0", CVAR_ARCHIVE, "Replace models with simpler sprites.");
 cvar_t	cl_item_bobbing			= CVARFD("cl_model_bobbing", "0", CVAR_ARCHIVE, "Makes rotating pickup items bob too.");
+cvar_t	cl_item_timers			= CVARFD("cl_item_timers", "1", CVAR_ARCHIVE, "Draws a rotating disc at each item's location, filling clockwise to indicate respawn progress. Timers are populated by server commands (ktx timer / item_timer) or backpack drops.");
 cvar_t	cl_countpendingpl		= CVARD("cl_countpendingpl", "0", "If set to 1, packet loss percentages will show packets still in transit as lost, even if they might still be received.");
 
 cvar_t	cl_standardchat			= CVARFD("cl_standardchat", "0", CVAR_ARCHIVE, "Disables auto colour coding in chat messages.");
