@@ -21,6 +21,11 @@ int sb_showteamscores;
 int sb_showscores;
 int host_screenupdatecount;
 float alphamul;
+// Active seat's viewport-vs-screen size factor, applied per-element by
+// HUD_DrawObject as a multiplier on the element's scale/width/height/pos
+// cvars so the whole HUD shrinks to fit a splitscreen seat's rectangle.
+// 1.0 = full screen (no scaling).
+float hud_seat_scale = 1.0f;
 
 cvar_t *scr_newHud;
 
@@ -645,6 +650,25 @@ int EZHud_Draw(int seat, float viewx, float viewy, float viewwidth, float viewhe
 	scr_vrect.y = viewy;
 	scr_vrect.width = viewwidth;
 	scr_vrect.height = viewheight;
+
+	// Splitscreen / minimap-split shrinks the per-seat rect below full
+	// screen. Pick the tighter of the width and height ratios so the HUD
+	// fits in both axes, then sqrt-soften it - a linear ratio (eg 0.5 for
+	// a half-sized seat) makes text too small to read. Result examples:
+	// half-axis -> ~0.71, third-axis -> ~0.58, quarter-axis -> 0.5.
+	if (vid.width > 0 && vid.height > 0)
+	{
+		float xratio = viewwidth  / (float)vid.width;
+		float yratio = viewheight / (float)vid.height;
+		float ratio  = (xratio < yratio) ? xratio : yratio;
+		if (ratio > 1.0f) ratio = 1.0f;
+		if (ratio < 0.25f) ratio = 0.25f;
+		hud_seat_scale = sqrtf(ratio);
+	}
+	else
+	{
+		hud_seat_scale = 1.0f;
+	}
 	sb_showscores = showscores & 1;
 	sb_showteamscores = showscores & 2;
 

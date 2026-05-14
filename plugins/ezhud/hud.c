@@ -1482,11 +1482,45 @@ void HUD_DrawObject(hud_t *hud)
     }
 
 	//
+	// Splitscreen / minimap-split shrinks the per-seat rect. ezquakeisms.c
+	// sets hud_seat_scale to the matching ratio; we temporarily multiply
+	// the element's size/position cvars by it so layout + drawing both see
+	// scaled values, then restore. Restore order does not matter since we
+	// only mutate scalars we just read.
+	extern float hud_seat_scale;
+	cvar_t *scale_cv  = NULL;
+	cvar_t *width_cv  = NULL;
+	cvar_t *height_cv = NULL;
+	float scale_save = 0, width_save = 0, height_save = 0;
+	float pos_x_save = 0, pos_y_save = 0;
+	qbool scaled = (hud_seat_scale != 1.0f);
+	if (scaled)
+	{
+		scale_cv  = HUD_FindVar(hud, "scale");
+		width_cv  = HUD_FindVar(hud, "width");
+		height_cv = HUD_FindVar(hud, "height");
+		if (scale_cv)  { scale_save  = scale_cv->value;  scale_cv->value  *= hud_seat_scale; }
+		if (width_cv)  { width_save  = width_cv->value;  width_cv->value  *= hud_seat_scale; }
+		if (height_cv) { height_save = height_cv->value; height_cv->value *= hud_seat_scale; }
+		if (hud->pos_x) { pos_x_save = hud->pos_x->value; hud->pos_x->value *= hud_seat_scale; }
+		if (hud->pos_y) { pos_y_save = hud->pos_y->value; hud->pos_y->value *= hud_seat_scale; }
+	}
+
+	//
 	// Let the HUD element draw itself - updates last_draw_sequence itself.
 	//
 	Draw_SetOverallAlpha(hud->opacity->value);
 	hud->draw_func(hud);
 	Draw_SetOverallAlpha(1.0);
+
+	if (scaled)
+	{
+		if (scale_cv)  scale_cv->value  = scale_save;
+		if (width_cv)  width_cv->value  = width_save;
+		if (height_cv) height_cv->value = height_save;
+		if (hud->pos_x) hud->pos_x->value = pos_x_save;
+		if (hud->pos_y) hud->pos_y->value = pos_y_save;
+	}
 
 	// last_draw_sequence is update by HUD_PrepareDraw
     // if object was succesfully drawn (wasn't outside area etc..)
