@@ -5853,6 +5853,7 @@ void CL_Init (void)
 	Cvar_Register (&cl_noblink,	"Console controls");	//for lack of a better group
 
 	Cvar_Register (&cl_item_bobbing, "Item effects");
+	Cvar_Register (&cl_item_timers, "Item effects");
 	Cvar_Register (&gl_simpleitems, "Item effects");
 
 	Cvar_Register (&cl_staticsounds, "Item effects");
