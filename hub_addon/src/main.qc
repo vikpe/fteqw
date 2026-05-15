@@ -147,9 +147,6 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     }
 
     MinimapRender(vwidth, vheight);
-    // Player info always anchors to the bottom-right of the full screen,
-    // regardless of minimap mode or splitscreen seat layout.
-    PlayerInfoDraw('0 0 0', [vwidth, vheight, 0]);
 };
 
 // Per-seat sub-rect inside the main player view.

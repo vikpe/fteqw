@@ -5772,6 +5772,427 @@ static void SCR_HUD_DrawTeamInfo(hud_t *hud)
 	}
 }
 
+//---------------------
+//
+// player_info: per-player overlay with optional team grouping. Ported from
+// hub_addon/src/player_info.qc. Player row columns (left -> right):
+//   powerups | name | location | armor | health | weapon | frags
+// Team headers carry the team name on the left and a color-split rounded
+// frag box (top half = top_rgb, bottom half = bottom_rgb) on the right.
+//
+// Visibility: hidden in coop (deathmatch <= 0). Names + frags always
+// drawn; live stats (location, health, armor, best weapon) only while the
+// match is active (status contains "min left" or equals "countdown").
+//
+// Player and team data come from Hub_BuildParticipants: name-sorted
+// players, plus team grouping (with summed frags + rgb) when the 2-team
+// rule fires. Team headers are shown when Hub built teams AND every team
+// name is non-empty (mirrors the QC has_groups gate).
+//
+// Hard upper bound on loc_width so the stack buffer in pi_draw_player_row
+// is sized at compile time.
+#define PI_LOC_NAME_MAX_SIZE 32
+
+extern void Hub_BuildParticipants(hub_participants_t *out);
+
+typedef struct { float x, y; } vec2f_t;
+
+// Parses a css-shorthand "X" or "X Y" string into a 2-component vector.
+// "X" expands to (X, X); "X Y" yields (X, Y). Scale to taste at the
+// call site.
+static vec2f_t string_pair_to_vec2(const char *s)
+{
+	vec2f_t v = {0, 0};
+	int parsed = sscanf(s, "%f %f", &v.x, &v.y);
+	if (parsed < 2)
+		v.y = v.x;
+	return v;
+}
+
+static const vec3_t pi_color_white  = {1.0f, 1.0f, 1.0f};
+static const vec3_t pi_color_red    = {1.0f, 0.3f, 0.3f};
+static const vec3_t pi_color_yellow = {1.0f, 1.0f, 0.3f};
+static const vec3_t pi_color_green  = {0.3f, 1.0f, 0.3f};
+static const vec3_t pi_color_cyan   = {0.3f, 0.7f, 1.0f};
+static const vec3_t pi_color_grey   = {0.6f, 0.6f, 0.6f};
+
+// Returns the frag-box width that fits a score string with `pad_x`
+// horizontal padding on each side. Min width is the width of "000" so
+// small / zero-digit scores don't shrink the box.
+static float hud_frag_box_width(const char *score_str, float font_px, float pad_x)
+{
+	int digits = max((int)strlen(score_str), 3);
+	return digits * drawfuncs->StringWidth(font_px, 0, "0") + pad_x * 2;
+}
+
+// Color-split rounded box with text centered inside: top half uses
+// top_rgb (TL+TR rounded), bottom half uses bottom_rgb (BL+BR rounded).
+// Shared by player_info team headers and score_bar2 sides.
+static void hud_draw_colored_box(float x, float y, float w, float h,
+                                 const unsigned char top_rgb[3],
+                                 const unsigned char bottom_rgb[3],
+                                 float radius, float font_px, const char *text)
+{
+	float half_h = h * 0.5f;
+	float text_w = drawfuncs->StringWidth(font_px, 0, text);
+	drawfuncs->Colour4f(top_rgb[0]/255.0f, top_rgb[1]/255.0f, top_rgb[2]/255.0f, 1);
+	drawfuncs->FillRounded(x, y,          w, half_h,     radius, FILL_CORNER_TL | FILL_CORNER_TR);
+	drawfuncs->Colour4f(bottom_rgb[0]/255.0f, bottom_rgb[1]/255.0f, bottom_rgb[2]/255.0f, 1);
+	drawfuncs->FillRounded(x, y + half_h, w, h - half_h, radius, FILL_CORNER_BL | FILL_CORNER_BR);
+	drawfuncs->Colour4f(1, 1, 1, 1);
+	drawfuncs->StringH(x + (w - text_w) * 0.5f, y + (h - font_px) * 0.5f, font_px, 0, text);
+}
+
+// Looks up the GetTeamInfo entry whose cl.players slot matches the given
+// userid. Participants carry userid; GetTeamInfo carries the slot index,
+// so we cross-reference via cl.players[slot].userid.
+static teamplayerinfo_t *pi_find_teamplayerinfo(teamplayerinfo_t *ti, int ti_count, int userid)
+{
+	int i;
+	for (i = 0; i < ti_count; i++) {
+		int slot = (int)ti[i].client;
+		if (slot < 0 || slot >= MAX_CLIENTS)
+			continue;
+		if (cl.players[slot].userid == userid && cl.players[slot].name[0] && !cl.players[slot].spectator)
+			return &ti[i];
+	}
+	return NULL;
+}
+
+// Draws a string in the given color and resets back to white.
+static void hud_draw_string(float x, float y, float font_px, const vec3_t color, const char *str)
+{
+	drawfuncs->Colour4f(color[0], color[1], color[2], 1);
+	drawfuncs->StringH(x, y, font_px, 0, str);
+	drawfuncs->Colour4f(1, 1, 1, 1);
+}
+
+// Inner content for the bracketed location: a fixed-width field of
+// "brown" ASCII (byte | 0x80), right-aligned with leading spaces.
+// "ra" -> "   ra".
+static void pi_format_location(const char *raw, int loc_length, char *out, size_t out_size)
+{
+	int len, trunc_len, left_pad, k;
+	char *p = out;
+
+	if (loc_length < 0) loc_length = 0;
+	if ((size_t)(loc_length + 1) > out_size)
+		loc_length = (int)out_size - 1;
+	if (loc_length <= 0) {
+		if (out_size > 0)
+			out[0] = '\0';
+		return;
+	}
+	len       = (int)strlen(raw);
+	trunc_len = (len > loc_length) ? loc_length : len;
+	left_pad  = loc_length - trunc_len;
+	for (k = 0; k < left_pad; k++)
+		*p++ = ' ';
+	for (k = 0; k < trunc_len; k++)
+		*p++ = (char)((unsigned char)raw[k] | 0x80);
+	*p = '\0';
+}
+
+// Right-aligned colored draw of a numeric value within a column box.
+static void pi_draw_num_right(float right_x, float y, float font_px, int value, const vec3_t color)
+{
+	char buf[16];
+	value = bound(0, value, 999);
+	snprintf(buf, sizeof(buf), "%d", value);
+	hud_draw_string(right_x - drawfuncs->StringWidth(font_px, 0, buf), y, font_px, color, buf);
+}
+
+// One player row. right_x is the right edge of the row's column block;
+// y is its top. Live stats are drawn whenever GetTeamInfo reports them.
+static void pi_draw_player_row(const hub_participant_player_t *p,
+                                teamplayerinfo_t *ti_clients, int ti_count,
+                                float right_x, float y, float font_px,
+                                float name_w_max, float location_w, float armor_w,
+                                float health_w, float weapon_w, float frags_w,
+                                float char_width, float slash_gap,
+                                int name_length, int loc_length)
+{
+	float frags_right    = right_x;
+	float weapon_right   = frags_right    - frags_w    - char_width;
+	float health_right   = weapon_right   - weapon_w   - char_width;
+	float armor_right    = health_right   - health_w   - slash_gap;
+	float location_right = armor_right    - armor_w    - char_width;
+	float name_right     = location_right - location_w - char_width * 2;
+
+	// Name: visible-char cap via TP_ParseFunChars, drawn raw to preserve
+	// quake colour markup. nw clamped to name_w_max so power-up icons
+	// always have a consistent anchor.
+	char  name_buf[HUB_PARTICIPANT_NAME_BYTES];
+	float nw;
+	float name_x;
+	teamplayerinfo_t *ti;
+
+	Q_strncpyz(name_buf, p->name_bytestr, sizeof(name_buf));
+	if (name_length > 0 && (int)strlen(name_buf) > name_length)
+		name_buf[name_length] = '\0';
+	nw = drawfuncs->StringWidth(font_px, 0, name_buf);
+	if (nw > name_w_max) nw = name_w_max;
+	name_x = name_right - nw;
+
+	pi_draw_num_right(frags_right, y, font_px, p->frags, pi_color_white);
+
+	ti = pi_find_teamplayerinfo(ti_clients, ti_count, p->userid);
+
+	if (ti) {
+		// Location: bracket | content | bracket with half-char inner
+		// margins so glyphs don't crowd the text.
+		const char *loc = TP_LocationName(ti->org);
+		if (loc && loc[0]) {
+			char  loc_inner[PI_LOC_NAME_MAX_SIZE + 1];
+			float bracket_w = drawfuncs->StringWidth(font_px, 0, "\x10");
+			float half_char = font_px * 0.5f;
+			float content_w, total_w, x_open, x_content, x_close;
+			int   loc_clamped = (loc_length > PI_LOC_NAME_MAX_SIZE) ? PI_LOC_NAME_MAX_SIZE : loc_length;
+
+			pi_format_location(loc, loc_clamped, loc_inner, sizeof(loc_inner));
+			content_w = drawfuncs->StringWidth(font_px, 0, loc_inner);
+			total_w   = bracket_w + half_char + content_w + half_char + bracket_w;
+			x_open    = location_right - total_w;
+			x_content = x_open + bracket_w + half_char;
+			x_close   = x_content + content_w + half_char;
+			hud_draw_string(x_open,    y, font_px, pi_color_white, "\x10");
+			hud_draw_string(x_content, y, font_px, pi_color_white, loc_inner);
+			hud_draw_string(x_close,   y, font_px, pi_color_white, "\x11");
+		}
+
+		// GetTeamInfo populates stats only from fresh tinfo or MVD scrape;
+		// gate on health > 0 so dead / gibbed entries don't render.
+		if (ti->health > 0) {
+			unsigned int items = ti->items;
+
+			// Armor: column omitted at 0, tinted by armor type
+			// (GA green, YA yellow, RA red). Slash centered in the gap
+			// between armor and health columns.
+			if (ti->armor > 0) {
+				float slash_w = drawfuncs->StringWidth(font_px, 0, "/");
+				const float *armor_color = pi_color_white;
+				if      (items & IT_ARMOR3) armor_color = pi_color_red;
+				else if (items & IT_ARMOR2) armor_color = pi_color_yellow;
+				else if (items & IT_ARMOR1) armor_color = pi_color_green;
+				pi_draw_num_right(armor_right, y, font_px, (int)ti->armor, armor_color);
+				hud_draw_string(armor_right + (slash_gap - slash_w) * 0.5f, y, font_px, pi_color_grey, "/");
+			}
+
+			// Health: hud_health convention - red at <= 25, white otherwise.
+			pi_draw_num_right(health_right, y, font_px, (int)ti->health,
+			                  (ti->health <= 25) ? pi_color_red : pi_color_white);
+
+			// Powerup glyphs: rightmost first so the highest-priority
+			// sits closest to the name. Colors are the original Q1
+			// item palette (pure blue/red/yellow), not the muted armor
+			// triples reused elsewhere in this widget.
+			{
+				static const vec3_t quad_blue   = {0, 0, 1};
+				static const vec3_t pent_red    = {1, 0, 0};
+				static const vec3_t ring_yellow = {1, 1, 0};
+				static const struct { unsigned int bit; const char *glyph; const float *color; } powerups[] = {
+					{ IT_QUAD,            "Q", quad_blue   },
+					{ IT_INVULNERABILITY, "P", pent_red    },
+					{ IT_INVISIBILITY,    "R", ring_yellow },
+				};
+				float char_w    = drawfuncs->StringWidth(font_px, 0, "Q");
+				float powerup_x = name_x - char_width - char_w;
+				size_t pi;
+				for (pi = 0; pi < countof(powerups); pi++) {
+					if (!(items & powerups[pi].bit))
+						continue;
+					hud_draw_string(powerup_x, y, font_px, powerups[pi].color, powerups[pi].glyph);
+					powerup_x -= char_w;
+				}
+			}
+
+			// Best weapon: RLG splits into "R" (RL red) + "LG" (LG cyan)
+			// drawn side by side; single-weapon labels left-align in the
+			// column so RL/LG/GL/RLG all start at the same x.
+			{
+				int has_rl = (items & IT_ROCKET_LAUNCHER)   != 0;
+				int has_lg = (items & IT_LIGHTNING)         != 0;
+				int has_gl = (items & IT_GRENADE_LAUNCHER)  != 0;
+				float weapon_left = weapon_right - weapon_w;
+				if (has_rl && has_lg) {
+					hud_draw_string(weapon_left, y, font_px, pi_color_red, "R");
+					hud_draw_string(weapon_left + drawfuncs->StringWidth(font_px, 0, "R"), y, font_px, pi_color_cyan, "LG");
+				} else if (has_rl) hud_draw_string(weapon_left, y, font_px, pi_color_red,   "RL");
+				else if   (has_lg) hud_draw_string(weapon_left, y, font_px, pi_color_cyan,  "LG");
+				else if   (has_gl) hud_draw_string(weapon_left, y, font_px, pi_color_green, "GL");
+			}
+		}
+	}
+
+	// Drawn last so the name sits on top of any glyph overlap from the
+	// preceding columns.
+	hud_draw_string(name_x, y, font_px, pi_color_white, name_buf);
+}
+
+// Team header row: name on the left + color-split rounded frag box on
+// the right. Box sizing matches score_bar2 (frag_pad horizontal padding,
+// min "000" inner width).
+static void pi_draw_team_header(const hub_participant_team_t *t,
+                                 float right_x, float y, float font_px,
+                                 float box_h, float pad_x, float radius,
+                                 float char_width)
+{
+	char  score_str[16];
+	float box_w, box_x, name_w;
+
+	snprintf(score_str, sizeof(score_str), "%d", t->frag_sum);
+	box_w  = hud_frag_box_width(score_str, font_px, pad_x);
+	box_x  = right_x - box_w;
+	name_w = drawfuncs->StringWidth(font_px, 0, t->team_bytestr);
+	hud_draw_colored_box(box_x, y, box_w, box_h, t->top_rgb, t->bottom_rgb, radius, font_px, score_str);
+	hud_draw_string(box_x - char_width - name_w, y + (box_h - font_px) * 0.5f, font_px, pi_color_white, t->team_bytestr);
+}
+
+static void SCR_HUD_DrawPlayerInfo(hud_t *hud)
+{
+	static cvar_t *pi_scale = NULL, *pi_player_gap, *pi_team_gap, *pi_corner_radius,
+	              *pi_loc_width, *pi_name_width, *pi_frag_padding;
+	int x = 0, y = 0;
+	float s, font_px, char_width, slash_gap;
+	float name_w, location_w, armor_w, health_w, weapon_w, frags_w;
+	float powerups_w, row_height, player_gap, team_gap;
+	float box_h, radius;
+	vec2f_t frag_pad;
+	float content_w, total_h;
+	int loc_width, name_width;
+	int width, height;
+	hub_participants_t parts;
+	qbool use_groups;
+	teamplayerinfo_t ti_clients[MAX_CLIENTS];
+	int ti_count = 0;
+	int i, g;
+	float right_x, cursor_y;
+
+	if (pi_scale == NULL) {
+		pi_scale          = HUD_FindVar(hud, "scale");
+		pi_player_gap        = HUD_FindVar(hud, "player_gap");
+		pi_team_gap       = HUD_FindVar(hud, "team_gap");
+		pi_corner_radius  = HUD_FindVar(hud, "frag_corner_radius");
+		pi_loc_width      = HUD_FindVar(hud, "loc_width");
+		pi_name_width     = HUD_FindVar(hud, "name_width");
+		pi_frag_padding   = HUD_FindVar(hud, "frag_padding");
+	}
+
+	if (cl.deathmatch <= 0) {
+		HUD_PrepareDraw(hud, 0, 0, &x, &y);
+		return;
+	}
+
+	Hub_BuildParticipants(&parts);
+	if (parts.player_count == 0) {
+		HUD_PrepareDraw(hud, 0, 0, &x, &y);
+		return;
+	}
+
+	// Group only when Hub built teams AND every team name is non-empty
+	// (mirrors the QC has_groups gate).
+	use_groups = parts.team_count > 0;
+	for (i = 0; i < parts.team_count && use_groups; i++) {
+		if (!parts.teams[i].team_bytestr[0])
+			use_groups = false;
+	}
+
+	loc_width      = bound(0, pi_loc_width->ival, PI_LOC_NAME_MAX_SIZE);
+	name_width     = (pi_name_width->ival > 0) ? pi_name_width->ival : 0;
+
+	s             = (pi_scale->value > 0) ? pi_scale->value : 1;
+	font_px       = 8 * s;
+	char_width    = drawfuncs->StringWidth(font_px, 0, "0");
+	slash_gap     = char_width + ceilf(4 * s);
+	name_w        = name_width * char_width;
+	location_w    = (loc_width + 2) * char_width;  // brackets + content
+	armor_w       = 3 * char_width;
+	health_w      = 3 * char_width;
+	weapon_w      = 3 * char_width;
+	frags_w       = 3 * char_width;
+	powerups_w    = 3 * char_width + char_width;  // 3 glyphs + trailing gap to name
+	row_height    = font_px;
+	player_gap    = pi_player_gap->value * s;
+	team_gap      = pi_team_gap->value * s;
+	frag_pad      = string_pair_to_vec2(pi_frag_padding->string);
+	frag_pad.x   *= s;
+	frag_pad.y   *= s;
+	box_h         = font_px + frag_pad.y * 2;
+	radius        = pi_corner_radius->value * s;
+
+	// Content width: widest of (player row content) and (team header
+	// content). Powerups extend leftward outside the column block but
+	// are included so the bounding box wraps them too.
+	content_w = powerups_w
+	          + name_w
+	          + char_width   + location_w
+	          + char_width   + armor_w
+	          + slash_gap + health_w
+	          + char_width   + weapon_w
+	          + char_width   + frags_w;
+	if (use_groups) {
+		for (g = 0; g < parts.team_count; g++) {
+			char  score_str[16];
+			float tnw, team_row_w;
+			snprintf(score_str, sizeof(score_str), "%d", parts.teams[g].frag_sum);
+			tnw        = drawfuncs->StringWidth(font_px, 0, parts.teams[g].team_bytestr);
+			team_row_w = tnw + char_width + hud_frag_box_width(score_str, font_px, frag_pad.x);
+			if (team_row_w > content_w)
+				content_w = team_row_w;
+		}
+	}
+
+	// Height: team headers are taller than player rows (they carry the
+	// frag box). Drop the trailing player_gap so the box matches the visual
+	// content exactly.
+	if (use_groups) {
+		total_h = parts.team_count * (box_h + player_gap)
+		        + parts.player_count * (row_height + player_gap)
+		        - player_gap;
+		if (parts.team_count > 1)
+			total_h += (parts.team_count - 1) * team_gap;
+	} else {
+		total_h = parts.player_count * (row_height + player_gap) - player_gap;
+	}
+
+	width  = (int)ceilf(content_w);
+	height = (int)ceilf(total_h);
+	if (!HUD_PrepareDraw(hud, width, height, &x, &y))
+		return;
+
+	ti_count = clientfuncs->GetTeamInfo ? clientfuncs->GetTeamInfo(ti_clients, countof(ti_clients), true, -1) : 0;
+
+	right_x  = x + width;
+	cursor_y = y;
+	if (use_groups) {
+		for (g = 0; g < parts.team_count; g++) {
+			if (g > 0) cursor_y += team_gap;
+			pi_draw_team_header(&parts.teams[g], right_x, cursor_y, font_px,
+			                     box_h, frag_pad.x, radius, char_width);
+			cursor_y += box_h + player_gap;
+			for (i = 0; i < parts.player_count; i++) {
+				if (strcmp(parts.players[i].team_bytestr, parts.teams[g].team_bytestr) != 0)
+					continue;
+				pi_draw_player_row(&parts.players[i], ti_clients, ti_count,
+				                    right_x, cursor_y, font_px,
+				                    name_w, location_w, armor_w, health_w, weapon_w, frags_w,
+				                    char_width, slash_gap,
+				                    name_width, loc_width);
+				cursor_y += row_height + player_gap;
+			}
+		}
+	} else {
+		for (i = 0; i < parts.player_count; i++) {
+			pi_draw_player_row(&parts.players[i], ti_clients, ti_count,
+			                    right_x, cursor_y, font_px,
+			                    name_w, location_w, armor_w, health_w, weapon_w, frags_w,
+			                    char_width, slash_gap,
+			                    name_width, loc_width);
+			cursor_y += row_height + player_gap;
+		}
+	}
+}
+
 qbool Has_Both_RL_and_LG (int flags) { return (flags & IT_ROCKET_LAUNCHER) && (flags & IT_LIGHTNING); }
 #define FONTWIDTH 8
 void str_align_right (char *target, size_t size, const char *source, size_t length)
@@ -6612,22 +7033,6 @@ void SCR_HUD_DrawScoresBar(hud_t *hud)
 // Source of "who is in the match" is Hub_BuildParticipants (engine).
 // Hidden when there isn't a clean 2-side partition.
 //
-extern void Hub_BuildParticipants(hub_participants_t *out);
-
-typedef struct { float x, y; } vec2f_t;
-
-// Parses a css-shorthand "X" or "X Y" string into a 2-component vector.
-// "X" expands to (X, X); "X Y" yields (X, Y). Scale to taste at the
-// call site.
-static vec2f_t string_pair_to_vec2(const char *s)
-{
-	vec2f_t v = {0, 0};
-	int parsed = sscanf(s, "%f %f", &v.x, &v.y);
-	if (parsed < 2)
-		v.y = v.x;
-	return v;
-}
-
 typedef struct {
 	const char           *name;        // raw quake-encoded bytes (^X markup + 2nd-charset preserved); StringH renders these correctly
 	const char           *name_ascii;  // ASCII, used as stable sort key
@@ -6708,14 +7113,13 @@ void SCR_HUD_DrawScoresBar2(hud_t *hud)
 	int i;
 	score_bar_side_t sides[2];
 	int side_count;
-	float s, font_px, gap, box_h, min_inner;
+	float s, font_px, gap, box_h;
 	char  score_str[2][16];
 	float name_w[2]  = {0, 0};
-	float score_w[2] = {0, 0};
 	float box_w[2]   = {0, 0};
 	float total_w;
 	int width, height;
-	float cursor, half_h;
+	float cursor;
 
 	if (scale == NULL)
 	{
@@ -6766,22 +7170,17 @@ void SCR_HUD_DrawScoresBar2(hud_t *hud)
 	frag_pad.x *= s;
 	frag_pad.y *= s;
 	box_h     = font_px + frag_pad.y * 2;
-	min_inner = drawfuncs->StringWidth(font_px, 0, "000");
 
 	for (i = 0; i < side_count; i++)
 	{
-		float inner;
 		snprintf(score_str[i], sizeof(score_str[i]), "%d", sides[i].score);
-		name_w[i]  = drawfuncs->StringWidth(font_px, 0, sides[i].name);
-		score_w[i] = drawfuncs->StringWidth(font_px, 0, score_str[i]);
-		inner = (score_w[i] > min_inner) ? score_w[i] : min_inner;
-		box_w[i] = inner + frag_pad.x * 2;
+		name_w[i] = drawfuncs->StringWidth(font_px, 0, sides[i].name);
+		box_w[i]  = hud_frag_box_width(score_str[i], font_px, frag_pad.x);
 	}
 
 	// frame_padding adds an outer margin inside the bounding box so the
 	// HUD frame (drawn underneath by the place/frame_color machinery)
 	// surrounds the contents with breathing room.
-	half_h = box_h * 0.5f;
 	if (side_count == 2)
 	{
 		// Symmetric layout: the gap between the two colour boxes lands
@@ -6813,21 +7212,8 @@ void SCR_HUD_DrawScoresBar2(hud_t *hud)
 
 		drawfuncs->Colour4f(1, 1, 1, 1);
 		drawfuncs->StringH(name0_x, text_y, font_px, 0, sides[0].name);
-
-		drawfuncs->Colour4f(sides[0].top_rgb[0]/255.0f, sides[0].top_rgb[1]/255.0f, sides[0].top_rgb[2]/255.0f, 1);
-		drawfuncs->FillRounded(box0_x, content_y,          box_w[0], half_h, radius, FILL_CORNER_TL | FILL_CORNER_TR);
-		drawfuncs->Colour4f(sides[0].bottom_rgb[0]/255.0f, sides[0].bottom_rgb[1]/255.0f, sides[0].bottom_rgb[2]/255.0f, 1);
-		drawfuncs->FillRounded(box0_x, content_y + half_h, box_w[0], box_h - half_h, radius, FILL_CORNER_BL | FILL_CORNER_BR);
-		drawfuncs->Colour4f(1, 1, 1, 1);
-		drawfuncs->StringH(box0_x + (box_w[0] - score_w[0]) * 0.5f, text_y, font_px, 0, score_str[0]);
-
-		drawfuncs->Colour4f(sides[1].top_rgb[0]/255.0f, sides[1].top_rgb[1]/255.0f, sides[1].top_rgb[2]/255.0f, 1);
-		drawfuncs->FillRounded(box1_x, content_y,          box_w[1], half_h, radius, FILL_CORNER_TL | FILL_CORNER_TR);
-		drawfuncs->Colour4f(sides[1].bottom_rgb[0]/255.0f, sides[1].bottom_rgb[1]/255.0f, sides[1].bottom_rgb[2]/255.0f, 1);
-		drawfuncs->FillRounded(box1_x, content_y + half_h, box_w[1], box_h - half_h, radius, FILL_CORNER_BL | FILL_CORNER_BR);
-		drawfuncs->Colour4f(1, 1, 1, 1);
-		drawfuncs->StringH(box1_x + (box_w[1] - score_w[1]) * 0.5f, text_y, font_px, 0, score_str[1]);
-
+		hud_draw_colored_box(box0_x, content_y, box_w[0], box_h, sides[0].top_rgb, sides[0].bottom_rgb, radius, font_px, score_str[0]);
+		hud_draw_colored_box(box1_x, content_y, box_w[1], box_h, sides[1].top_rgb, sides[1].bottom_rgb, radius, font_px, score_str[1]);
 		drawfuncs->StringH(name1_x, text_y, font_px, 0, sides[1].name);
 		return;
 	}
@@ -6846,12 +7232,7 @@ void SCR_HUD_DrawScoresBar2(hud_t *hud)
 	float text_y    = content_y + (box_h - font_px) * 0.5f;
 	float radius    = frag_corner_radius->value * s;
 	cursor = x + fpad.x;
-	drawfuncs->Colour4f(sides[0].top_rgb[0]/255.0f, sides[0].top_rgb[1]/255.0f, sides[0].top_rgb[2]/255.0f, 1);
-	drawfuncs->FillRounded(cursor, content_y,          box_w[0], half_h, radius, FILL_CORNER_TL | FILL_CORNER_TR);
-	drawfuncs->Colour4f(sides[0].bottom_rgb[0]/255.0f, sides[0].bottom_rgb[1]/255.0f, sides[0].bottom_rgb[2]/255.0f, 1);
-	drawfuncs->FillRounded(cursor, content_y + half_h, box_w[0], box_h - half_h, radius, FILL_CORNER_BL | FILL_CORNER_BR);
-	drawfuncs->Colour4f(1, 1, 1, 1);
-	drawfuncs->StringH(cursor + (box_w[0] - score_w[0]) * 0.5f, text_y, font_px, 0, score_str[0]);
+	hud_draw_colored_box(cursor, content_y, box_w[0], box_h, sides[0].top_rgb, sides[0].bottom_rgb, radius, font_px, score_str[0]);
 	cursor += box_w[0] + name_gap;
 
 	drawfuncs->StringH(cursor, text_y, font_px, 0, sides[0].name);
@@ -8910,6 +9291,18 @@ void CommonDraw_Init(void)
 		"show_self","1",
 		"scale","1",
 		"powerup_style","1",
+		NULL);
+
+	HUD_Register("player_info", NULL, "Per-player overlay with optional team grouping.",
+		HUD_PLUSMINUS, ca_active, 0, SCR_HUD_DrawPlayerInfo,
+		"0", "screen", "right", "bottom", "-16", "-16", "0", "0 0 0", NULL,
+		"scale",              "1",
+		"player_gap",         "2",
+		"team_gap",           "4",
+		"frag_padding",       "3 2",
+		"frag_corner_radius", "1",
+		"loc_width",          "5",
+		"name_width",         "10",
 		NULL);
 
 	HUD_Register("mp3_title", NULL, "Shows current mp3 playing.",

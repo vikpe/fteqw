@@ -57,7 +57,7 @@ typedef struct {
 // Cvars.
 // ----------------------------------------------------------------------------
 
-var float  autocvar_minimap_mode               = MINIMAP_SPLIT;
+var float  autocvar_minimap_mode               = MINIMAP_OFF;
 var float  autocvar_minimap_player_radius      = 7;
 var float  autocvar_minimap_player_alpha       = 0.8;
 var float  autocvar_minimap_player_name_length = 4;
