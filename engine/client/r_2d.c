@@ -33,7 +33,7 @@ shader_t *shader_menutint;
 #define DRAW_QUADS 128
 static int		draw_active_flags;
 static shader_t *draw_active_shader;
-static avec4_t	draw_active_colour;
+avec4_t			draw_active_colour;
 static mesh_t	draw_mesh;
 static vecV_t	draw_mesh_xyz[DRAW_QUADS];
 vec2_t			draw_mesh_st[DRAW_QUADS];

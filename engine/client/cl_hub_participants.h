@@ -26,8 +26,11 @@ extern "C" {
 typedef struct {
 	int  userid;
 	int  frags;
-	int  top_color;     // 0..16
-	int  bottom_color;  // 0..16
+	int  is_bot;        // 1 if the player looks like a bot (userid == 0)
+	int  top_color;     // 0..16 (palette slot)
+	int  bottom_color;  // 0..16 (palette slot)
+	unsigned char top_rgb[3];     // resolved RGB (0..255) for the top palette slot
+	unsigned char bottom_rgb[3];  // resolved RGB (0..255) for the bottom palette slot
 	char name[HUB_PARTICIPANT_NAME_BYTES];        // original UTF-8 (^X codes + special chars preserved)
 	char name_ascii[HUB_PARTICIPANT_ASCII_BYTES]; // ASCII, colors stripped, special chars approximated
 	char team[HUB_PARTICIPANT_NAME_BYTES];
@@ -36,6 +39,8 @@ typedef struct {
 
 typedef struct {
 	int  frag_sum;
+	unsigned char top_rgb[3];
+	unsigned char bottom_rgb[3];
 	char team[HUB_PARTICIPANT_NAME_BYTES];
 	char team_ascii[HUB_PARTICIPANT_ASCII_BYTES];
 } hub_participant_team_t;

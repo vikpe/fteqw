@@ -276,7 +276,19 @@ int HUD_FindPlace(hud_t *hud)
         {
             hud->place_outside = out;
             hud->place_hud = par;
-            hud->place_num = HUD_PLACE_SCREEN;
+            // Inherit the parent's container so anchoring math (and
+            // the WINDOW post-CSQC pass vs per-seat SCREEN pass) sees
+            // the right rect. Walk the chain in case the parent is
+            // itself placed-on-another; bail out on any cycle (a hud
+            // chained back to itself, or back to us) so we don't spin.
+            hud_t *root = par;
+            int   guard = 0;
+            while (root->place_hud && root->place_hud != hud && guard < 32)
+            {
+                root = root->place_hud;
+                guard++;
+            }
+            hud->place_num = root->place_num ? root->place_num : HUD_PLACE_SCREEN;
             return 1;
         }
         par = par->next;

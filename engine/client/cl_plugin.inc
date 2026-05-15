@@ -359,6 +359,12 @@ static void QDECL Plug_Draw_Fill(float x, float y, float width, float height)
 	if (qrenderer != QR_NONE)
 		R2D_FillBlock(x, y, width, height);
 }
+extern void R2D_FillRoundedBlock(float x, float y, float w, float h, float radius, unsigned int corners);
+static void QDECL Plug_Draw_FillRounded(float x, float y, float width, float height, float radius, unsigned int corners)
+{
+	if (qrenderer != QR_NONE)
+		R2D_FillRoundedBlock(x, y, width, height, radius, corners);
+}
 static void QDECL Plug_Draw_ColourP(int palcol, float a)
 {
 	if (palcol>=0 && palcol<=255)

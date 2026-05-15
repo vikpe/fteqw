@@ -2132,6 +2132,7 @@ static void *QDECL PlugBI_GetEngineInterface(const char *interfacename, size_t s
 			Plug_Draw_Image2dQuad,
 			Plug_Draw_ImageSize,
 			Plug_Draw_Fill,
+			Plug_Draw_FillRounded,
 			Plug_Draw_Line,
 			Plug_Draw_Character,
 			Plug_Draw_String,

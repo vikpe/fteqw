@@ -579,6 +579,8 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	// preserved).
 	//   local listen server      -> "Localhost"
 	//   serverinfo mode == tot   -> "tot: <name1>, <name2>, ..."
+	//   serverinfo mode contains "race"
+	//                           -> "<name1>, <name2>, ..."
 	//   teams.size() >= 2        -> "<team1> vs <team2>"
 	//   players.size() == 2      -> "<name1> vs <name2>"
 	//   serverinfo mode == 1on1
@@ -591,33 +593,44 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		if (sv.state != ss_dead) return std::string("Localhost");
 #endif
 
-		hub_participants_t set;
-		Hub_BuildParticipants(&set);
+		hub_participants_t parts;
+		Hub_BuildParticipants(&parts);
 
 		const char *mode = InfoBuf_ValueForKey(&cl.serverinfo, "mode");
 
 		if (!strcasecmp(mode, "tot")) {
-			if (set.player_count == 0) return std::string("tot");
+			if (parts.player_count == 0) return std::string("tot");
 			std::string out = "tot: ";
-			for (int i = 0; i < set.player_count; i++) {
+			for (int i = 0; i < parts.player_count; i++) {
 				if (i > 0) out += ", ";
-				out += set.players[i].name;
+				out += parts.players[i].name;
 			}
 			return out;
 		}
-		if (set.team_count >= 2) {
-			return std::string(set.teams[0].team) + " vs " + std::string(set.teams[1].team);
+
+		// Race modes have no head-to-head matchup - just list all players.
+		if (mode && strstr(mode, "race")) {
+			if (parts.player_count == 0) return std::string();
+			std::string out;
+			for (int i = 0; i < parts.player_count; i++) {
+				if (i > 0) out += ", ";
+				out += parts.players[i].name;
+			}
+			return out;
 		}
-		if (set.player_count == 2) {
-			return std::string(set.players[0].name) + " vs " + std::string(set.players[1].name);
+		if (parts.team_count >= 2) {
+			return std::string(parts.teams[0].team) + " vs " + std::string(parts.teams[1].team);
 		}
-		if (!strcasecmp(mode, "1on1") && set.player_count == 1) {
-			return std::string(set.players[0].name);
+		if (parts.player_count == 2) {
+			return std::string(parts.players[0].name) + " vs " + std::string(parts.players[1].name);
 		}
-		if (set.player_count == 0) return std::string();
+		if (!strcasecmp(mode, "1on1") && parts.player_count == 1) {
+			return std::string(parts.players[0].name);
+		}
+		if (parts.player_count == 0) return std::string();
 
 		char buf[32];
-		snprintf(buf, sizeof(buf), "%d players", set.player_count);
+		snprintf(buf, sizeof(buf), "%d players", parts.player_count);
 		return std::string(buf);
 	});
 

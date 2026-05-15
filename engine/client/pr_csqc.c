@@ -1695,6 +1695,119 @@ void QCBUILTIN PF_R_PolygonEnd(pubprogfuncs_t *prinst, struct globalvars_s *pr_g
 	csqc_poly_startidx = cl_numstrisidx;
 }
 
+//
+// Fills an axis-aligned rounded rectangle using the same 2d polygon
+// path PF_R_PolygonBegin/Vertex/End use, so the curved corners are
+// properly tessellated triangles rather than a pixel staircase.
+// `corners` is a bitmask of FILL_CORNER_* (TL/TR/BR/BL). Pass 0 to round
+// all four. Colour comes from R2D_ImageColours (i.e. draw_active_colour).
+//
+void R2D_FillRoundedBlock(float x, float y, float w, float h, float radius, unsigned int corners)
+{
+	extern shader_t *shader_draw_fill;
+	extern shader_t *shader_draw_fill_trans;
+	extern avec4_t draw_active_colour;
+	shader_t *shader = (draw_active_colour[3] < 1) ? shader_draw_fill_trans : shader_draw_fill;
+	const int beflags = BEF_NOSHADOWS;
+	// Arc resolution scales with radius so small corners stay cheap
+	// and large corners stay smooth. Floor is high enough that even
+	// tiny radii read as round, not faceted.
+	int segments_per_corner = (int)ceilf(radius * 4.0f);
+	if (segments_per_corner < 12) segments_per_corner = 12;
+	if (segments_per_corner > 96) segments_per_corner = 96;
+	int  i;
+	int  nv;
+	int  first;
+	int  flags;
+	float cr = draw_active_colour[0];
+	float cg = draw_active_colour[1];
+	float cb = draw_active_colour[2];
+	float ca = draw_active_colour[3];
+
+	if (corners == 0)
+		corners = 1|2|4|8;
+	if (radius < 1 || w < 2 || h < 2)
+	{
+		R2D_FillBlock(x, y, w, h);
+		return;
+	}
+	if (radius > w * 0.5f) radius = w * 0.5f;
+	if (radius > h * 0.5f) radius = h * 0.5f;
+
+	// PolygonBegin (2d, current shader).
+	if (R2D_Flush && (R2D_Flush != CSQC_PolyFlush || csqc_poly_shader != shader || csqc_poly_flags != beflags || csqc_poly_2d != true))
+		R2D_Flush();
+	if (!R2D_Flush)
+	{
+		csqc_poly_origvert = cl_numstrisvert;
+		csqc_poly_origidx  = cl_numstrisidx;
+	}
+	R2D_Flush          = CSQC_PolyFlush;
+	csqc_poly_shader   = shader;
+	csqc_poly_flags    = beflags;
+	csqc_poly_2d       = true;
+	csqc_poly_startvert= cl_numstrisvert;
+	csqc_poly_startidx = cl_numstrisidx;
+
+	// Walk perimeter CW: TL -> TR -> BR -> BL.
+	#define EMIT(vx,vy) do { \
+		if (cl_numstrisvert == cl_maxstrisvert) cl_stris_ExpandVerts(cl_numstrisvert+64); \
+		cl_strisvertv[cl_numstrisvert][0] = (vx); \
+		cl_strisvertv[cl_numstrisvert][1] = (vy); \
+		cl_strisvertv[cl_numstrisvert][2] = 0; \
+		cl_strisvertt[cl_numstrisvert][0] = 0; \
+		cl_strisvertt[cl_numstrisvert][1] = 0; \
+		cl_strisvertc[cl_numstrisvert][0] = cr; \
+		cl_strisvertc[cl_numstrisvert][1] = cg; \
+		cl_strisvertc[cl_numstrisvert][2] = cb; \
+		cl_strisvertc[cl_numstrisvert][3] = ca; \
+		cl_numstrisvert++; \
+	} while (0)
+
+	#define EMIT_ARC(cx, cy, start_rad) do { \
+		int seg; \
+		for (seg = 0; seg <= segments_per_corner; seg++) { \
+			float ang = (start_rad) + (seg / (float)segments_per_corner) * (M_PI * 0.5f); \
+			EMIT((cx) + cosf(ang) * radius, (cy) + sinf(ang) * radius); \
+		} \
+	} while (0)
+
+	// TL: arc from PI to 3PI/2 (left side, top half), center at (x+r, y+r).
+	if (corners & 1) EMIT_ARC(x + radius, y + radius, M_PI);
+	else             EMIT(x, y);
+	// TR: arc from 3PI/2 to 2PI, center at (x+w-r, y+r).
+	if (corners & 2) EMIT_ARC(x + w - radius, y + radius, 1.5f * M_PI);
+	else             EMIT(x + w, y);
+	// BR: arc from 0 to PI/2, center at (x+w-r, y+h-r).
+	if (corners & 4) EMIT_ARC(x + w - radius, y + h - radius, 0);
+	else             EMIT(x + w, y + h);
+	// BL: arc from PI/2 to PI, center at (x+r, y+h-r).
+	if (corners & 8) EMIT_ARC(x + radius, y + h - radius, 0.5f * M_PI);
+	else             EMIT(x, y + h);
+
+	#undef EMIT_ARC
+	#undef EMIT
+
+	// PolygonEnd: fan-triangulate from startvert.
+	flags = csqc_poly_flags;
+	nv = cl_numstrisvert - csqc_poly_startvert;
+	if (cl_numstrisidx + (nv-2)*3 > cl_maxstrisidx)
+	{
+		cl_maxstrisidx = cl_numstrisidx + (nv-2)*3 + 64;
+		cl_strisidx = BZ_Realloc(cl_strisidx, sizeof(*cl_strisidx)*cl_maxstrisidx);
+	}
+	first = csqc_poly_startvert - csqc_poly_origvert;
+	for (i = 2; i < nv; i++)
+	{
+		cl_strisidx[cl_numstrisidx++] = first + 0;
+		cl_strisidx[cl_numstrisidx++] = first + i-1;
+		cl_strisidx[cl_numstrisidx++] = first + i;
+	}
+	(void)flags;
+	csqc_poly_startvert = cl_numstrisvert;
+	csqc_poly_startidx  = cl_numstrisidx;
+}
+
 //input is a line of verts, output is a quad strip
 void QCBUILTIN PF_R_PolygonEndRibbon(pubprogfuncs_t *prinst, struct globalvars_s *pr_globals)
 {

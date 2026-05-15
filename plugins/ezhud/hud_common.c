@@ -21,6 +21,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //
 
 #include "ezquakeisms.h"
+#include "cl_hub_participants.h"
 /*
 #include "common_draw.h"
 #include "mp3_player.h"
@@ -6614,6 +6615,262 @@ void SCR_HUD_DrawScoresBar(hud_t *hud)
 	}
 }
 
+//
+// score_bar2
+//
+// Head-to-head A-vs-B widget. Shows two participants (1v1 players, or
+// 2-team partition) as: name1 | score1 | score2 | name2. Each score
+// sits inside a vertically split colour box (top half = shirt, bottom
+// half = pants, taken from the participant's player_info color).
+//
+// Source of "who is in the match" is Hub_BuildParticipants (engine).
+// Hidden when there isn't a clean 2-side partition.
+//
+extern void Hub_BuildParticipants(hub_participants_t *out);
+
+typedef struct { float x, y; } vec2f_t;
+
+// Parses a css-shorthand "X" or "X Y" string into a 2-component vector.
+// "X" expands to (X, X); "X Y" yields (X, Y). Scale to taste at the
+// call site.
+static vec2f_t string_pair_to_vec2(const char *s)
+{
+	vec2f_t v = {0, 0};
+	int parsed = sscanf(s, "%f %f", &v.x, &v.y);
+	if (parsed < 2)
+		v.y = v.x;
+	return v;
+}
+
+typedef struct {
+	const char           *name;        // raw / utf-8 (with quake color codes)
+	const char           *name_ascii;  // ASCII, used as stable sort key
+	int                   score;
+	const unsigned char  *top_rgb;
+	const unsigned char  *bottom_rgb;
+} score_bar_side_t;
+
+static int score_bar_pick_sides(score_bar_side_t out[2])
+{
+	static hub_participants_t parts;
+	Hub_BuildParticipants(&parts);
+	if (parts.player_count == 0)
+		return 0;
+
+	// Teamplay: use the gathered team grouping when 1 or 2 distinct
+	// non-empty teams exist; otherwise fall through to the per-player case.
+	int count = 0;
+	if (cl.teamplay > 0 && (parts.team_count == 1 || parts.team_count == 2))
+	{
+		int has_empty = 0;
+		int i;
+		for (i = 0; i < parts.team_count; i++)
+			if (!parts.teams[i].team[0]) { has_empty = 1; break; }
+		if (!has_empty)
+		{
+			for (i = 0; i < parts.team_count; i++)
+			{
+				out[count].name       = parts.teams[i].team;
+				out[count].name_ascii = parts.teams[i].team_ascii;
+				out[count].score      = parts.teams[i].frag_sum;
+				out[count].top_rgb    = parts.teams[i].top_rgb;
+				out[count].bottom_rgb = parts.teams[i].bottom_rgb;
+				count++;
+			}
+		}
+	}
+	if (count == 0)
+	{
+		// "tot" (training-of-the) mode keeps players' bots in the
+		// participant list as scoring opponents, but the head-to-head
+		// bar is only meaningful for the human(s). Filter them here.
+		int skip_bots = !strcasecmp(Info_ValueForKey(cl.serverinfo, "mode"), "tot");
+		int eligible_count = 0;
+		int i;
+		for (i = 0; i < parts.player_count; i++)
+			if (!skip_bots || !parts.players[i].is_bot)
+				eligible_count++;
+		if (eligible_count == 0 || eligible_count > 2)
+			return 0;
+		for (i = 0; i < parts.player_count; i++)
+		{
+			if (skip_bots && parts.players[i].is_bot)
+				continue;
+			out[count].name       = parts.players[i].name;
+			out[count].name_ascii = parts.players[i].name_ascii;
+			out[count].score      = parts.players[i].frags;
+			out[count].top_rgb    = parts.players[i].top_rgb;
+			out[count].bottom_rgb = parts.players[i].bottom_rgb;
+			count++;
+		}
+	}
+
+	// Stable left/right placement by ASCII-byte order, ascending.
+	if (count == 2 && strcmp(out[0].name_ascii, out[1].name_ascii) > 0)
+	{
+		score_bar_side_t swap = out[0];
+		out[0] = out[1];
+		out[1] = swap;
+	}
+	return count;
+}
+
+void SCR_HUD_DrawScoresBar2(hud_t *hud)
+{
+	static cvar_t *scale = NULL, *gap_cv, *frame_padding, *frag_padding, *frag_corner_radius;
+	int x = 0, y = 0;
+	int i;
+	score_bar_side_t sides[2];
+	int side_count;
+	float s, font_px, gap, box_h, min_inner;
+	char  score_str[2][16];
+	float name_w[2]  = {0, 0};
+	float score_w[2] = {0, 0};
+	float box_w[2]   = {0, 0};
+	float total_w;
+	int width, height;
+	float cursor, half_h;
+
+	if (scale == NULL)
+	{
+		scale         = HUD_FindVar(hud, "scale");
+		gap_cv        = HUD_FindVar(hud, "gap");
+		frame_padding = HUD_FindVar(hud, "frame_padding");
+		frag_padding  = HUD_FindVar(hud, "frag_padding");
+		frag_corner_radius = HUD_FindVar(hud, "frag_corner_radius");
+	}
+
+	if (cl.deathmatch <= 0)
+	{
+		HUD_PrepareDraw(hud, 0, 0, &x, &y);
+		return;
+	}
+
+	// Race modes (race / coop-race / ktx-race / ...) have no head-to-head
+	// scoreboard - hide entirely.
+	if (strstr(Info_ValueForKey(cl.serverinfo, "mode"), "race"))
+	{
+		HUD_PrepareDraw(hud, 0, 0, &x, &y);
+		return;
+	}
+
+	side_count = score_bar_pick_sides(sides);
+	if (side_count == 0)
+	{
+		HUD_PrepareDraw(hud, 0, 0, &x, &y);
+		return;
+	}
+
+	s         = scale->value > 0 ? scale->value : 1;
+	font_px   = 8                    * s;
+	gap       = gap_cv->value        * s;
+	// frame_padding is only reserved when a frame is actually drawn
+	// (frame cvar > 0); otherwise the widget would carry empty margin
+	// around invisible content.
+	vec2f_t fpad = {0, 0};
+	if (hud->frame->value > 0)
+	{
+		fpad = string_pair_to_vec2(frame_padding->string);
+		fpad.x *= s;
+		fpad.y *= s;
+	}
+	// frag_padding controls the breathing room inside each colour
+	// swatch around the score number.
+	vec2f_t frag_pad = string_pair_to_vec2(frag_padding->string);
+	frag_pad.x *= s;
+	frag_pad.y *= s;
+	box_h     = font_px + frag_pad.y * 2;
+	min_inner = drawfuncs->StringWidth(font_px, 0, "000");
+
+	for (i = 0; i < side_count; i++)
+	{
+		float inner;
+		snprintf(score_str[i], sizeof(score_str[i]), "%d", sides[i].score);
+		name_w[i]  = drawfuncs->StringWidth(font_px, 0, sides[i].name);
+		score_w[i] = drawfuncs->StringWidth(font_px, 0, score_str[i]);
+		inner = (score_w[i] > min_inner) ? score_w[i] : min_inner;
+		box_w[i] = inner + frag_pad.x * 2;
+	}
+
+	// frame_padding adds an outer margin inside the bounding box so the
+	// HUD frame (drawn underneath by the place/frame_color machinery)
+	// surrounds the contents with breathing room.
+	half_h = box_h * 0.5f;
+	if (side_count == 2)
+	{
+		// Symmetric layout: the gap between the two colour boxes lands
+		// on the widget's center anchor regardless of asymmetric name
+		// or score widths. Pad whichever half is shorter with invisible
+		// space.
+		// gap applies only to the midline between the two colour boxes;
+		// the separation between a name and its adjacent box is always
+		// one font size.
+		float name_gap = font_px;
+		float left  = name_w[0] + name_gap + box_w[0] + gap * 0.5f;
+		float right = gap * 0.5f + box_w[1] + name_gap + name_w[1];
+		float half  = (left > right) ? left : right;
+		total_w = 2 * half;
+		width   = (int)ceilf(total_w + 2 * fpad.x);
+		height  = (int)ceilf(box_h   + 2 * fpad.y);
+		if (!HUD_PrepareDraw(hud, width, height, &x, &y))
+			return;
+
+		float content_y = y + fpad.y;
+		float text_y    = content_y + (box_h - font_px) * 0.5f;
+		float mid       = x + fpad.x + half;
+		float box0_x    = mid - gap * 0.5f - box_w[0];
+		float box1_x    = mid + gap * 0.5f;
+		float name0_x   = box0_x - name_gap - name_w[0];
+		float name1_x   = box1_x + box_w[1] + name_gap;
+
+		float radius = frag_corner_radius->value * s;
+
+		drawfuncs->Colour4f(1, 1, 1, 1);
+		drawfuncs->StringH(name0_x, text_y, font_px, 0, sides[0].name);
+
+		drawfuncs->Colour4f(sides[0].top_rgb[0]/255.0f, sides[0].top_rgb[1]/255.0f, sides[0].top_rgb[2]/255.0f, 1);
+		drawfuncs->FillRounded(box0_x, content_y,          box_w[0], half_h, radius, FILL_CORNER_TL | FILL_CORNER_TR);
+		drawfuncs->Colour4f(sides[0].bottom_rgb[0]/255.0f, sides[0].bottom_rgb[1]/255.0f, sides[0].bottom_rgb[2]/255.0f, 1);
+		drawfuncs->FillRounded(box0_x, content_y + half_h, box_w[0], box_h - half_h, radius, FILL_CORNER_BL | FILL_CORNER_BR);
+		drawfuncs->Colour4f(1, 1, 1, 1);
+		drawfuncs->StringH(box0_x + (box_w[0] - score_w[0]) * 0.5f, text_y, font_px, 0, score_str[0]);
+
+		drawfuncs->Colour4f(sides[1].top_rgb[0]/255.0f, sides[1].top_rgb[1]/255.0f, sides[1].top_rgb[2]/255.0f, 1);
+		drawfuncs->FillRounded(box1_x, content_y,          box_w[1], half_h, radius, FILL_CORNER_TL | FILL_CORNER_TR);
+		drawfuncs->Colour4f(sides[1].bottom_rgb[0]/255.0f, sides[1].bottom_rgb[1]/255.0f, sides[1].bottom_rgb[2]/255.0f, 1);
+		drawfuncs->FillRounded(box1_x, content_y + half_h, box_w[1], box_h - half_h, radius, FILL_CORNER_BL | FILL_CORNER_BR);
+		drawfuncs->Colour4f(1, 1, 1, 1);
+		drawfuncs->StringH(box1_x + (box_w[1] - score_w[1]) * 0.5f, text_y, font_px, 0, score_str[1]);
+
+		drawfuncs->StringH(name1_x, text_y, font_px, 0, sides[1].name);
+		return;
+	}
+
+	// One-sided: bounding box wraps exactly the content (box | name_gap
+	// | name) so HUD_PrepareDraw's align=center places the whole drawn
+	// widget on the center anchor.
+	float name_gap = font_px;
+	total_w = box_w[0] + name_gap + name_w[0];
+	width   = (int)ceilf(total_w + 2 * fpad.x);
+	height  = (int)ceilf(box_h   + 2 * fpad.y);
+	if (!HUD_PrepareDraw(hud, width, height, &x, &y))
+		return;
+
+	float content_y = y + fpad.y;
+	float text_y    = content_y + (box_h - font_px) * 0.5f;
+	float radius    = frag_corner_radius->value * s;
+	cursor = x + fpad.x;
+	drawfuncs->Colour4f(sides[0].top_rgb[0]/255.0f, sides[0].top_rgb[1]/255.0f, sides[0].top_rgb[2]/255.0f, 1);
+	drawfuncs->FillRounded(cursor, content_y,          box_w[0], half_h, radius, FILL_CORNER_TL | FILL_CORNER_TR);
+	drawfuncs->Colour4f(sides[0].bottom_rgb[0]/255.0f, sides[0].bottom_rgb[1]/255.0f, sides[0].bottom_rgb[2]/255.0f, 1);
+	drawfuncs->FillRounded(cursor, content_y + half_h, box_w[0], box_h - half_h, radius, FILL_CORNER_BL | FILL_CORNER_BR);
+	drawfuncs->Colour4f(1, 1, 1, 1);
+	drawfuncs->StringH(cursor + (box_w[0] - score_w[0]) * 0.5f, text_y, font_px, 0, score_str[0]);
+	cursor += box_w[0] + name_gap;
+
+	drawfuncs->StringH(cursor, text_y, font_px, 0, sides[0].name);
+}
+
 void SCR_HUD_DrawBarArmor(hud_t *hud)
 {
 	static	cvar_t *width = NULL, *height, *direction, *color_noarmor, *color_ga, *color_ya, *color_ra, *color_unnatural;
@@ -8812,7 +9069,17 @@ void CommonDraw_Init(void)
         "scale", "1",
 		"format_small", "&c69f%T&r:%t &cf10%E&r:%e $[%D$]",
 		"format_big", "%t:%e:%Z",
+        NULL
+		);
 
+	HUD_Register("score_bar2", NULL, "Head-to-head A-vs-B score bar (1v1 / 2-team).",
+        HUD_PLUSMINUS, ca_active, 0, SCR_HUD_DrawScoresBar2,
+        "0", "window", "center", "top", "0", "0", "0", "0 0 0", NULL,
+        "scale",         "1",
+        "gap",           "4",
+        "frag_padding",  "4 4",
+        "frame_padding", "4 3",
+        "frag_corner_radius", "1",
         NULL
 		);
 

@@ -113,6 +113,13 @@ extern "C" {
 typedef int qhandle_t;
 typedef void* funcptr_t;
 
+// Bitmask for FillRounded's corners parameter. Pass 0 for "all four".
+#define FILL_CORNER_TL 1
+#define FILL_CORNER_TR 2
+#define FILL_CORNER_BR 4
+#define FILL_CORNER_BL 8
+#define FILL_CORNER_ALL (FILL_CORNER_TL | FILL_CORNER_TR | FILL_CORNER_BR | FILL_CORNER_BL)
+
 
 #define PLUGMAX_SCOREBOARDNAME 64
 typedef struct {
@@ -409,6 +416,7 @@ typedef struct	//for huds and menus alike
 	F(int,		Image2dQuad,	(const vec2_t *points, const vec2_t *tcoords, const vec4_t *colours, qhandle_t image));
 	F(int,		ImageSize,		(qhandle_t image, float *x, float *y));
 	F(void,		Fill,			(float x, float y, float w, float h));
+	F(void,		FillRounded,	(float x, float y, float w, float h, float radius, unsigned int corners));	//corners: bitmask of FILL_CORNER_TL/TR/BR/BL (0 means all four).
 	F(void,		Line,			(float x1, float y1, float x2, float y2));
 	F(void,		Character,		(float x, float y, unsigned int character));
 	F(void,		String,			(float x, float y, const char *string));

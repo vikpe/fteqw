@@ -2,6 +2,7 @@
 
 #include "quakedef.h"
 #include "cl_hub_participants.h"
+#include "sbar.h"
 
 // Forward declarations so the file reads top-down.
 static void gather_players(hub_participants_t *out);
@@ -48,6 +49,9 @@ static void gather_players(hub_participants_t *out)
 		hub_participant_player_t *e = &out->players[out->player_count];
 		e->userid = p->userid;
 		e->frags  = p->frags;
+		// Bots conventionally appear with userid 0 (cl_cam.c relies on
+		// the same heuristic).
+		e->is_bot = (p->userid == 0) ? 1 : 0;
 
 		decode_quake_string(p->name, e->name, sizeof(e->name), e->name_ascii, sizeof(e->name_ascii));
 		decode_quake_string(p->team, e->team, sizeof(e->team), e->team_ascii, sizeof(e->team_ascii));
@@ -60,6 +64,23 @@ static void gather_players(hub_participants_t *out)
 		if (bot > 16) bot = 16;
 		e->top_color    = top;
 		e->bottom_color = bot;
+
+		// Resolve the player's shirt/pants palette slot to an RGB triplet
+		// (same path as csqc's getplayerkeyvalue "topcolor_rgb"). Used by
+		// downstream UI to draw colored swatches without reaching into the
+		// engine palette themselves.
+		unsigned int idx_top = Sbar_ColorForMap((unsigned int)top);
+		unsigned int idx_bot = Sbar_ColorForMap((unsigned int)bot);
+		if (idx_top < 256) {
+			e->top_rgb[0] = host_basepal[idx_top*3+0];
+			e->top_rgb[1] = host_basepal[idx_top*3+1];
+			e->top_rgb[2] = host_basepal[idx_top*3+2];
+		}
+		if (idx_bot < 256) {
+			e->bottom_rgb[0] = host_basepal[idx_bot*3+0];
+			e->bottom_rgb[1] = host_basepal[idx_bot*3+1];
+			e->bottom_rgb[2] = host_basepal[idx_bot*3+2];
+		}
 
 		out->player_count++;
 	}
@@ -127,6 +148,12 @@ static void compute_team_groups(hub_participants_t *p)
 				break;
 			hub_participant_team_t *g = &p->teams[p->team_count];
 			g->frag_sum = player->frags;
+			g->top_rgb[0]    = player->top_rgb[0];
+			g->top_rgb[1]    = player->top_rgb[1];
+			g->top_rgb[2]    = player->top_rgb[2];
+			g->bottom_rgb[0] = player->bottom_rgb[0];
+			g->bottom_rgb[1] = player->bottom_rgb[1];
+			g->bottom_rgb[2] = player->bottom_rgb[2];
 			Q_strncpyz(g->team,       player->team,       sizeof(g->team));
 			Q_strncpyz(g->team_ascii, player->team_ascii, sizeof(g->team_ascii));
 			p->team_count++;
