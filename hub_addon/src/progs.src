@@ -54,6 +54,11 @@ powcam.qc
 powcam_render.qc
 powcam_commands.qc
 
+// Per-player info overlay (depends on participants for the data, draw_util
+// for the team header frag box, minimap_players/data for the colored
+// prefix + MM_IT_* item bits + weapon colors).
+player_info.qc
+
 // Console commands (depend on all feature state above)
 commands.qc
 

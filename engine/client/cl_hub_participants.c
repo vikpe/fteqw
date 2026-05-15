@@ -8,9 +8,6 @@
 static void gather_players(hub_participants_t *out);
 static int  should_build_teams(const hub_participants_t *p);
 static void compute_team_groups(hub_participants_t *p);
-static void decode_quake_string(const char *src,
-                                char *out_unicode, int unicode_size,
-                                char *out_ascii,   int ascii_size);
 static void encode_conchar_to_unicode(conchar_t *src, char *out, int outsize);
 static int  hub_is_netquake_demo(void);
 static int  compare_player_by_name_ascii(const void *a, const void *b);
@@ -55,7 +52,8 @@ static void gather_players(hub_participants_t *out)
 
 		Q_strncpyz(e->name_bytestr, p->name, sizeof(e->name_bytestr));
 		Q_strncpyz(e->team_bytestr, p->team, sizeof(e->team_bytestr));
-		decode_quake_string(p->name, e->name_unicode, sizeof(e->name_unicode), e->name_ascii, sizeof(e->name_ascii));
+		Hub_QuakeStringToUtf8(p->name, e->name_unicode, sizeof(e->name_unicode));
+		Hub_QuakeStringToAscii(p->name, e->name_ascii, sizeof(e->name_ascii));
 
 		int top = p->rtopcolor;
 		int bot = p->rbottomcolor;
@@ -156,9 +154,10 @@ static void compute_team_groups(hub_participants_t *p)
 			g->bottom_rgb[1] = player->bottom_rgb[1];
 			g->bottom_rgb[2] = player->bottom_rgb[2];
 			Q_strncpyz(g->team_bytestr, player->team_bytestr, sizeof(g->team_bytestr));
-			decode_quake_string(player->team_bytestr,
-			                    g->team_unicode, sizeof(g->team_unicode),
-			                    g->team_ascii,   sizeof(g->team_ascii));
+			Hub_QuakeStringToUtf8(player->team_bytestr,
+			                      g->team_unicode, sizeof(g->team_unicode));
+			Hub_QuakeStringToAscii(player->team_bytestr,
+			                       g->team_ascii, sizeof(g->team_ascii));
 			p->team_count++;
 		} else {
 			p->teams[existing].frag_sum += player->frags;
@@ -169,19 +168,18 @@ static void compute_team_groups(hub_participants_t *p)
 
 // ----- decode / introspection -----------------------------------------------
 
-// Decodes a raw quake-encoded string into both flavors at once: the
-// `out_unicode` buffer maps each raw quake byte to its Latin-1 unicode
-// codepoint (byte 0xXX -> U+00XX, so a red/2nd-charset 'a' lands at
-// U+00E1 == 'a'), encoded as UTF-8; the `out_ascii` buffer strips
-// colors and approximates special chars to ASCII (for sort keys).
-static void decode_quake_string(const char *src,
-                                char *out_unicode, int unicode_size,
-                                char *out_ascii,   int ascii_size)
+void Hub_QuakeStringToUtf8(const char *src, char *out, int out_size)
 {
 	conchar_t buf[HUB_PARTICIPANT_NAME_BYTES];
 	COM_ParseFunString(CON_WHITEMASK, src, buf, sizeof(buf), qfalse);
-	encode_conchar_to_unicode(buf, out_unicode, unicode_size);
-	COM_DeFunString(buf, NULL, out_ascii, ascii_size, qtrue, qfalse);
+	encode_conchar_to_unicode(buf, out, out_size);
+}
+
+void Hub_QuakeStringToAscii(const char *src, char *out, int out_size)
+{
+	conchar_t buf[HUB_PARTICIPANT_NAME_BYTES];
+	COM_ParseFunString(CON_WHITEMASK, src, buf, sizeof(buf), qfalse);
+	COM_DeFunString(buf, NULL, out, out_size, qtrue, qfalse);
 }
 
 // Walks a conchar buffer, drops hidden/markup chars, restores the high

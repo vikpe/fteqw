@@ -4,6 +4,15 @@
 
 void(float apilevel, string enginename, float engineversion) CSQC_Init =
 {
+    // Enable absolute-mouse mode for CSQC. Required for getmousepos() to
+    // return absolute screen coords (otherwise it returns frame deltas) -
+    // PlayerInfoInputEvent and MinimapInputEvent both hit-test getmousepos
+    // against screen-space rects, so without this clicks silently miss.
+    // Side effect: engine releases pointer lock while this is on; aim mode
+    // requires explicit re-engagement from the embedding web app (call
+    // Module.FTE_RequestPointerLock from a user-gesture handler).
+    setcursormode(TRUE, "");
+
     registercommand("powcam");
     registercommand("minimap", "Top-down minimap. Subcommands: reload, status, help");
     registercommand("minimap_editor_add",    "Add a minimap cull volume. Run once at the first corner, then again at the opposite corner. Requires minimap_editor 1; doesn't write the file (use minimap_editor_export).");
@@ -44,6 +53,7 @@ void() CSQC_WorldLoaded =
 // entirely FTE's responsibility.
 float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent =
 {
+    if (PlayerInfoInputEvent(evtype, scanx, chary, devid)) return 1;
     if (MinimapInputEvent(evtype, scanx, chary, devid)) return 1;
     return 0;
 };
@@ -91,6 +101,11 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
             seat_count = 1;
         }
 
+        // Reset player_info's hit-rect table once per frame so each seat's
+        // PlayerInfoDraw can append fresh rows. Done outside the seat loop
+        // because the table needs to span all seats for input dispatch.
+        PlayerInfoBeginFrame();
+
         for (float seat = 0; seat < seat_count; seat += 1) {
             vector seat_min, seat_size;
             MainViewSeatRect(seat, seat_count, main_view.min, main_view.size,
@@ -128,6 +143,12 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
             addentities(MASK_XRAY);
             setviewprop(VF_DRAWWORLD, 0);
             renderscene();
+
+            // Per-seat overlay. Anchored to this seat's viewport so each
+            // seat shows its own player_info; the hit rects PlayerInfoDraw
+            // records are tagged with `seat` so PlayerInfoInputEvent can
+            // dispatch trackN to the seat owning the clicked row.
+            PlayerInfoDraw(seat, seat_min, seat_size);
         }
 
         // Restore primary seat so the overlays below (powcam, minimap,

@@ -135,6 +135,46 @@ mergeInto(LibraryManager.library,
 			}
 		},
 
+		// Explicit pointer-lock acquisition. Must be invoked from a user
+		// gesture handler in the embedding page (browser security).
+		// Exposed as Module.FTE_RequestPointerLock once the canvas is wired.
+		requestPointerLock : function()
+		{
+			if (FTEC.pointerislocked > 0)
+				return;
+			try
+			{
+				const v = Module['canvas'].requestPointerLock({unadjustedMovement: true});
+				if (v !== undefined)
+				{	//chrome returns a promise here; spec says nothing.
+					v.catch((e)=>
+					{
+						if (e.name == "NotSupportedError")
+						{
+							Module['canvas'].requestPointerLock().then(()=>{
+								console.log("Shitty browser forces mouse accel. Expect a shit experience.");
+							}).catch(()=>{
+								console.log("Your defective browser forces can't handle mouse look. Expect a truely dire experience. Give up now.");
+							});
+						}
+						else
+							console.log("Your defective browser forces can't handle mouse look. Expect a truely dire experience. Give up now.");
+					});
+				}
+			}
+			catch(e)
+			{
+				try {
+					Module['canvas'].requestPointerLock();
+					console.log("Your shitty browser doesn't support disabling mouse acceleration.");
+				}
+				catch(e)
+				{
+					console.log("Your shitty browser doesn't support mouse grabs.");
+				}
+			}
+		},
+
 		step : function(timestamp)
 		{
 			if (FTEC.aborted)
@@ -223,47 +263,10 @@ mergeInto(LibraryManager.library,
 					break;
 				case 'mousedown':
 					window.focus();
-					//Mozilla docs say do the pointerlock request first...
-					//older browsers only allowed pointer lock when fullscreen. maybe it'll need two clicks. sucks to be you.
-					if (FTEC.pointerwantlock != 0 && FTEC.pointerislocked == 0)
-					{
-						var v;
-						try
-						{
-							FTEC.pointerislocked = -1;  //don't repeat the request on every click. firefox has a fit at that, so require the mouse to leave the element or something before we retry.
-							v = Module['canvas'].requestPointerLock({unadjustedMovement: true});
-							if (v !== undefined)
-							{	//fuck sake, this is chrome being shitty.
-								//this is all bullshit.
-								//requestPointerLock spec does not return a promise. but chrome does it anyway, and returns its errors that way. and it eerrors a LOT, in system-specific ways, resulting in pointer locks failing entirely.
-								v.catch((e)=>
-								{
-									if (e.name == "NotSupportedError")
-									{
-										Module['canvas'].requestPointerLock().then(()=>{
-											console.log("Shitty browser forces mouse accel. Expect a shit experience.");
-										}).catch(()=>{
-											console.log("Your defective browser forces can't handle mouse look. Expect a truely dire experience. Give up now.");
-										});
-									}
-									else
-										console.log("Your defective browser forces can't handle mouse look. Expect a truely dire experience. Give up now.");
-								});
-							}
-						}
-						catch(e)
-						{
-							try {
-								Module['canvas'].requestPointerLock();
-								console.log("Your shitty browser doesn't support disabling mouse acceleration.");
-							}
-							catch(e)
-							{
-								console.log("Your shitty browser doesn't support mouse grabs.");
-								FTEC.pointerislocked = -1;  //don't repeat the request on every click. firefox has a fit at that, so require the mouse to leave the element or something before we retry.
-							}
-						}
-					}
+					//Pointer lock is no longer acquired on click. The embedding
+					//web app must call Module.FTE_RequestPointerLock() from its
+					//own user-gesture handler (e.g. a UI button). The engine
+					//can still release the lock via emscriptenfte_updatepointerlock.
 					//older browsers need fullscreen in order for requestPointerLock to work. Which seems to be deprecated cos of how shitty an experience it is whenever you hit escape to load a menu or w/e
 					//newer browsers can still break pointer locks when alt-tabbing, even without breaking fullscreen, so lets spam requests for it. enjoy.
 					if (!document.fullscreenElement)
@@ -605,7 +608,8 @@ mergeInto(LibraryManager.library,
 		if (!FTEC.donecb)
 		{
 			FTEC.donecb = 1;
-			var events = ['mousedown', 'mouseup', 'mousemove', 'wheel', 'mousewheel', 'mouseout', 
+			Module['FTE_RequestPointerLock'] = FTEC.requestPointerLock;
+			var events = ['mousedown', 'mouseup', 'mousemove', 'wheel', 'mousewheel', 'mouseout',
 						'keypress', 'keydown', 'keyup', 
 						'touchstart', 'touchend', 'touchcancel', 'touchleave', 'touchmove',
 						'dragenter', 'dragover', 'drop',

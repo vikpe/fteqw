@@ -5,6 +5,7 @@
 #include "quakedef.h"
 #include "fragstats.h"
 #include "../client/cl_hub_participants.h"
+#include "../client/cl_hub_demo_events.h"
 
 using namespace emscripten;
 
@@ -555,6 +556,65 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	function("setWebLogEnabled", +[](bool enabled) {
 		extern qboolean web_log_enabled;
 		web_log_enabled = enabled ? (qboolean)true : (qboolean)false;
+	});
+
+	// Fast-parse the current demo to extract per-player events
+	// (currently STAT_HEALTH-based deaths during MATCH_INPROGRESS).
+	// Idempotent: the underlying scan caches per demo path and returns
+	// the prior result on repeat calls. First call blocks the JS event
+	// loop for up to ~1s while the demo is replayed without rendering.
+	// Returns an array of { time_ms, kind, victim_slot } objects sorted
+	// by time_ms. Empty array if the demo can't be scanned (no demo
+	// loaded, qtv stream, unseekable, or non-MVD).
+	//
+	// To show a loading UI, yield to the browser before invoking so the
+	// DOM repaints before the freeze:
+	//
+	//   async function loadEvents() {
+	//     setLoadingVisible(true);
+	//     await new Promise(r =>
+	//       requestAnimationFrame(() => requestAnimationFrame(r)));
+	//     const events = Module.getDemoEvents();
+	//     setLoadingVisible(false);
+	//     return events;
+	//   }
+	//
+	// Two nested rAF calls: the first commits the DOM state, the second
+	// guarantees the browser has painted before the blocking call.
+	function("getDemoEvents", +[]() -> emscripten::val {
+		Hub_DemoEvents_Scan();
+
+		// TP_LocationName early-returns "someplace" unless cls.state is
+		// ca_active. The scan's CL_PlayDemoStream restart leaves cls.state
+		// at ca_demostart; it won't flip back to ca_active until the next
+		// Host_Frame's CL_MakeActive (cl_main.c:7355-7358). Force the
+		// flag locally so we can resolve names now. The .loc data itself
+		// is in zqtp.c statics, untouched by the demo restart, so it
+		// persists from before the scan (provided the user rendered at
+		// least one frame after demo open, which is when Surf_NewMap
+		// loads it).
+		cactive_t saved_state = cls.state;
+		cls.state = ca_active;
+
+		emscripten::val result = emscripten::val::array();
+		for (int i = 0; i < hub_demo_event_count; i++) {
+			emscripten::val ev = emscripten::val::object();
+			ev.set("time_ms",       hub_demo_events[i].time_ms);
+			ev.set("kind",          (int)hub_demo_events[i].kind);
+			ev.set("victim_userid", hub_demo_events[i].victim_userid);
+			ev.set("victim",        std::string(hub_demo_events[i].victim));
+			emscripten::val origin = emscripten::val::object();
+			origin.set("x", hub_demo_events[i].origin[0]);
+			origin.set("y", hub_demo_events[i].origin[1]);
+			origin.set("z", hub_demo_events[i].origin[2]);
+			ev.set("origin", origin);
+			const char *loc = TP_LocationName(hub_demo_events[i].origin);
+			ev.set("location", std::string(loc ? loc : ""));
+			result.set(i, ev);
+		}
+
+		cls.state = saved_state;
+		return result;
 	});
 
 	// Seek the active demo to `seconds` from the start. Floors and clamps

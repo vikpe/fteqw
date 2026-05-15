@@ -748,6 +748,7 @@ CLIENT_OBJS = \
 	cl_hub_demo_timeline.o	\
 	cl_hub_demo_timeline_qw.o	\
 	cl_hub_demo_timeline_nq.o	\
+	cl_hub_demo_events.o	\
 	cl_pred.o	\
 	cl_tent.o	\
 	cl_cam.o	\

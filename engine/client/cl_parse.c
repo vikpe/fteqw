@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "cl_ignore.h"
 #include "shader.h"
 #include "fs.h"
+#include "cl_hub_demo_events.h"
 
 void CL_GetNumberedEntityInfo (int num, float *org, float *ang);
 void CLDP_ParseDarkPlaces5Entities(void);
@@ -6129,8 +6130,10 @@ static void CL_SetStatNumeric (int pnum, unsigned int stat, int ivalue, float fv
 	if (cls.demoplayback == DPB_MVD)
 	{
 		extern int cls_lastto;
+		int old_ivalue = cl.players[cls_lastto].stats[stat];
 		cl.players[cls_lastto].stats[stat]=ivalue;
 		cl.players[cls_lastto].statsf[stat]=fvalue;
+		Hub_DemoEvents_OnStatUpdate(cls_lastto, stat, old_ivalue, ivalue);
 
 		// QTube: Also update teaminfo, but avoid overwriting flags and runes
 		if (stat == STAT_ITEMS) {

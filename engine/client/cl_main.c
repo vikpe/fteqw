@@ -25,6 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "netinc.h"
 #include "cl_master.h"
 #include "cl_hub.h"
+#include "cl_hub_demo_events.h"
 #include "cl_ignore.h"
 #include "shader.h"
 #include "vr.h"
@@ -5978,6 +5979,7 @@ void CL_Init (void)
 	Cmd_AddCommandD ("demo_jump_mark",	CL_DemoJump_f, "Jump to the next '//demomark' marker.");
 	Cmd_AddCommandD ("demo_jump_end",	CL_DemoJump_f, "Jump to the next intermission message.");
 	Cmd_AddCommandD ("demo_nudge", CL_DemoNudge_f, "Nudge the demo by one frame. Argument should be +1 or -1. Nudging backwards is limited.");
+	Hub_DemoEvents_Init();
 	Cmd_AddCommandAD ("timedemo", CL_TimeDemo_f, CL_DemoList_c, NULL);
 #ifdef _DEBUG
 	Cmd_AddCommand ("freespace", CL_FreeSpace_f);

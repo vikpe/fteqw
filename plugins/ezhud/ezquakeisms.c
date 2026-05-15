@@ -784,7 +784,6 @@ qboolean QDECL EZHud_MenuEvent(int eventtype, int keyparam, int unicodeparm, flo
 		host_screenupdatecount++;
 		HUD_Draw();
 		HUD_Editor_Draw();
-
 		mouse_x = 0;
 		mouse_y = 0;
 		break;
