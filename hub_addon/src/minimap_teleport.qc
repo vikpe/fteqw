@@ -121,20 +121,13 @@ float(vector screen, __out vector world) MinimapScreenToWorld =
 
 // Concentric XY ring search for the closest column that has a real
 // floor a player can stand on. Tries the click XY first - the cheap
-// fast path. On miss, samples expanding rings (smaller radius first)
-// and returns the first hit; every sample on ring r sits exactly r
-// units from the click, so first-hit IS closest. Rings share uniform
-// arc spacing so the pattern reads as a polar grid.
-//
-// Outward-shift retry: when a ring sample finds floor but the player
-// center wouldn't fit there (e.g. the sample sits near the inside of
-// a wall, and the click is on the wrong side of that wall), shift the
-// sample one player-width further from the click and re-test. The
-// wall is typically between the click and the floor, so backing off
-// puts us clear.
+// fast path. On miss, samples expanding rings (smaller radius first);
+// every sample on ring r sits exactly r units from the click, so
+// first-ring-hit is closest. Within a ring, all candidates that have
+// a floor are walked back toward the click via tracebox; the
+// trace_endpos closest to the click wins.
 //
 // Radii cap at the largest entry in minimap_find_radii.
-#define MINIMAP_FIND_SHIFT 32
 float(vector click_xy, __out vector dest_xy, __out float floor_z) MinimapFindNearestFloor =
 {
     minimap_debug_click_valid = 1;
