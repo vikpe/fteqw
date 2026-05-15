@@ -33,6 +33,21 @@ void() CSQC_WorldLoaded =
     // CSQC entity table after CSQC_WorldLoaded returns).
 };
 
+
+// Chain-of-responsibility input dispatcher. Each addon owns a handler that
+// self-gates on its current state and returns 1 to consume the event; the
+// first consumer wins. Returning 0 from CSQC_InputEvent passes the event
+// through to the engine's normal binding/+attack pipeline.
+//
+// The web-app side (engine/web/ftejslib.js FTEC.preEvent) decides only
+// whether to forward an event to FTE at all; once forwarded, dispatch is
+// entirely FTE's responsibility.
+float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent =
+{
+    if (MinimapInputEvent(evtype, scanx, chary, devid)) return 1;
+    return 0;
+};
+
 void() CSQC_ServerInfoChanged =
 {
     if (match_start_time >= 0.0f) {

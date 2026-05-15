@@ -53,7 +53,7 @@ typedef struct {
 // Cvars.
 // ----------------------------------------------------------------------------
 
-var float  autocvar_minimap_mode               = MINIMAP_OFF;
+var float  autocvar_minimap_mode               = MINIMAP_SPLIT;
 var float  autocvar_minimap_player_radius      = 7;
 var float  autocvar_minimap_player_alpha       = 0.8;
 var float  autocvar_minimap_player_name_length = 4;
@@ -63,6 +63,9 @@ var float  autocvar_minimap_player_name_size   = 6;
 var vector autocvar_minimap_player_teamcolor         = '0 0 0';
 var vector autocvar_minimap_player_enemycolor        = '0 0 0';
 var vector autocvar_minimap_player_selfcolor         = '1 1 0';
+
+// Debug viz: draw the ring-search pattern from the most recent click.
+var float  autocvar_minimap_debug_rings        = 0;
 
 // Built-in defaults used when the team/enemy color cvars are left at '0 0 0'.
 var vector minimap_default_color_team  = '0 1 0';
@@ -98,6 +101,56 @@ var float  minimap_loaded      = 0;
 // Name of the last map MinimapLoad processed. Used to re-run the load
 // pipeline when `mapname` changes mid-session (e.g. demo seek across maps).
 var string minimap_loaded_for  = "";
+
+// Inverse-projection state cached by MinimapRender. CSQC_InputEvent uses
+// these to map a click in screen space back to a world XY before snapping
+// to the nearest floor anchor (minimap_teleport.qc). Valid only while the
+// minimap is actively rendering; cleared when minimap_mode == OFF.
+//
+// Rather than re-derive the camera axes from the angle convention (easy
+// to get wrong, and not portable across renderers), we capture the engine's
+// own project() output for three reference points and invert the resulting
+// 2x2 affine matrix at click time:
+//   center_screen = project(minimap_center)
+//   wx_delta      = project(minimap_center + (1,0,0)) - center_screen
+//   wy_delta      = project(minimap_center + (0,1,0)) - center_screen
+var float          minimap_view_valid = 0;
+var minimap_rect_t minimap_view_rect;
+var vector         minimap_view_center_screen = '0 0 0';
+var vector         minimap_view_wx_delta      = '0 0 0';
+var vector         minimap_view_wy_delta      = '0 0 0';
+
+// Ring-search pattern used by MinimapFindNearestFloor in minimap_teleport.qc.
+// Direction count grows with radius so per-ring arc spacing stays roughly
+// uniform - the result reads as a polar grid rather than a sparse star.
+//   r= 64, 8  dirs -> ~50u arc
+//   r=128, 16 dirs -> ~50u
+//   r=192, 24 dirs -> ~50u
+//   r=256, 32 dirs -> ~50u
+// Rings are searched outward, smallest first; the search short-circuits
+// on the first ring that has any hit (smaller radius = closer to click).
+// MINIMAP_FIND_MAX_DIRS is the per-ring stride for the debug-viz hit
+// array; outer rings fill the row, inner rings leave unused slots.
+#define MINIMAP_FIND_RING_COUNT 4
+#define MINIMAP_FIND_MAX_DIRS   32
+const float minimap_find_radii[MINIMAP_FIND_RING_COUNT] = { 64, 128, 192, 256 };
+const float minimap_find_dirs[MINIMAP_FIND_RING_COUNT]  = {  8,  16,  24,  32 };
+
+// Last-click state captured by the click handler for the ring debug
+// overlay (only consumed when autocvar_minimap_debug_rings is non-zero):
+//   click_valid   - 1 once at least one click has run the search
+//   click_xy      - the click in world coords
+//   sample_state  - per-sample state, indexed r * MINIMAP_FIND_MAX_DIRS + d:
+//                     MINIMAP_SAMPLE_UNTESTED - the early-exit didn't
+//                       reach this sample; drawn gray
+//                     MINIMAP_SAMPLE_MISS     - tested, no usable floor; red
+//                     MINIMAP_SAMPLE_HIT      - tested, accepted; green
+#define MINIMAP_SAMPLE_UNTESTED 0
+#define MINIMAP_SAMPLE_MISS     1
+#define MINIMAP_SAMPLE_HIT      2
+var float          minimap_debug_click_valid = 0;
+var vector         minimap_debug_click_xy    = '0 0 0';
+var float          minimap_debug_sample_state[MINIMAP_FIND_RING_COUNT * MINIMAP_FIND_MAX_DIRS];
 
 // Per-frame cache of player names, rebuilt by MinimapBuildPlayerLabels at
 // the start of each DrawPlayers pass. Two parallel versions:

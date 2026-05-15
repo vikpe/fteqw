@@ -28,6 +28,7 @@ void(float vwidth, float vheight) MinimapRender =
 {
     float mode = autocvar_minimap_mode;
     if (mode <= MINIMAP_OFF) {
+        minimap_view_valid = 0;
         return;
     }
 
@@ -143,6 +144,17 @@ void(float vwidth, float vheight) MinimapRender =
     cvar_set("scr_autoid_team", ftos(prev_autoid_team));
     cvar_set("r_fastsky",      ftos(prev_fastsky));
 
+    // Snapshot the world->screen transform via project(). The minimap
+    // camera's view is still active here (renderscene didn't clear it), so
+    // project() returns coords in the current viewport. Caching the engine's
+    // own output dodges any axis-convention ambiguity - the inverse at
+    // click time is purely linear-algebra (minimap_teleport.qc).
+    minimap_view_valid          = 1;
+    minimap_view_rect           = viewport;
+    minimap_view_center_screen  = project(minimap_center);
+    minimap_view_wx_delta       = project(minimap_center + '1 0 0') - minimap_view_center_screen;
+    minimap_view_wy_delta       = project(minimap_center + '0 1 0') - minimap_view_center_screen;
+
     // Overlay players (project() reads the view state we just set).
     MinimapDrawPlayers(cam_origin);
 
@@ -153,6 +165,58 @@ void(float vwidth, float vheight) MinimapRender =
     if (MinimapIsFreeflySpectator()) {
         vector cam_screen = project(CullEditPlayerOrigin());
         drawfill([cam_screen.x - 2, cam_screen.y - 2, 0], '4 4 0', '1 0 1', 1);
+    }
+
+    // Ring-search debug overlay: concentric circles at each radius
+    // sampled by MinimapFindNearestFloor for the last click, plus dots
+    // at every sample point. Click epicenter is a single yellow pixel;
+    // sample misses red; sample hits green; walk-back endpoint orange.
+    //
+    // Radii are in world units, so we project each circle vertex through
+    // the same minimap view to keep them aligned with the click point.
+    // c_z must sit inside the orthographic frustum (camera at
+    // center.z+minimap_height looking down) or project() returns
+    // clipped/garbage coords. MinimapScreenToWorld stores click XY with
+    // z=0 which can fall past the far plane on maps whose floor sits
+    // far above 0, so we project at minimap_center.z instead.
+    if (autocvar_minimap_debug_rings && minimap_debug_click_valid) {
+        float two_pi = M_PI * 2;
+        float c_z    = minimap_center.z;
+        for (int r = 0; r < MINIMAP_FIND_RING_COUNT; r++) {
+            float radius = minimap_find_radii[r];
+            // Circle outline (32 segments).
+            int   seg_count = 32;
+            vector prev = '0 0 0';
+            for (int s = 0; s <= seg_count; s++) {
+                float a = ((float)s / seg_count) * two_pi;
+                vector p = project([minimap_debug_click_xy.x + cos(a) * radius,
+                                    minimap_debug_click_xy.y + sin(a) * radius,
+                                    c_z]);
+                if (s > 0) {
+                    drawline(1, prev, p, '0.4 0.4 0.4', 0.7);
+                }
+                prev = p;
+            }
+            // Per-sample dot - gray for untested (early-exit skipped it),
+            // red for tested miss, green for tested hit.
+            int n_dir = (int)minimap_find_dirs[r];
+            for (int d = 0; d < n_dir; d++) {
+                float a = ((float)d / n_dir) * two_pi;
+                vector p = project([minimap_debug_click_xy.x + cos(a) * radius,
+                                    minimap_debug_click_xy.y + sin(a) * radius,
+                                    c_z]);
+                float st = minimap_debug_sample_state[r * MINIMAP_FIND_MAX_DIRS + d];
+                vector color;
+                if (st == MINIMAP_SAMPLE_HIT)       color = '0 1 0';
+                else if (st == MINIMAP_SAMPLE_MISS) color = '1 0 0';
+                else                                color = '0.3 0.3 0.3';
+                drawfill([p.x - 1, p.y - 1, 0], '2 2 0', color, 1);
+            }
+        }
+        // Click epicenter - single yellow pixel.
+        vector click_screen = project([minimap_debug_click_xy.x,
+                                       minimap_debug_click_xy.y, c_z]);
+        drawfill([click_screen.x, click_screen.y, 0], '1 1 0', '1 1 0', 1);
     }
 
     // In-flight cull-volume editor preview: yellow stroked rectangle of
