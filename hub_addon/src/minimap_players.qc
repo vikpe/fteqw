@@ -32,9 +32,11 @@ void(vector cam_origin) MinimapDrawPlayers =
     vector weapon_size = '6 6 0';
 
     // Hide HUD-style indicators (health/armor/powerups/weapons) while the
-    // match isn't ongoing. The server's status string only contains "min left"
-    // once the round is actually running (standby/countdown have other text).
-    float match_active = strstrofs(serverkey("status"), "min left", 0) >= 0;
+    // match isn't ongoing, or when running on a local listen server (testing).
+    // The server's status string only contains "min left" once the round is
+    // actually running (standby/countdown have other text).
+    float match_active = strstrofs(serverkey("status"), "min left", 0) >= 0
+                         && !isserver();
 
     MinimapBuildPlayerLabels();
 
