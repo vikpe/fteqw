@@ -39,6 +39,7 @@ minimap_editor.qc
 minimap_load.qc
 minimap_players.qc
 minimap.qc
+minimap_teleport.qc
 minimap_commands.qc
 
 score_overlay.qc
