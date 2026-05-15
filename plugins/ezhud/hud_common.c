@@ -363,6 +363,84 @@ int HUD_AmmoLowByWeapon(int weapon)
 }
 
 // ----------------
+// Custom font push/pop for hud elements. drawfuncs->StringH and
+// StringWidth are both hardwired to the engine global font_default;
+// swapping that pointer for one widget's draw scope redirects every
+// measure + draw to a custom face. Push returns the previous pointer
+// (or NULL when the cvar is empty / load fails); pass it to pop on exit.
+//
+// Faces are kept in a small fixed-size LRU cache so multiple widgets
+// can each carry their own font without thrashing.
+extern struct font_s *Font_LoadFont(const char *fontfilename, float height, float scale, int outline, unsigned int flags);
+extern void           Font_Free(struct font_s *f);
+extern struct font_s *font_default;
+
+#define HUD_FONT_CACHE_SLOTS 8
+
+typedef struct {
+	char           name[MAX_QPATH];
+	struct font_s *font;
+	unsigned int   last_used;
+} hud_font_slot_t;
+
+static hud_font_slot_t hud_font_cache[HUD_FONT_CACHE_SLOTS];
+static unsigned int    hud_font_use_seq = 0;
+
+static struct font_s *hud_font_load(const char *name)
+{
+	int i, victim;
+	unsigned int oldest_seq;
+
+	for (i = 0; i < HUD_FONT_CACHE_SLOTS; i++) {
+		if (hud_font_cache[i].font && !strcmp(hud_font_cache[i].name, name)) {
+			hud_font_cache[i].last_used = ++hud_font_use_seq;
+			return hud_font_cache[i].font;
+		}
+	}
+
+	victim     = 0;
+	oldest_seq = hud_font_cache[0].last_used;
+	for (i = 1; i < HUD_FONT_CACHE_SLOTS; i++) {
+		if (!hud_font_cache[i].font) { victim = i; break; }
+		if (hud_font_cache[i].last_used < oldest_seq) {
+			oldest_seq = hud_font_cache[i].last_used;
+			victim     = i;
+		}
+	}
+	if (hud_font_cache[victim].font) {
+		Font_Free(hud_font_cache[victim].font);
+		hud_font_cache[victim].font = NULL;
+	}
+	hud_font_cache[victim].font = Font_LoadFont(name, 8, 1, 0, 0);
+	if (!hud_font_cache[victim].font)
+		return NULL;
+	Q_strncpyz(hud_font_cache[victim].name, name, sizeof(hud_font_cache[victim].name));
+	hud_font_cache[victim].last_used = ++hud_font_use_seq;
+	return hud_font_cache[victim].font;
+}
+
+static struct font_s *hud_font_push(const char *name)
+{
+	struct font_s *custom;
+	struct font_s *prev;
+
+	if (!name || !name[0])
+		return NULL;
+	custom = hud_font_load(name);
+	if (!custom)
+		return NULL;
+	prev         = font_default;
+	font_default = custom;
+	return prev;
+}
+
+static void hud_font_pop(struct font_s *prev)
+{
+	if (prev)
+		font_default = prev;
+}
+
+// ----------------
 // DrawFPS
 void SCR_HUD_DrawFPS(hud_t *hud)
 {
@@ -835,15 +913,18 @@ void SCR_HUD_DrawGameClock(hud_t *hud)
 	float text_height;
 	byte *rgb;
 	const char *text;
+	struct font_s *prev_font;
 
 	static cvar_t
 		*hud_gameclock_scale = NULL,
-		*hud_gameclock_color;
+		*hud_gameclock_color,
+		*hud_gameclock_font;
 
 	if (hud_gameclock_scale == NULL)    // first time
 	{
 		hud_gameclock_scale = HUD_FindVar(hud, "scale");
 		hud_gameclock_color = HUD_FindVar(hud, "color");
+		hud_gameclock_font  = HUD_FindVar(hud, "font");
 	}
 
 	if (cl.countdown)
@@ -864,8 +945,10 @@ void SCR_HUD_DrawGameClock(hud_t *hud)
 
 	scale = hud_gameclock_scale->value > 0 ? hud_gameclock_scale->value : 1;
 	text_height = 8 * scale;
-	width  = strlen(text) * 8 * scale;
 	height = 8 * scale;
+
+	prev_font = hud_font_push(hud_gameclock_font->string);
+	width  = (int)ceilf(drawfuncs->StringWidth(text_height, 0, text));
 
 	if (HUD_PrepareDraw(hud, width, height, &x, &y))
 	{
@@ -874,6 +957,7 @@ void SCR_HUD_DrawGameClock(hud_t *hud)
 		drawfuncs->StringH(x, y, text_height, 0, text);
 		drawfuncs->Colour4f(1, 1, 1, 1);
 	}
+	hud_font_pop(prev_font);
 }
 
 //---------------------
@@ -6051,7 +6135,8 @@ static void pi_draw_team_header(const hub_participant_team_t *t,
 static void SCR_HUD_DrawPlayerInfo(hud_t *hud)
 {
 	static cvar_t *pi_scale = NULL, *pi_player_gap, *pi_team_gap, *pi_corner_radius,
-	              *pi_loc_width, *pi_name_width, *pi_frag_padding;
+	              *pi_loc_width, *pi_name_width, *pi_frag_padding, *pi_font;
+	struct font_s *prev_font;
 	int x = 0, y = 0;
 	float s, font_px, char_width, slash_gap;
 	float name_w, location_w, armor_w, health_w, weapon_w, frags_w;
@@ -6076,6 +6161,7 @@ static void SCR_HUD_DrawPlayerInfo(hud_t *hud)
 		pi_loc_width      = HUD_FindVar(hud, "loc_width");
 		pi_name_width     = HUD_FindVar(hud, "name_width");
 		pi_frag_padding   = HUD_FindVar(hud, "frag_padding");
+		pi_font           = HUD_FindVar(hud, "font");
 	}
 
 	if (cl.deathmatch <= 0) {
@@ -6088,6 +6174,9 @@ static void SCR_HUD_DrawPlayerInfo(hud_t *hud)
 		HUD_PrepareDraw(hud, 0, 0, &x, &y);
 		return;
 	}
+
+	// Done before sizing because StringWidth uses the active font too.
+	prev_font = hud_font_push(pi_font->string);
 
 	// Group only when Hub built teams AND every team name is non-empty
 	// (mirrors the QC has_groups gate).
@@ -6157,8 +6246,10 @@ static void SCR_HUD_DrawPlayerInfo(hud_t *hud)
 
 	width  = (int)ceilf(content_w);
 	height = (int)ceilf(total_h);
-	if (!HUD_PrepareDraw(hud, width, height, &x, &y))
+	if (!HUD_PrepareDraw(hud, width, height, &x, &y)) {
+		hud_font_pop(prev_font);
 		return;
+	}
 
 	ti_count = clientfuncs->GetTeamInfo ? clientfuncs->GetTeamInfo(ti_clients, countof(ti_clients), true, -1) : 0;
 
@@ -6191,6 +6282,8 @@ static void SCR_HUD_DrawPlayerInfo(hud_t *hud)
 			cursor_y += row_height + player_gap;
 		}
 	}
+
+	hud_font_pop(prev_font);
 }
 
 qbool Has_Both_RL_and_LG (int flags) { return (flags & IT_ROCKET_LAUNCHER) && (flags & IT_LIGHTNING); }
@@ -7108,7 +7201,8 @@ static int score_bar_pick_sides(score_bar_side_t out[2])
 
 void SCR_HUD_DrawScoresBar2(hud_t *hud)
 {
-	static cvar_t *scale = NULL, *gap_cv, *frame_padding, *frag_padding, *frag_corner_radius;
+	static cvar_t *scale = NULL, *gap_cv, *frame_padding, *frag_padding, *frag_corner_radius, *font;
+	struct font_s *prev_font;
 	int x = 0, y = 0;
 	int i;
 	score_bar_side_t sides[2];
@@ -7128,6 +7222,7 @@ void SCR_HUD_DrawScoresBar2(hud_t *hud)
 		frame_padding = HUD_FindVar(hud, "frame_padding");
 		frag_padding  = HUD_FindVar(hud, "frag_padding");
 		frag_corner_radius = HUD_FindVar(hud, "frag_corner_radius");
+		font          = HUD_FindVar(hud, "font");
 	}
 
 	if (cl.deathmatch <= 0)
@@ -7150,6 +7245,8 @@ void SCR_HUD_DrawScoresBar2(hud_t *hud)
 		HUD_PrepareDraw(hud, 0, 0, &x, &y);
 		return;
 	}
+
+	prev_font = hud_font_push(font->string);
 
 	s         = scale->value > 0 ? scale->value : 1;
 	font_px   = 8                    * s;
@@ -7197,8 +7294,10 @@ void SCR_HUD_DrawScoresBar2(hud_t *hud)
 		total_w = 2 * half;
 		width   = (int)ceilf(total_w + 2 * fpad.x);
 		height  = (int)ceilf(box_h   + 2 * fpad.y);
-		if (!HUD_PrepareDraw(hud, width, height, &x, &y))
+		if (!HUD_PrepareDraw(hud, width, height, &x, &y)) {
+			hud_font_pop(prev_font);
 			return;
+		}
 
 		float content_y = y + fpad.y;
 		float text_y    = content_y + (box_h - font_px) * 0.5f;
@@ -7215,6 +7314,7 @@ void SCR_HUD_DrawScoresBar2(hud_t *hud)
 		hud_draw_colored_box(box0_x, content_y, box_w[0], box_h, sides[0].top_rgb, sides[0].bottom_rgb, radius, font_px, score_str[0]);
 		hud_draw_colored_box(box1_x, content_y, box_w[1], box_h, sides[1].top_rgb, sides[1].bottom_rgb, radius, font_px, score_str[1]);
 		drawfuncs->StringH(name1_x, text_y, font_px, 0, sides[1].name);
+		hud_font_pop(prev_font);
 		return;
 	}
 
@@ -7225,8 +7325,10 @@ void SCR_HUD_DrawScoresBar2(hud_t *hud)
 	total_w = box_w[0] + name_gap + name_w[0];
 	width   = (int)ceilf(total_w + 2 * fpad.x);
 	height  = (int)ceilf(box_h   + 2 * fpad.y);
-	if (!HUD_PrepareDraw(hud, width, height, &x, &y))
+	if (!HUD_PrepareDraw(hud, width, height, &x, &y)) {
+		hud_font_pop(prev_font);
 		return;
+	}
 
 	float content_y = y + fpad.y;
 	float text_y    = content_y + (box_h - font_px) * 0.5f;
@@ -7236,6 +7338,7 @@ void SCR_HUD_DrawScoresBar2(hud_t *hud)
 	cursor += box_w[0] + name_gap;
 
 	drawfuncs->StringH(cursor, text_y, font_px, 0, sides[0].name);
+	hud_font_pop(prev_font);
 }
 
 void SCR_HUD_DrawBarArmor(hud_t *hud)
@@ -8750,6 +8853,7 @@ void CommonDraw_Init(void)
         "1", "window", "center", "top", "0", "8", "0", "0 0 0", NULL,
 		"scale",    "1",
 		"color",    "255 255 51",
+		"font",     "",
         NULL);
 
 	HUD_Register("notify", NULL, "Shows last console lines",
@@ -9303,6 +9407,7 @@ void CommonDraw_Init(void)
 		"frag_corner_radius", "1",
 		"loc_width",          "5",
 		"name_width",         "10",
+		"font",               "",
 		NULL);
 
 	HUD_Register("mp3_title", NULL, "Shows current mp3 playing.",
@@ -9459,6 +9564,7 @@ void CommonDraw_Init(void)
         "frag_padding",  "4 4",
         "frame_padding", "4 3",
         "frag_corner_radius", "1",
+        "font",          "",
         NULL
 		);
 
