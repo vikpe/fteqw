@@ -1,11 +1,16 @@
-// Folder-specific settings
-//
-// For a full list of overridable settings, and general information on folder-specific settings,
-// see the documentation: https://zed.dev/docs/configuring-zed#settings-files
 {
   "languages": {
     "C": {
-      "language_servers": [],
+      "show_completion_documentation": true,
+      "enable_language_server": true,
+    },
+    "C++": { "enable_language_server": true },
+  },
+  "lsp": {
+    "clangd": {
+      "initialization_options": {
+        "fallbackFlags": ["-w"],
+      },
     },
   },
 }
