@@ -22,52 +22,39 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - No em dashes, smart quotes, or Unicode. ASCII only.
 
+## Scope: web target only
+
+**This project only targets the web (emscripten/wasm) build.** Native Linux, Windows, macOS, Direct3D, Vulkan, SDL, and software-renderer builds are out of scope for every session.
+
+- Do not suggest, test, or validate against non-web targets.
+- Do not propose changes that only make sense for native builds.
+- When editing shared code (e.g. `engine/client/`, `engine/common/`, `plugins/`), verify only the web build.
+- Skip Windows/D3D/Vulkan/SDL code paths unless they share code with the web path.
+
 ## Project Overview
 
-FTEQW is an advanced, portable Quake engine ("swiss-army knife" for Quake game development). It supports multiple Quake-family protocols (QW, NQ, Q2, Q3, Hexen2, Half-Life) and multiple rendering backends (OpenGL, Direct3D 8/9/11, Vulkan, software, WebGL).
+FTEQW is an advanced Quake engine. This fork ships it as a wasm module embedded in a web app. Upstream FTEQW supports many backends; here, only the GL/WebGL path compiled via emscripten matters.
 
 ## Build Commands
 
-All builds are run from the `engine/` directory. No manual configuration needed — the Makefile auto-configures based on target.
+The user has `FTE_TARGET=web` set as a persistent shell env var (`set -gx FTE_TARGET web` in fish), so `gl-rel` builds the web target by default. All builds run from `engine/`.
 
 ```bash
 cd engine
 
-# Server (dedicated)
-make sv-rel -j4
+# Release build (the standard invocation)
+make -j$(nproc) gl-rel LINK_EZHUD=1 LINK_OPENSSL=1
 
-# Client builds (choose renderer)
-make gl-rel -j4       # OpenGL (most common)
-make vk-rel -j4       # Vulkan
-make m-rel -j4        # Software renderer
+# Debug build
+make -j$(nproc) gl-dbg LINK_EZHUD=1 LINK_OPENSSL=1
 
-# QuakeC compiler
-make qcc-rel -j4
-
-# Web/Emscripten
-make FTE_TARGET=web gl-rel
-
-# Cross-compile for Windows (from Linux)
-make FTE_TARGET=win64 m-rel
-make FTE_TARGET=win32 m-rel
-
-# Debug builds (append -dbg instead of -rel)
-make gl-dbg -j4
-
-# Build dependencies first (needed for web/cross-compilation)
-make FTE_TARGET=web makelibs
+# Build emscripten-side dependencies once (libs-*)
+make makelibs
 ```
 
-Output binaries go to `engine/release/` (or `engine/debug/`).
+`LINK_EZHUD=1` is required - without it the web link fails with `undefined symbol: Plug_EZHud_Init` because the ezhud plugin gets statically linked into the wasm. `LINK_OPENSSL=1` enables TLS.
 
-## Running
-
-```bash
-engine/release/fteqw.sv -nohome -basedir ~/quake    # Dedicated server
-engine/release/fteqw.gl -nohome -basedir ~/quake    # GL client
-```
-
-Key flags: `-nohome` (disable home dir), `-basedir $DIR`, `-game $MOD`, `+sv_public 0` (no master server reporting).
+Output: `engine/release/ftewebgl.js` + `engine/release/ftewebgl.wasm` (or `engine/debug/` for `-dbg`).
 
 ## Architecture
 
