@@ -95,7 +95,7 @@ void HUD_InitSbarImages(void)
 	sb_weapons[1][5] = Draw_CacheWadPic ("inv2_srlaunch");
 	sb_weapons[1][6] = Draw_CacheWadPic ("inv2_lightng");
 
-	for (i = 0; i < 5; i++) 
+	for (i = 0; i < 5; i++)
 	{
 		sb_weapons[2 + i][0] = Draw_CacheWadPic (va("inva%i_shotgun", i + 1));
 		sb_weapons[2 + i][1] = Draw_CacheWadPic (va("inva%i_sshotgun", i + 1));
@@ -947,6 +947,54 @@ void SCR_HUD_DrawDemoClock(hud_t *hud)
             SCR_DrawBigClock(x, y, hud_democlock_style->value, hud_democlock_blink->value, hud_democlock_scale->value, t);
         else
             SCR_DrawSmallClock(x, y, hud_democlock_style->value, hud_democlock_blink->value, hud_democlock_scale->value, t);
+	}
+}
+
+//---------------------
+//
+// matchtag
+//
+void SCR_HUD_DrawMatchTag(hud_t *hud)
+{
+	int width = 0;
+	int height = 0;
+	int x = 0;
+	int y = 0;
+	const char *tag;
+	float scale;
+	float text_height;
+	byte *rgb;
+
+	static cvar_t
+		*hud_matchtag_scale = NULL,
+		*hud_matchtag_color;
+
+	if (hud_matchtag_scale == NULL)    // first time
+	{
+		hud_matchtag_scale = HUD_FindVar(hud, "scale");
+		hud_matchtag_color = HUD_FindVar(hud, "color");
+	}
+
+	tag = Info_ValueForKey(cl.serverinfo, "matchtag");
+	if (cvarfuncs->GetFloat("cl_splitscreen") >= 1 || !tag || !tag[0])
+	{
+		HUD_PrepareDraw(hud, width, height, &x, &y);
+		return;
+	}
+
+	// Mirror SCR_GetClockStringWidth: strlen * 8 * scale. Assumes the
+	// monospace charset width matches the height base.
+	scale = hud_matchtag_scale->value > 0 ? hud_matchtag_scale->value : 1;
+	text_height = 8 * scale;
+	width  = strlen(tag) * 8 * scale;
+	height = 8 * scale;
+
+	if (HUD_PrepareDraw(hud, width, height, &x, &y))
+	{
+		rgb = StringToRGB(hud_matchtag_color->string);
+		drawfuncs->Colour4f(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1);
+		drawfuncs->StringH(x, y, text_height, 0, tag);
+		drawfuncs->Colour4f(1, 1, 1, 1);
 	}
 }
 
@@ -8157,6 +8205,14 @@ void CommonDraw_Init(void)
         "style",    "0",
 		"scale",    "1",
         "blink",    "0",
+        NULL);
+
+    // init matchtag
+	HUD_Register("matchtag", NULL, "Shows the serverinfo \"matchtag\" value, e.g. a tournament round label.",
+        HUD_PLUSMINUS, ca_disconnected, 8, SCR_HUD_DrawMatchTag,
+        "0", "screen", "right", "top", "0", "0", "0", "0 0 0", NULL,
+        "scale",    "1",
+        "color",    "255 255 255",
         NULL);
 
     // init ping
