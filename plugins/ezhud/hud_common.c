@@ -510,14 +510,15 @@ void SCR_HUD_DrawMouserate(hud_t *hud)
 
 void SCR_HUD_DrawTracking(hud_t *hud)
 {
-#ifdef HAXX
+	// Each seat's EZHud_Draw stores its tracked player here so multi-seat
+	// mode can render the full stacked list. Indexed by seat (CURRVIEW-1).
+	// Values < 0 mean "this seat is not tracking".
 	static char tracked_strings[MV_VIEWS][MAX_TRACKING_STRING];
-	static int tracked[MV_VIEWS] = {-1, -1, -1, -1};
+	static int  tracked[MV_VIEWS] = {-1, -1, -1, -1};
 	int view = 0;
-#endif
 	int views = 1;
-    int x = 0, y = 0, width = 0, height = 0;
-    char track_string[MAX_TRACKING_STRING];
+	int x = 0, y = 0, width = 0, height = 0;
+	char track_string[MAX_TRACKING_STRING];
 
 	static cvar_t *hud_tracking_format = NULL,
 		*hud_tracking_scale;
@@ -529,49 +530,41 @@ void SCR_HUD_DrawTracking(hud_t *hud)
 
 	strlcpy(track_string, hud_tracking_format->string, sizeof(track_string));
 
-#ifdef HAXX
-	if(cls.mvdplayback && cl_multiview->value && CURRVIEW > 0)
+	if (cl_multiview->value && CURRVIEW > 0)
 	{
 		//
-		// Multiview.
+		// Multi-seat: stash this seat's track, then emit the stacked
+		// list. Every seat's render pass runs this so the stored slots
+		// stay current.
 		//
+		views = (int)cl_multiview->value;
+		if (CURRVIEW - 1 < MV_VIEWS)
+			tracked[CURRVIEW - 1] = (cl.spectator && autocam == CAM_TRACK) ? spec_track : -1;
 
-		views = cl_multiview->value;
-
-		// Save the currently tracked player for the slot being drawn
-		// (this will be done for all views and we'll get a complete
-		// list over who we're tracking).
-		tracked[CURRVIEW - 1] = spec_track;
-
-		for(view = 0; view < MV_VIEWS; view++)
+		for (view = 0; view < MV_VIEWS; view++)
 		{
 			int new_width = 0;
 
-			// We haven't found who we're tracking in this view.
-			if(tracked[view] < 0)
-			{
+			if (tracked[view] < 0)
 				continue;
-			}
 
 			strlcpy(tracked_strings[view], hud_tracking_format->string, sizeof(tracked_strings[view]));
 
 			Replace_In_String(tracked_strings[view], sizeof(tracked_strings[view]), '%', 3,
-				"v", cl_multiview->value ? va("%d", view+1) : "",			// Replace %v with the current view (in multiview)
-				"n", cl.players[tracked[view]].name,						// Replace %n with player name.
-				"t", cl.teamplay ? cl.players[tracked[view]].team : "");	// Replace %t with player team if teamplay is on.
+				"v", va("%d", view + 1),
+				"n", cl.players[tracked[view]].name,
+				"t", cl.teamplay ? cl.players[tracked[view]].team : "");
 
-			// Set the width.
 			new_width = 8 * strlen_color(tracked_strings[view]);
 			width = (new_width > width) ? new_width : width;
 		}
 	}
 	else
-#endif
 	{
-		// Normal.
+		// Single-seat.
 		Replace_In_String(track_string, sizeof(track_string), '%', 2,
-			"n", cl.players[spec_track].name,						// Replace %n with player name.
-			"t", cl.teamplay ? cl.players[spec_track].team : "");	// Replace %t with player team if teamplay is on.
+			"n", cl.players[spec_track].name,
+			"t", cl.teamplay ? cl.players[spec_track].team : "");
 		width = 8 * strlen_color(track_string);
 	}
 
@@ -579,35 +572,28 @@ void SCR_HUD_DrawTracking(hud_t *hud)
 	height *= hud_tracking_scale->value;
 	width *= hud_tracking_scale->value;
 
-	if (!(cl.spectator && autocam == CAM_TRACK))
+	// Single-seat: hide entirely if this seat isn't a tracking spectator.
+	// Multi-seat: keep the layout (some other seat may still be tracking).
+	if (!cl_multiview->value && !(cl.spectator && autocam == CAM_TRACK))
 		height = 0;
 
-	if(!HUD_PrepareDraw(hud, width, height, &x, &y))
-	{
+	if (!HUD_PrepareDraw(hud, width, height, &x, &y))
 		return;
-	}
 
 	if (height == 0)
 		return;
 
-#ifdef HAXX
-	if (cls.mvdplayback && cl_multiview->value && autocam == CAM_TRACK)
+	if (cl_multiview->value && CURRVIEW > 0)
 	{
-		// Multiview
-		for(view = 0; view < MV_VIEWS; view++)
+		for (view = 0; view < MV_VIEWS; view++)
 		{
-			if(tracked[view] < 0 || CURRVIEW <= 0)
-			{
+			if (tracked[view] < 0)
 				continue;
-			}
-			Draw_SString(x, y + view*8, tracked_strings[view], hud_tracking_scale->value);
+			Draw_SString(x, y + view * 8 * hud_tracking_scale->value, tracked_strings[view], hud_tracking_scale->value);
 		}
 	}
-	else
-#endif
-		if (cl.spectator && autocam == CAM_TRACK && !cl_multiview->value)
+	else if (cl.spectator && autocam == CAM_TRACK)
 	{
-		// Normal
 		Draw_SString(x, y, track_string, hud_tracking_scale->value);
 	}
 }
@@ -6643,7 +6629,7 @@ static vec2f_t string_pair_to_vec2(const char *s)
 }
 
 typedef struct {
-	const char           *name;        // raw / utf-8 (with quake color codes)
+	const char           *name;        // raw quake-encoded bytes (^X markup + 2nd-charset preserved); StringH renders these correctly
 	const char           *name_ascii;  // ASCII, used as stable sort key
 	int                   score;
 	const unsigned char  *top_rgb;
@@ -6665,12 +6651,12 @@ static int score_bar_pick_sides(score_bar_side_t out[2])
 		int has_empty = 0;
 		int i;
 		for (i = 0; i < parts.team_count; i++)
-			if (!parts.teams[i].team[0]) { has_empty = 1; break; }
+			if (!parts.teams[i].team_bytestr[0]) { has_empty = 1; break; }
 		if (!has_empty)
 		{
 			for (i = 0; i < parts.team_count; i++)
 			{
-				out[count].name       = parts.teams[i].team;
+				out[count].name       = parts.teams[i].team_bytestr;
 				out[count].name_ascii = parts.teams[i].team_ascii;
 				out[count].score      = parts.teams[i].frag_sum;
 				out[count].top_rgb    = parts.teams[i].top_rgb;
@@ -6696,7 +6682,7 @@ static int score_bar_pick_sides(score_bar_side_t out[2])
 		{
 			if (skip_bots && parts.players[i].is_bot)
 				continue;
-			out[count].name       = parts.players[i].name;
+			out[count].name       = parts.players[i].name_bytestr;
 			out[count].name_ascii = parts.players[i].name_ascii;
 			out[count].score      = parts.players[i].frags;
 			out[count].top_rgb    = parts.players[i].top_rgb;

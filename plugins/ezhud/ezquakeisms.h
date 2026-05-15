@@ -69,6 +69,9 @@ extern pluginputfuncs_t *inputfuncs;
 
 
 #define MV_VIEWS 4
+// 1-based current seat index (cl.splitscreenview is 0-based). Matches
+// ezquake's CURRVIEW where view 0 meant "not in multiview".
+#define CURRVIEW (cl.splitscreenview + 1)
 
 
 extern float cursor_x;
