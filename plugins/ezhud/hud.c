@@ -565,7 +565,7 @@ void HUD_Reset_f (void)
 		Com_Printf("No such HUD element %s.\n", hudname);
 		return;
 	}
-	
+
 	Cbuf_AddText(va("place %s screen\n", hudname));
 	Cbuf_AddText(va("move %s 0 0\n", hudname));
 	Cbuf_AddText(va("align %s center center\n", hudname));
@@ -1572,15 +1572,6 @@ void HUD_Draw(void)
 		HUD_Sort();
 	}
 
-	// Only draw the hud once in multiview.
-/*	if (cl_multiview.integer && cls.mvdplayback)
-	{
-		if (CURRVIEW != 1)
-		{
-			return;
-		}
-	}
-*/
 	if (mvd_autohud->ival && !autohud_loaded)
 	{
 		HUD_AutoLoad_MVD(mvd_autohud->ival);
@@ -1588,11 +1579,6 @@ void HUD_Draw(void)
 		autohud_loaded = true;
 	}
 
-/*    if (scr_newHud->value == 0)
-	{
-		return;
-	}
-*/
     hud = hud_huds;
 
 	HUD_BeforeDraw();

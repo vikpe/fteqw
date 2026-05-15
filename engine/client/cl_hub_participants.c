@@ -53,8 +53,9 @@ static void gather_players(hub_participants_t *out)
 		// the same heuristic).
 		e->is_bot = (p->userid == 0) ? 1 : 0;
 
-		decode_quake_string(p->name, e->name, sizeof(e->name), e->name_ascii, sizeof(e->name_ascii));
-		decode_quake_string(p->team, e->team, sizeof(e->team), e->team_ascii, sizeof(e->team_ascii));
+		Q_strncpyz(e->name_bytestr, p->name, sizeof(e->name_bytestr));
+		Q_strncpyz(e->team_bytestr, p->team, sizeof(e->team_bytestr));
+		decode_quake_string(p->name, e->name_unicode, sizeof(e->name_unicode), e->name_ascii, sizeof(e->name_ascii));
 
 		int top = p->rtopcolor;
 		int bot = p->rbottomcolor;
@@ -114,7 +115,7 @@ static int should_build_teams(const hub_participants_t *p)
 		for (i = 0; i < p->player_count; i++) {
 			int is_first = 1;
 			for (j = 0; j < i; j++) {
-				if (!strcmp(p->players[i].team, p->players[j].team)) {
+				if (!strcmp(p->players[i].team_bytestr, p->players[j].team_bytestr)) {
 					is_first = 0;
 					break;
 				}
@@ -138,7 +139,7 @@ static void compute_team_groups(hub_participants_t *p)
 		const hub_participant_player_t *player = &p->players[i];
 		int existing = -1;
 		for (k = 0; k < p->team_count; k++) {
-			if (!strcmp(p->teams[k].team, player->team)) {
+			if (!strcmp(p->teams[k].team_bytestr, player->team_bytestr)) {
 				existing = k;
 				break;
 			}
@@ -154,8 +155,10 @@ static void compute_team_groups(hub_participants_t *p)
 			g->bottom_rgb[0] = player->bottom_rgb[0];
 			g->bottom_rgb[1] = player->bottom_rgb[1];
 			g->bottom_rgb[2] = player->bottom_rgb[2];
-			Q_strncpyz(g->team,       player->team,       sizeof(g->team));
-			Q_strncpyz(g->team_ascii, player->team_ascii, sizeof(g->team_ascii));
+			Q_strncpyz(g->team_bytestr, player->team_bytestr, sizeof(g->team_bytestr));
+			decode_quake_string(player->team_bytestr,
+			                    g->team_unicode, sizeof(g->team_unicode),
+			                    g->team_ascii,   sizeof(g->team_ascii));
 			p->team_count++;
 		} else {
 			p->teams[existing].frag_sum += player->frags;

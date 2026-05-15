@@ -603,7 +603,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			std::string out = "tot: ";
 			for (int i = 0; i < parts.player_count; i++) {
 				if (i > 0) out += ", ";
-				out += parts.players[i].name;
+				out += parts.players[i].name_unicode;
 			}
 			return out;
 		}
@@ -614,18 +614,18 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			std::string out;
 			for (int i = 0; i < parts.player_count; i++) {
 				if (i > 0) out += ", ";
-				out += parts.players[i].name;
+				out += parts.players[i].name_unicode;
 			}
 			return out;
 		}
 		if (parts.team_count >= 2) {
-			return std::string(parts.teams[0].team) + " vs " + std::string(parts.teams[1].team);
+			return std::string(parts.teams[0].team_unicode) + " vs " + std::string(parts.teams[1].team_unicode);
 		}
 		if (parts.player_count == 2) {
-			return std::string(parts.players[0].name) + " vs " + std::string(parts.players[1].name);
+			return std::string(parts.players[0].name_unicode) + " vs " + std::string(parts.players[1].name_unicode);
 		}
 		if (!strcasecmp(mode, "1on1") && parts.player_count == 1) {
-			return std::string(parts.players[0].name);
+			return std::string(parts.players[0].name_unicode);
 		}
 		if (parts.player_count == 0) return std::string();
 

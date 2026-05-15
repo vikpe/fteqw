@@ -31,17 +31,18 @@ typedef struct {
 	int  bottom_color;  // 0..16 (palette slot)
 	unsigned char top_rgb[3];     // resolved RGB (0..255) for the top palette slot
 	unsigned char bottom_rgb[3];  // resolved RGB (0..255) for the bottom palette slot
-	char name[HUB_PARTICIPANT_NAME_BYTES];        // original UTF-8 (^X codes + special chars preserved)
-	char name_ascii[HUB_PARTICIPANT_ASCII_BYTES]; // ASCII, colors stripped, special chars approximated
-	char team[HUB_PARTICIPANT_NAME_BYTES];
-	char team_ascii[HUB_PARTICIPANT_ASCII_BYTES];
+	char name_bytestr[HUB_PARTICIPANT_NAME_BYTES];  // raw quake-encoded bytes (^X markup + 2nd-charset bytes preserved); pass to ezhud drawfuncs->StringH for correct rendering
+	char name_unicode[HUB_PARTICIPANT_NAME_BYTES];  // UTF-8 (raw bytes mapped into Latin-1 codepoints); use this for non-quake renderers (HTML titles, etc.)
+	char name_ascii[HUB_PARTICIPANT_ASCII_BYTES];   // ASCII, colors stripped, special chars approximated
+	char team_bytestr[HUB_PARTICIPANT_NAME_BYTES];  // grouping key; the unicode/ascii variants only matter on the per-team rollup and are decoded there
 } hub_participant_player_t;
 
 typedef struct {
 	int  frag_sum;
 	unsigned char top_rgb[3];
 	unsigned char bottom_rgb[3];
-	char team[HUB_PARTICIPANT_NAME_BYTES];
+	char team_bytestr[HUB_PARTICIPANT_NAME_BYTES];
+	char team_unicode[HUB_PARTICIPANT_NAME_BYTES];
 	char team_ascii[HUB_PARTICIPANT_ASCII_BYTES];
 } hub_participant_team_t;
 
