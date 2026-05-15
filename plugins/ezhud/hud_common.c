@@ -836,74 +836,57 @@ static void SCR_HUD_DrawNotify(hud_t* hud)
 //
 // draw HUD gameclock
 //
+extern int Hub_GetMatchElapsedMs(void);
+
 void SCR_HUD_DrawGameClock(hud_t *hud)
 {
-    int width = 0, height = 0;
-    int x = 0, y = 0;
-	int timetype;
-	int big;
-	const char *t;
+	int width = 0;
+	int height = 0;
+	int x = 0;
+	int y = 0;
+	float scale;
+	float text_height;
+	byte *rgb;
+	const char *text;
 
-    static cvar_t
-        *hud_gameclock_big = NULL,
-        *hud_gameclock_style,
-        *hud_gameclock_blink,
-		*hud_gameclock_countdown,
-		*hud_gameclock_scale,
-		*hud_gameclock_color
-//		*hud_gameclock_offset
-		;
+	static cvar_t
+		*hud_gameclock_scale = NULL,
+		*hud_gameclock_color;
 
-    if (hud_gameclock_big == NULL)    // first time
-    {
-        hud_gameclock_big   = HUD_FindVar(hud, "big");
-        hud_gameclock_style = HUD_FindVar(hud, "style");
-        hud_gameclock_blink = HUD_FindVar(hud, "blink");
-		hud_gameclock_countdown = HUD_FindVar(hud, "countdown");
+	if (hud_gameclock_scale == NULL)    // first time
+	{
 		hud_gameclock_scale = HUD_FindVar(hud, "scale");
 		hud_gameclock_color = HUD_FindVar(hud, "color");
-//		hud_gameclock_offset = HUD_FindVar(hud, "offset");
-//		gameclockoffset = &hud_gameclock_offset->ival;
-    }
-
-	// Hide entirely during standby (pre-match / intermission).
-	if (cl.standby)
-	{
-		HUD_PrepareDraw(hud, width, height, &x, &y);
-		return;
 	}
-
-	big = hud_gameclock_big->ival;
 
 	if (cl.countdown)
 	{
-		// "Countdown" placeholder during the pre-match countdown. Force the
-		// small-clock path (the big clock only knows digits + ':') and tint
-		// brown via Colour4f so we don't need bronze-charset shenanigans.
-		t = "Countdown";
-		big = 0;
+		text = "Countdown";
 	}
 	else
 	{
-		timetype = (hud_gameclock_countdown->value) ? TIMETYPE_GAMECLOCKINV : TIMETYPE_GAMECLOCK;
-		t = SCR_GetTimeString(timetype, NULL);
+		// Hub elapsed is -1 pre-match (and when not in demo / qtv);
+		// hide the clock rather than printing "00:00".
+		if (Hub_GetMatchElapsedMs() < 0)
+		{
+			HUD_PrepareDraw(hud, width, height, &x, &y);
+			return;
+		}
+		text = SCR_GetTimeString(TIMETYPE_GAMECLOCK, NULL);
 	}
 
-	width = SCR_GetClockStringWidth(t, big, hud_gameclock_scale->value);
-	height = SCR_GetClockStringHeight(big, hud_gameclock_scale->value);
+	scale = hud_gameclock_scale->value > 0 ? hud_gameclock_scale->value : 1;
+	text_height = 8 * scale;
+	width  = strlen(text) * 8 * scale;
+	height = 8 * scale;
 
-    if (HUD_PrepareDraw(hud, width, height, &x, &y))
-    {
-        // 0..255 RGB byte triplet, matching the convention used by
-        // hud_*_frame_color and friends (parsed via StringToRGB).
-        byte *rgb = StringToRGB(hud_gameclock_color->string);
-        drawfuncs->Colour4f(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1);
-        if (big)
-            SCR_DrawBigClock(x, y, hud_gameclock_style->value, hud_gameclock_blink->value, hud_gameclock_scale->value, t);
-        else
-            SCR_DrawSmallClock(x, y, hud_gameclock_style->value, hud_gameclock_blink->value, hud_gameclock_scale->value, t);
-        drawfuncs->Colour4f(1, 1, 1, 1);
-    }
+	if (HUD_PrepareDraw(hud, width, height, &x, &y))
+	{
+		rgb = StringToRGB(hud_gameclock_color->string);
+		drawfuncs->Colour4f(rgb[0] / 255.0f, rgb[1] / 255.0f, rgb[2] / 255.0f, 1);
+		drawfuncs->StringH(x, y, text_height, 0, text);
+		drawfuncs->Colour4f(1, 1, 1, 1);
+	}
 }
 
 //---------------------
@@ -8140,14 +8123,9 @@ void CommonDraw_Init(void)
     // init gameclock
 	HUD_Register("gameclock", NULL, "Shows current game time (hh:mm:ss).",
         HUD_PLUSMINUS, ca_disconnected, 8, SCR_HUD_DrawGameClock,
-        "1", "top", "right", "console", "0", "0", "0", "0 0 0", NULL,
-        "big",      "1",
-        "style",    "0",
+        "1", "window", "center", "top", "0", "8", "0", "0 0 0", NULL,
 		"scale",    "1",
-        "blink",    "1",
-		"countdown","0",
-		"offset","0",
-		"color",    "178 115 51",
+		"color",    "255 255 51",
         NULL);
 
 	HUD_Register("notify", NULL, "Shows last console lines",

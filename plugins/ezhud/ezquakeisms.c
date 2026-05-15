@@ -444,16 +444,28 @@ char *SecondsToMinutesString(int print_time, char *buffer, size_t buffersize) {
 	snprintf (buffer, buffersize, "%i%i:%i%i", tens_minutes, minutes, tens_seconds, seconds);
 	return buffer;
 }
+extern int Hub_GetMatchElapsedMs(void);
+
 char *SCR_GetGameTime(int t, char *buffer, size_t buffersize)
 {
 	float timelimit;
 
 	timelimit = (t == TIMETYPE_GAMECLOCKINV) ? 60 * infofloat(cl.serverinfo, "timelimit", 0) + 1: 0;
 
-	if (cl.countdown || cl.standby)
+	if (cl.countdown)
+	{
 		SecondsToMinutesString(timelimit, buffer, buffersize);
+	}
 	else
-		SecondsToMinutesString((int) fabs(timelimit - (cl.time - cl.matchstart)), buffer, buffersize);
+	{
+		// Use the hub-tracked elapsed time (seconds). It's authoritative
+		// for demo / qtv playback, freezes at the match-end value during
+		// intermission (so the clock keeps showing the final time rather
+		// than dropping to 00:00), and avoids the cl.time / cl.matchstart
+		// drift seen during intermission on live play.
+		int elapsed = Hub_GetMatchElapsedMs() / 1000;
+		SecondsToMinutesString((int) fabs(timelimit - elapsed), buffer, buffersize);
+	}
 	return buffer;
 }
 	
