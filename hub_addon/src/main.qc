@@ -50,6 +50,8 @@ float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent =
 
 void() CSQC_ServerInfoChanged =
 {
+    Misc_OnServerInfoChanged();
+
     if (match_start_time >= 0.0f) {
         return;
     }
@@ -146,6 +148,7 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 
     MinimapRender(vwidth, vheight);
     ScoreOverlayDraw([vwidth, vheight, 0], vwidth);
+    PlayerInfoDraw([vwidth, vheight, 0], vwidth);
 };
 
 // Per-seat sub-rect inside the main player view.

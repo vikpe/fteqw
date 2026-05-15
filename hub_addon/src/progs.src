@@ -19,8 +19,12 @@ csplat.qc
 // Math helpers
 easing.qc
 
+// 2D drawing primitives (shared by overlays)
+draw_util.qc
+
 // Data + types
 item_type.qc
+participants.qc
 powcam_config.qc
 
 // Item spawn / pickup tracker (used by powcam scheduler and minimap)
@@ -43,6 +47,10 @@ minimap_teleport.qc
 minimap_commands.qc
 
 score_overlay.qc
+player_info.qc
+
+// Mode-driven side effects (cvar toggles etc.)
+misc.qc
 
 // Powerup-cam: schedule then render
 powcam.qc

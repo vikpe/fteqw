@@ -48,6 +48,10 @@ typedef struct {
 #define MM_IT_ARMOR1           8192    // Green Armor   (max 100)
 #define MM_IT_ARMOR2           16384   // Yellow Armor  (max 150)
 #define MM_IT_ARMOR3           32768   // Red Armor     (max 200)
+#define MM_IT_INVISIBILITY     524288  // Ring of Shadows
+#define MM_IT_INVULNERABILITY  1048576 // Pentagram
+#define MM_IT_SUIT             2097152 // Biosuit
+#define MM_IT_QUAD             4194304 // Quad Damage
 
 // ----------------------------------------------------------------------------
 // Cvars.

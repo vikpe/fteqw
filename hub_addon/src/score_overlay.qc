@@ -20,8 +20,6 @@
  *   - names are drawn verbatim, no char filtering
  */
 
-#define SO_MAX_PARTICIPANTS 32
-
 // Layout reference height in pixels. All sizes scale with main_size.y / this.
 #define SO_REF_HEIGHT 720
 
@@ -39,27 +37,6 @@
 #define SO_SCORE_HORIZONTAL_GAP_PX  4
 #define SO_SCORE_CORNER_RADIUS_PX   1
 #define SO_CLOCK_FONT_PX            12
-
-// Filled rounded rect via R_BeginPolygon (one convex poly, triangle-fan
-// tessellated by the engine). `corners` is a bitmask of which corners to
-// round: 1=TL, 2=TR, 4=BR, 8=BL.
-#define SO_RR_TL 1
-#define SO_RR_TR 2
-#define SO_RR_BR 4
-#define SO_RR_BL 8
-#define SO_RR_TOP    (SO_RR_TL | SO_RR_TR)
-#define SO_RR_BOTTOM (SO_RR_BR | SO_RR_BL)
-
-// One scoreboard entry. The same shape works for raw players, aggregated
-// teams, and the final 2 participants - .team is only meaningful for the
-// raw-player pass.
-typedef struct {
-    string name;
-    float  score;
-    vector top_color;
-    vector bottom_color;
-    string team;
-} so_participant_t;
 
 // Score-box + name layout, scaled to the current viewport.
 typedef struct {
@@ -84,8 +61,7 @@ typedef struct {
 void(vector main_size, __out so_layout_t L)                                              SO_LayoutFor;
 float(so_layout_t L, vector anchor)                                                      SO_DrawParticipants;
 void(so_layout_t L, vector anchor)                                                       SO_DrawClock;
-void(so_layout_t L, vector anchor, float side, so_participant_t p)                       SO_DrawParticipantSide;
-void(vector pos, vector size, float radius, float corners, vector color, float alpha)    SO_DrawRoundedRect;
+void(so_layout_t L, vector anchor, float side, participant_t p)                          SO_DrawParticipantSide;
 
 // ----- entry points ---------------------------------------------------------
 
@@ -137,76 +113,47 @@ float(vector main_size) ScoreOverlayReservedHeight =
 // centered top of the overlay row (x = horizontal center, y = top edge).
 float(so_layout_t L, vector anchor) SO_DrawParticipants =
 {
-    // Collect active non-spectator players into one struct array.
-    so_participant_t players[SO_MAX_PARTICIPANTS];
-    float player_count = 0;
-    for (int i = 0; i < maxclients && player_count < SO_MAX_PARTICIPANTS; i++) {
-        string name = getplayerkeyvalue(i, "name");
-        if (name == "") continue;
-        if (stof(getplayerkeyvalue(i, "*spectator")) > 0) continue;
-        players[player_count].name     = name;
-        players[player_count].score    = stof(getplayerkeyvalue(i, "frags"));
-        players[player_count].top_color = stov(getplayerkeyvalue(i, "topcolor_rgb"));
-        players[player_count].bottom_color = stov(getplayerkeyvalue(i, "bottomcolor_rgb"));
-        players[player_count].team     = getplayerkeyvalue(i, "team");
-        player_count++;
-    }
-
-    if (player_count == 0) {
+    Participants_GatherPlayers();
+    if (Participants_PlayerCount == 0) {
         return 0;
     }
 
     // Teamplay: aggregate into unique teams. Use them when 1 or 2
     // distinct non-empty teams exist; otherwise fall through.
-    so_participant_t participants[2];
+    participant_t participants[2];
     float participant_count = 0;
     if (serverkeyfloat("teamplay") > 0) {
-        so_participant_t teams[SO_MAX_PARTICIPANTS];
-        float team_count = 0;
-        for (int i = 0; i < player_count; i++) {
-            if (players[i].team == "") {
-                // Empty team disqualifies the partition; poison team_count
-                // so the check below falls through to the player case.
-                team_count = -1;
+        Participants_GatherTeams();
+        // Empty team name disqualifies the partition - fall through
+        // to the per-player case below.
+        float has_empty_team = 0;
+        for (int j = 0; j < Participants_TeamCount; j++) {
+            if (Participants_Teams[j].name == "") {
+                has_empty_team = 1;
                 break;
             }
-            float existing = -1;
-            for (int j = 0; j < team_count; j++) {
-                if (teams[j].name == players[i].team) {
-                    existing = j;
-                    break;
-                }
-            }
-            if (existing < 0) {
-                if (team_count >= SO_MAX_PARTICIPANTS) break;
-                teams[team_count]      = players[i];
-                teams[team_count].name = players[i].team;
-                team_count++;
-            } else {
-                teams[existing].score += players[i].score;
-            }
         }
-        if (team_count == 1 || team_count == 2) {
-            participants[0] = teams[0];
-            if (team_count == 2) participants[1] = teams[1];
-            participant_count = team_count;
+        if (!has_empty_team && (Participants_TeamCount == 1 || Participants_TeamCount == 2)) {
+            participants[0] = Participants_Teams[0];
+            if (Participants_TeamCount == 2) participants[1] = Participants_Teams[1];
+            participant_count = Participants_TeamCount;
         }
     }
 
     if (participant_count == 0) {
-        if (player_count > 2) {
+        if (Participants_PlayerCount > 2) {
             return 0;
         }
-        participants[0] = players[0];
-        if (player_count == 2) participants[1] = players[1];
-        participant_count = player_count;
+        participants[0] = Participants_Players[0];
+        if (Participants_PlayerCount == 2) participants[1] = Participants_Players[1];
+        participant_count = Participants_PlayerCount;
     }
 
     // Two-sided: stable left/right placement by ASCII-byte order of the
     // markup-stripped names, ascending.
     if (participant_count == 2 &&
         strcmp(strdecolorize(participants[0].name), strdecolorize(participants[1].name)) > 0) {
-        so_participant_t swap = participants[0];
+        participant_t swap = participants[0];
         participants[0] = participants[1];
         participants[1] = swap;
     }
@@ -220,7 +167,7 @@ float(so_layout_t L, vector anchor) SO_DrawParticipants =
 
 // Draws one participant's score box + score text + outward name. `side` is
 // -1 for left of anchor.x, +1 for right.
-void(so_layout_t L, vector anchor, float side, so_participant_t p) SO_DrawParticipantSide =
+void(so_layout_t L, vector anchor, float side, participant_t p) SO_DrawParticipantSide =
 {
     vector font    = L.score.font_size;
     string score_s = ftos(p.score);
@@ -243,8 +190,8 @@ void(so_layout_t L, vector anchor, float side, so_participant_t p) SO_DrawPartic
     vector score_pos      = [box_x + (half_size.x - score_w) * 0.5, anchor.y + L.score.padding.y, 0];
     vector name_pos       = [name_x, anchor.y + L.score.padding.y, 0];
 
-    SO_DrawRoundedRect(box_top_pos,    half_size, L.score.corner_radius, SO_RR_TOP,    p.top_color, 1);
-    SO_DrawRoundedRect(box_bottom_pos, half_size, L.score.corner_radius, SO_RR_BOTTOM, p.bottom_color, 1);
+    HubDrawRoundedRect(box_top_pos,    half_size, L.score.corner_radius, RR_TOP,    p.top_color, 1);
+    HubDrawRoundedRect(box_bottom_pos, half_size, L.score.corner_radius, RR_BOTTOM, p.bottom_color, 1);
     drawstring(score_pos, score_s, font, '1 1 1', 1, 0);
     drawstring(name_pos,  p.name,  font, '1 1 1', 1, 0);
 };
@@ -286,7 +233,7 @@ void(so_layout_t L, vector anchor) SO_DrawClock =
     drawstring(pos, text, L.clock_font_size, color, 1, 0);
 };
 
-// ----- layout / primitives --------------------------------------------------
+// ----- layout ---------------------------------------------------------------
 
 void(vector main_size, __out so_layout_t L) SO_LayoutFor =
 {
@@ -307,70 +254,4 @@ void(vector main_size, __out so_layout_t L) SO_LayoutFor =
     float clock_font_px    = floor(SO_CLOCK_FONT_PX * scale);
     L.clock_font_size = [clock_font_px, clock_font_px, 0];
     L.vertical_gap    = ceil(SO_VERTICAL_GAP_PX * scale);
-};
-
-void(vector pos, vector size, float radius, float corners, vector color, float alpha) SO_DrawRoundedRect =
-{
-    if (radius < 1 || corners == 0) {
-        drawfill(pos, [size.x, size.y, 0], color, alpha);
-        return;
-    }
-    if (radius > size.x * 0.5) radius = size.x * 0.5;
-    if (radius > size.y * 0.5) radius = size.y * 0.5;
-
-    float  segments_per_corner = 5;
-    vector center;
-    float  angle;
-
-    R_BeginPolygon("minimap_fill_v3", 0, 1);
-
-    // Walk perimeter clockwise: TL -> TR -> BR -> BL. Each rounded corner
-    // emits N+1 arc points; each square corner emits a single vertex.
-    // Angles are in screen space (y-down); arc ranges chosen so consecutive
-    // corners connect smoothly without overlap.
-    if (corners & SO_RR_TL) {
-        center = [pos.x + radius, pos.y + radius, 0];
-        for (int i = 0; i <= segments_per_corner; i++) {
-            angle = M_PI + (i / segments_per_corner) * (M_PI / 2);
-            R_PolygonVertex([center.x + cos(angle) * radius, center.y + sin(angle) * radius, 0],
-                            '0 0 0', color, alpha);
-        }
-    } else {
-        R_PolygonVertex([pos.x, pos.y, 0], '0 0 0', color, alpha);
-    }
-
-    if (corners & SO_RR_TR) {
-        center = [pos.x + size.x - radius, pos.y + radius, 0];
-        for (int i = 0; i <= segments_per_corner; i++) {
-            angle = 3 * M_PI / 2 + (i / segments_per_corner) * (M_PI / 2);
-            R_PolygonVertex([center.x + cos(angle) * radius, center.y + sin(angle) * radius, 0],
-                            '0 0 0', color, alpha);
-        }
-    } else {
-        R_PolygonVertex([pos.x + size.x, pos.y, 0], '0 0 0', color, alpha);
-    }
-
-    if (corners & SO_RR_BR) {
-        center = [pos.x + size.x - radius, pos.y + size.y - radius, 0];
-        for (int i = 0; i <= segments_per_corner; i++) {
-            angle = (i / segments_per_corner) * (M_PI / 2);
-            R_PolygonVertex([center.x + cos(angle) * radius, center.y + sin(angle) * radius, 0],
-                            '0 0 0', color, alpha);
-        }
-    } else {
-        R_PolygonVertex([pos.x + size.x, pos.y + size.y, 0], '0 0 0', color, alpha);
-    }
-
-    if (corners & SO_RR_BL) {
-        center = [pos.x + radius, pos.y + size.y - radius, 0];
-        for (int i = 0; i <= segments_per_corner; i++) {
-            angle = M_PI / 2 + (i / segments_per_corner) * (M_PI / 2);
-            R_PolygonVertex([center.x + cos(angle) * radius, center.y + sin(angle) * radius, 0],
-                            '0 0 0', color, alpha);
-        }
-    } else {
-        R_PolygonVertex([pos.x, pos.y + size.y, 0], '0 0 0', color, alpha);
-    }
-
-    R_EndPolygon();
 };
