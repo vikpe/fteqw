@@ -724,6 +724,33 @@ int EZHud_Draw(int seat, float viewx, float viewy, float viewwidth, float viewhe
 	return true;
 }
 
+//
+// Post-CSQC HUD pass. Invoked by the engine once per frame after
+// CSQC_UpdateView returns, with full-window coords (not per-seat). Only
+// HUD_PLACE_WINDOW elements draw here - everything else stays in the
+// regular EZHud_Draw pass (which fires per renderscene with the seat's
+// vrect).
+//
+int EZHud_DrawPostCsqc(float viewx, float viewy, float viewwidth, float viewheight)
+{
+	cl.splitscreenview = 0;
+	scr_vrect.x = viewx;
+	scr_vrect.y = viewy;
+	scr_vrect.width = viewwidth;
+	scr_vrect.height = viewheight;
+	hud_seat_scale = 1.0f;
+
+	// Bump the per-frame screen-update sequence so HUD_DrawObject's
+	// "already tried this frame" guard doesn't latch on the value left
+	// over from the last frame. Required when nothing else incremented
+	// it - e.g. minimap_mode FULL bypasses the per-seat EZHud_Draw path
+	// entirely, so without this bump HUD_DrawObject would refuse to draw.
+	host_screenupdatecount++;
+
+	HUD_DrawWindowOnly();
+	return 0;
+}
+
 unsigned int keydown[K_MAX];
 float cursor_x;
 float cursor_y;
@@ -774,6 +801,7 @@ qboolean Plug_Init(void)
 
 	if (cvarfuncs && drawfuncs && clientfuncs && filefuncs && inputfuncs &&
 		plugfuncs->ExportFunction("SbarBase", EZHud_Draw) &&
+		plugfuncs->ExportFunction("PostCsqc", EZHud_DrawPostCsqc) &&
 		plugfuncs->ExportFunction("MenuEvent", EZHud_MenuEvent) &&
 		plugfuncs->ExportFunction("Tick", EZHud_Tick))
 	{

@@ -123,6 +123,7 @@ typedef struct plugin_s {
 	int (QDECL *conexecutecommand)(qboolean isinsecure);
 	qboolean (QDECL *menufunction)(int eventtype, int keyparam, int unicodeparm, float mousecursor_x, float mousecursor_y, float vidwidth, float vidheight);
 	int (QDECL *sbarlevel[3])(int seat, float x, float y, float w, float h, unsigned int showscores);	//0 - main sbar, 1 - supplementry sbar sections (make sure these can be switched off), 2 - overlays (scoreboard). menus kill all.
+	int (QDECL *postcsqc)(float x, float y, float w, float h);	//fires once per frame after CSQC_UpdateView returns. full window coords, not per-seat. lets a plugin overlay globally-anchored UI on top of CSQC drawing.
 	void (QDECL *reschange)(int width, int height, qboolean restarted);
 
 	//protocol-in-a-plugin
@@ -387,6 +388,8 @@ qboolean VARGS PlugBI_ExportFunction(const char *name, funcptr_t function)
 		currentplug->sbarlevel[1] = function;
 	else if (!strcmp(name, "SbarOverlay"))		//overlay - scoreboard type stuff.
 		currentplug->sbarlevel[2] = function;
+	else if (!strcmp(name, "PostCsqc"))		//post-CSQC pass: fires once after CSQC_UpdateView with full-window coords.
+		currentplug->postcsqc = function;
 	else if (!strcmp(name, "ConnectionlessClientPacket"))
 		currentplug->connectionlessclientpacket = function;
 	else if (!strcmp(name, "ServerMessageEvent"))
@@ -1511,6 +1514,26 @@ void Plug_SBar(playerview_t *pv)
 	}
 
 
+	currentplug = oc;
+}
+
+//
+// Fires once per frame after CSQC_UpdateView returns. Lets plugins draw
+// 2D overlays globally on top of all CSQC content (regardless of which
+// renderscene call they were attached to). Coords are the full window;
+// per-seat splitscreen rects don't apply here.
+//
+void Plug_PostCsqc(void)
+{
+	plugin_t *oc = currentplug;
+	for (currentplug = plugs; currentplug; currentplug = currentplug->next)
+	{
+		if (currentplug->postcsqc)
+		{
+			R2D_ImageColours(1, 1, 1, 1);
+			currentplug->postcsqc(0, 0, vid.width, vid.height);
+		}
+	}
 	currentplug = oc;
 }
 #endif

@@ -1,17 +1,20 @@
 // SPDX-License-Identifier: 0BSD
 
 /*
- * Score overlay drawn centered at the top of the screen.
+ * Overlay drawn across the top of the screen. Bundles the
+ * top-of-screen widgets that share a layout/scale:
+ *   - 2-side score boxes (1v1 or 2-team partition)
+ *   - match clock
  *
  * Visibility:
  *   - Hidden entirely in coop (deathmatch == 0).
- *   - Participants (name+score boxes) shown whenever a 2-side partition
- *     is available: exactly 2 active non-spectator players, OR exactly
- *     2 distinct teams across them. Stays visible during standby so the
- *     final score from the previous match remains on screen.
+ *   - Score boxes shown whenever a 2-side partition is available:
+ *     exactly 2 active non-spectator players, OR exactly 2 distinct
+ *     teams across them. Stays visible during standby so the final
+ *     score from the previous match remains on screen.
  *   - Match clock shown only outside standby.
  *
- * Layout (left to right): name1 | score1 | score2 | name2
+ * Score row layout (left to right): name1 | score1 | score2 | name2
  *   - 4px gap between every item
  *   - scores sit on a vertically-split rectangle (top half = top_color,
  *     bottom half = bottom_color) belonging to that participant
@@ -21,22 +24,22 @@
  */
 
 // Layout reference height in pixels. All sizes scale with main_size.y / this.
-#define SO_REF_HEIGHT 720
+#define OVERLAY_REF_HEIGHT 720
 
 // Scale clamps - tiny windows stay legible, huge ones don't get cartoonish.
-#define SO_SCALE_MIN 0.6
-#define SO_SCALE_MAX 2.0
+#define OVERLAY_SCALE_MIN 0.6
+#define OVERLAY_SCALE_MAX 2.0
 
-// Pixel sizes at scale = 1. Constants are named after the so_layout_t
-// field they populate (see SO_LayoutFor).
-#define SO_MARGIN_PX                16
-#define SO_VERTICAL_GAP_PX          4
-#define SO_SCORE_FONT_PX            12
-#define SO_SCORE_PADDING_X_PX       6
-#define SO_SCORE_PADDING_Y_PX       4
-#define SO_SCORE_HORIZONTAL_GAP_PX  4
-#define SO_SCORE_CORNER_RADIUS_PX   1
-#define SO_CLOCK_FONT_PX            12
+// Pixel sizes at scale = 1. Constants are named after the overlay_layout_t
+// field they populate (see OVERLAY_LayoutFor).
+#define OVERLAY_MARGIN_PX                16
+#define OVERLAY_VERTICAL_GAP_PX          4
+#define OVERLAY_SCORE_FONT_PX            12
+#define OVERLAY_SCORE_PADDING_X_PX       6
+#define OVERLAY_SCORE_PADDING_Y_PX       4
+#define OVERLAY_SCORE_HORIZONTAL_GAP_PX  4
+#define OVERLAY_SCORE_CORNER_RADIUS_PX   1
+#define OVERLAY_CLOCK_FONT_PX            12
 
 // Score-box + name layout, scaled to the current viewport.
 typedef struct {
@@ -45,27 +48,27 @@ typedef struct {
     float  horizontal_gap; // horizontal gap: name<->box and between the two boxes
     float  box_height;     // full score-box height (font_size.y + padding.y*2); drawn as two halves
     float  corner_radius;  // outer corner rounding on top/bottom halves
-} so_score_layout_t;
+} overlay_score_layout_t;
 
 // Top-level layout: base scale + per-subsystem metrics. Produced by
-// SO_LayoutFor and consumed by the draw functions.
+// OVERLAY_LayoutFor and consumed by the draw functions.
 typedef struct {
     float             scale;
     float             margin;           // top/bottom outer margin around the whole overlay
     float             vertical_gap;     // vertical space between the score-box row and the clock
-    so_score_layout_t score;
+    overlay_score_layout_t score;
     vector            clock_font_size;  // character cell (w, h) for the "MM:SS" text
-} so_layout_t;
+} overlay_layout_t;
 
 // Forward declarations so the file reads top-down (entry points first).
-void(vector main_size, __out so_layout_t L)                                              SO_LayoutFor;
-float(so_layout_t L, vector anchor)                                                      SO_DrawParticipants;
-void(so_layout_t L, vector anchor)                                                       SO_DrawClock;
-void(so_layout_t L, vector anchor, float side, participant_t p)                          SO_DrawParticipantSide;
+void(vector main_size, __out overlay_layout_t L)                                              OVERLAY_LayoutFor;
+float(overlay_layout_t L, vector anchor)                                                      OVERLAY_DrawParticipants;
+void(overlay_layout_t L, vector anchor)                                                       OVERLAY_DrawClock;
+void(overlay_layout_t L, vector anchor, float side, participant_t p)                          OVERLAY_DrawParticipantSide;
 
 // ----- entry points ---------------------------------------------------------
 
-void(vector main_size, float vwidth) ScoreOverlayDraw =
+void(vector main_size, float vwidth) OverlayDraw =
 {
     // Coop hides everything.
     if (serverkeyfloat("deathmatch") <= 0) {
@@ -74,32 +77,32 @@ void(vector main_size, float vwidth) ScoreOverlayDraw =
 
     // Highest z-index UI - centered on the full screen, drawn over player
     // view / minimap / powcam.
-    so_layout_t L;
-    SO_LayoutFor(main_size, L);
+    overlay_layout_t L;
+    OVERLAY_LayoutFor(main_size, L);
     vector anchor = [vwidth * 0.5, L.margin, 0];
 
     // Participants: visible during standby too (so the final score of the
     // previous match stays on screen between rounds).
-    float has_participants = SO_DrawParticipants(L, anchor);
+    float has_participants = OVERLAY_DrawParticipants(L, anchor);
 
     // Clock: hidden during pre-match / between-match standby is handled
-    // inside SO_DrawClock. When no participants were drawn, the clock
+    // inside OVERLAY_DrawClock. When no participants were drawn, the clock
     // takes their slot at the top.
     vector clock_anchor = anchor;
     if (has_participants) {
         clock_anchor.y += L.score.box_height + L.vertical_gap;
     }
-    SO_DrawClock(L, clock_anchor);
+    OVERLAY_DrawClock(L, clock_anchor);
 };
 
 // Reserved vertical footprint (top margin + box + clock + bottom margin)
 // the score overlay occupies inside the player viewport. Callers placing
 // other UI near the top of the viewport (e.g. powcam) can shift down by
 // this amount so they don't overlap.
-float(vector main_size) ScoreOverlayReservedHeight =
+float(vector main_size) OverlayReservedHeight =
 {
-    so_layout_t L;
-    SO_LayoutFor(main_size, L);
+    overlay_layout_t L;
+    OVERLAY_LayoutFor(main_size, L);
     float clock_height = L.clock_font_size.y + L.vertical_gap;
     return L.margin + L.score.box_height + clock_height;
 };
@@ -111,21 +114,18 @@ float(vector main_size) ScoreOverlayReservedHeight =
 // participants, or too many for a 2-side display). A single participant
 // is drawn on the left; two are drawn left/right. `anchor` is the
 // centered top of the overlay row (x = horizontal center, y = top edge).
-float(so_layout_t L, vector anchor) SO_DrawParticipants =
+float(overlay_layout_t L, vector anchor) OVERLAY_DrawParticipants =
 {
-    Participants_GatherPlayers();
+    Participants_Gather();
     if (Participants_PlayerCount == 0) {
         return 0;
     }
 
-    // Teamplay: aggregate into unique teams. Use them when 1 or 2
-    // distinct non-empty teams exist; otherwise fall through.
+    // Teamplay: use the gathered team grouping when 1 or 2 distinct
+    // non-empty teams exist; otherwise fall through to the per-player case.
     participant_t participants[2];
     float participant_count = 0;
     if (serverkeyfloat("teamplay") > 0) {
-        Participants_GatherTeams();
-        // Empty team name disqualifies the partition - fall through
-        // to the per-player case below.
         float has_empty_team = 0;
         for (int j = 0; j < Participants_TeamCount; j++) {
             if (Participants_Teams[j].name == "") {
@@ -150,24 +150,24 @@ float(so_layout_t L, vector anchor) SO_DrawParticipants =
     }
 
     // Two-sided: stable left/right placement by ASCII-byte order of the
-    // markup-stripped names, ascending.
+    // name_ascii field, ascending.
     if (participant_count == 2 &&
-        strcmp(strdecolorize(participants[0].name), strdecolorize(participants[1].name)) > 0) {
+        strcmp(participants[0].name_ascii, participants[1].name_ascii) > 0) {
         participant_t swap = participants[0];
         participants[0] = participants[1];
         participants[1] = swap;
     }
 
-    SO_DrawParticipantSide(L, anchor, -1, participants[0]);
+    OVERLAY_DrawParticipantSide(L, anchor, -1, participants[0]);
     if (participant_count == 2) {
-        SO_DrawParticipantSide(L, anchor, +1, participants[1]);
+        OVERLAY_DrawParticipantSide(L, anchor, +1, participants[1]);
     }
     return 1;
 };
 
 // Draws one participant's score box + score text + outward name. `side` is
 // -1 for left of anchor.x, +1 for right.
-void(so_layout_t L, vector anchor, float side, participant_t p) SO_DrawParticipantSide =
+void(overlay_layout_t L, vector anchor, float side, participant_t p) OVERLAY_DrawParticipantSide =
 {
     vector font    = L.score.font_size;
     string score_s = ftos(p.score);
@@ -205,7 +205,7 @@ void(so_layout_t L, vector anchor, float side, participant_t p) SO_DrawParticipa
 // the slot doesn't read "-1:59" (floor(-1/1000)=-1 -> mm=-1, ss=59).
 // Countdown is shown as a literal "Countdown" label, independent of the
 // elapsed clock.
-void(so_layout_t L, vector anchor) SO_DrawClock =
+void(overlay_layout_t L, vector anchor) OVERLAY_DrawClock =
 {
     string status = serverkey("status");
 
@@ -235,23 +235,23 @@ void(so_layout_t L, vector anchor) SO_DrawClock =
 
 // ----- layout ---------------------------------------------------------------
 
-void(vector main_size, __out so_layout_t L) SO_LayoutFor =
+void(vector main_size, __out overlay_layout_t L) OVERLAY_LayoutFor =
 {
-    float scale = main_size.y / SO_REF_HEIGHT;
-    if (scale < SO_SCALE_MIN) scale = SO_SCALE_MIN;
-    if (scale > SO_SCALE_MAX) scale = SO_SCALE_MAX;
+    float scale = main_size.y / OVERLAY_REF_HEIGHT;
+    if (scale < OVERLAY_SCALE_MIN) scale = OVERLAY_SCALE_MIN;
+    if (scale > OVERLAY_SCALE_MAX) scale = OVERLAY_SCALE_MAX;
     L.scale = scale;
 
-    L.margin = ceil(SO_MARGIN_PX * scale);
+    L.margin = ceil(OVERLAY_MARGIN_PX * scale);
 
-    float score_font_px = floor(SO_SCORE_FONT_PX * scale);
+    float score_font_px = floor(OVERLAY_SCORE_FONT_PX * scale);
     L.score.font_size      = [score_font_px, score_font_px, 0];
-    L.score.padding        = [ceil(SO_SCORE_PADDING_X_PX * scale), ceil(SO_SCORE_PADDING_Y_PX * scale), 0];
-    L.score.horizontal_gap = ceil(SO_SCORE_HORIZONTAL_GAP_PX * scale);
+    L.score.padding        = [ceil(OVERLAY_SCORE_PADDING_X_PX * scale), ceil(OVERLAY_SCORE_PADDING_Y_PX * scale), 0];
+    L.score.horizontal_gap = ceil(OVERLAY_SCORE_HORIZONTAL_GAP_PX * scale);
     L.score.box_height     = score_font_px + L.score.padding.y * 2;
-    L.score.corner_radius  = ceil(SO_SCORE_CORNER_RADIUS_PX * scale);
+    L.score.corner_radius  = ceil(OVERLAY_SCORE_CORNER_RADIUS_PX * scale);
 
-    float clock_font_px    = floor(SO_CLOCK_FONT_PX * scale);
+    float clock_font_px    = floor(OVERLAY_CLOCK_FONT_PX * scale);
     L.clock_font_size = [clock_font_px, clock_font_px, 0];
-    L.vertical_gap    = ceil(SO_VERTICAL_GAP_PX * scale);
+    L.vertical_gap    = ceil(OVERLAY_VERTICAL_GAP_PX * scale);
 };

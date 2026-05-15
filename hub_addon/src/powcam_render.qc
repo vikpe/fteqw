@@ -52,7 +52,7 @@ float(vector main_min, vector main_size, float vwidth, float vheight) PowcamRend
     // overlay and doesn't need the offset.
     float y_anchor = main_min.y;
     if (autocvar_minimap_mode == MINIMAP_SPLIT) {
-        y_anchor += ScoreOverlayReservedHeight(main_size);
+        y_anchor += OverlayReservedHeight(main_size);
     }
 
     float delta = 0.0;

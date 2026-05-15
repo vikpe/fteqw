@@ -8962,6 +8962,13 @@ qboolean CSQC_DrawView(void)
 			PR_ExecuteProgram(csqcprogs, csqcg.CSQC_UpdateViewLoading);
 		else
 			PR_ExecuteProgram(csqcprogs, csqcg.CSQC_UpdateView);
+
+		// Post-CSQC plugin hook: fires once with full-window coords after
+		// CSQC has finished drawing its view. Lets plugins (ezhud's
+		// HUD_PLACE_WINDOW elements, etc.) draw on top of all CSQC output.
+#ifdef PLUGINS
+		Plug_PostCsqc();
+#endif
 	}
 
 	if (*r_refdef.rt_destcolour[0].texname)

@@ -30,7 +30,7 @@ src/
   powcam_render.qc      - powcam overlay rendering
   powcam_commands.qc    - powcam console handlers
   xray.qc               - through-wall silhouettes
-  score_overlay.qc      - 1v1 / 2-team header
+  overlay.qc            - 1v1 / 2-team header, match clock
   minimap.qc            - minimap render pass
   minimap_data.qc       - minimap shared state, primitives, color tables
   minimap_load.qc       - BSP auto-bounds + traceline narrowing + cull-file loading

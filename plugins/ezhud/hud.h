@@ -42,7 +42,30 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #define	HUD_REGEXP_OFFSET_COUNT	20
 
-// Placement
+// Placement: which rect inside scr_vrect (the active player view rect,
+// updated per-seat in splitscreen) the element anchors to. SBAR-relative
+// values are bands within the engine status bar at the bottom of the
+// view; "FREE" variants are the empty space to the right of the sbar
+// (the Quake sbar doesn't span full screen width). Bounds resolved in
+// HUD_PrepareDraw (hud.c).
+//
+//   SCREEN  full scr_vrect
+//   TOP     scr_vrect minus the sbar band along the bottom (height - sb_lines)
+//   VIEW    full scr_vrect; currently identical to SCREEN in code, kept
+//           for the semantic distinction (view content vs window chrome)
+//   SBAR    the sbar band itself - bottom-aligned column,
+//           sbar_last_width wide, sb_lines tall
+//   IBAR    upper row of the sbar: the inventory bar (sb_lines - SBAR_HEIGHT)
+//   HBAR    lower row of the sbar: health / armor / face (SBAR_HEIGHT)
+//   SFREE   empty band to the right of the sbar, full sb_lines tall
+//   IFREE   right-of-sbar, inventory-row height
+//   HFREE   right-of-sbar, health-row height
+//   WINDOW  the raw video window (vid.width x vid.height), bypassing
+//           scr_vrect entirely. Differs from SCREEN only when scr_vrect
+//           is sliced (splitscreen, minimap split, QC VF_MIN/VF_SIZE
+//           overrides): SCREEN honors the slice; WINDOW ignores it.
+//           Draws in every seat pass; since the bounds are identical
+//           each time, splitscreen seats overdraw the same pixels.
 #define HUD_PLACE_SCREEN		1
 #define HUD_PLACE_TOP			2
 #define HUD_PLACE_VIEW			3
@@ -52,6 +75,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define HUD_PLACE_SFREE			7
 #define HUD_PLACE_IFREE			8
 #define HUD_PLACE_HFREE			9
+#define HUD_PLACE_WINDOW		10
 
 // Alignment
 #define HUD_ALIGN_LEFT			1
@@ -139,6 +163,7 @@ hud_t * HUD_Register(char *name, char *var_alias, char *description,
 // Draw all active elements.
 //
 void HUD_Draw(void);
+void HUD_DrawWindowOnly(void);
 
 //
 // Retrieve hud cvar.

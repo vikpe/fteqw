@@ -1,12 +1,10 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
-#include <algorithm>
-#include <set>
 #include <string>
 #include <strings.h>
-#include <vector>
 #include "quakedef.h"
 #include "fragstats.h"
+#include "../client/cl_hub_participants.h"
 
 using namespace emscripten;
 
@@ -389,157 +387,6 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			}
 			return result;
 		}, allow_raw_pointers())
-		.function("getParticipants", +[](client_state_t& self) -> emscripten::val {
-			struct ParticipantPlayer {
-				int userid;
-				int frags;
-				std::string name;
-				std::string name_plain;
-				std::string team;
-				std::string team_plain;
-				int top_color;
-				int bottom_color;
-			};
-
-			if (cls.state == ca_disconnected) {
-				emscripten::val empty = emscripten::val::object();
-				empty.set("players", emscripten::val::array());
-				empty.set("teams", emscripten::val::array());
-				return empty;
-			}
-
-			char *demoplayback = Cmd_GetMacroValue("demoplayback");
-			bool is_netquake_demo = demoplayback && strcmp(demoplayback, "demplayback") == 0;
-
-			std::vector<ParticipantPlayer> entries;
-			for (int i = 0; i < cl.allocated_client_slots; i++) {
-				player_info_t *p = &(cl.players[i]);
-
-				if (!p->name[0] || p->spectator) {
-					continue;
-				}
-				if (is_netquake_demo && p->frags < 1 && p->rbottomcolor == 0 && p->rtopcolor == 0) {
-					continue;
-				}
-
-				ParticipantPlayer entry;
-				entry.userid = p->userid;
-				entry.frags = p->frags;
-
-				conchar_t name_buffer[MAX_SCOREBOARDNAME];
-				char name_uni[MAX_SCOREBOARDNAME * 4];
-				char name_pln[MAX_SCOREBOARDNAME];
-				COM_ParseFunString(CON_WHITEMASK, p->name, name_buffer, sizeof(name_buffer), qfalse);
-				COM_DeFunString(name_buffer, NULL, name_uni, sizeof(name_uni), qfalse, qtrue);
-				COM_DeFunString(name_buffer, NULL, name_pln, sizeof(name_pln), qtrue, qfalse);
-				entry.name = name_uni;
-				entry.name_plain = name_pln;
-
-				conchar_t team_buffer[MAX_INFO_KEY];
-				char team_uni[MAX_INFO_KEY * 4];
-				char team_pln[MAX_INFO_KEY];
-				COM_ParseFunString(CON_WHITEMASK, p->team, team_buffer, sizeof(team_buffer), qfalse);
-				COM_DeFunString(team_buffer, NULL, team_uni, sizeof(team_uni), qfalse, qtrue);
-				COM_DeFunString(team_buffer, NULL, team_pln, sizeof(team_pln), qtrue, qfalse);
-				entry.team = team_uni;
-				entry.team_plain = team_pln;
-
-				int top = p->rtopcolor;
-				int bot = p->rbottomcolor;
-				if (top < 0) top = 0;
-				if (top > 16) top = 16;
-				if (bot < 0) bot = 0;
-				if (bot > 16) bot = 16;
-				entry.top_color = top;
-				entry.bottom_color = bot;
-
-				entries.push_back(entry);
-			}
-
-			std::sort(entries.begin(), entries.end(), [](const ParticipantPlayer &a, const ParticipantPlayer &b) {
-				return strcasecmp(a.name_plain.c_str(), b.name_plain.c_str()) < 0;
-			});
-
-			emscripten::val players_arr = emscripten::val::array();
-			for (size_t i = 0; i < entries.size(); i++) {
-				const ParticipantPlayer &e = entries[i];
-				emscripten::val obj = emscripten::val::object();
-				obj.set("userid", e.userid);
-				obj.set("frags", e.frags);
-				obj.set("name", e.name);
-				obj.set("name_plain", e.name_plain);
-				obj.set("team", e.team);
-				obj.set("team_plain", e.team_plain);
-				obj.set("top_color", e.top_color);
-				obj.set("bottom_color", e.bottom_color);
-				players_arr.set(i, obj);
-			}
-
-			emscripten::val teams_arr = emscripten::val::array();
-			bool should_build_teams = false;
-			if (entries.size() > 2) {
-				if (is_netquake_demo) {
-					bool seen_color[17] = {0};
-					int distinct_count = 0;
-					for (const auto &e : entries) {
-						if (!seen_color[e.bottom_color]) {
-							seen_color[e.bottom_color] = true;
-							distinct_count++;
-						}
-					}
-					should_build_teams = (distinct_count == 2);
-				} else {
-					std::set<std::string> distinct_teams;
-					for (const auto &e : entries) {
-						distinct_teams.insert(e.team);
-					}
-					should_build_teams = (distinct_teams.size() == 2);
-				}
-			}
-
-			if (should_build_teams) {
-				struct TeamGroup {
-					const ParticipantPlayer *first;
-					int frag_sum;
-				};
-				std::vector<TeamGroup> groups;
-				for (const auto &e : entries) {
-					int idx = -1;
-					for (size_t k = 0; k < groups.size(); k++) {
-						if (groups[k].first->team == e.team) {
-							idx = (int) k;
-							break;
-						}
-					}
-					if (idx < 0) {
-						TeamGroup g;
-						g.first = &e;
-						g.frag_sum = e.frags;
-						groups.push_back(g);
-					} else {
-						groups[idx].frag_sum += e.frags;
-					}
-				}
-				std::sort(groups.begin(), groups.end(), [](const TeamGroup &a, const TeamGroup &b) {
-					return strcasecmp(a.first->team_plain.c_str(), b.first->team_plain.c_str()) < 0;
-				});
-				for (size_t i = 0; i < groups.size(); i++) {
-					const TeamGroup &g = groups[i];
-					emscripten::val tv = emscripten::val::object();
-					tv.set("name", g.first->team);
-					tv.set("name_plain", g.first->team_plain);
-					tv.set("frags", g.frag_sum);
-					tv.set("top_color", g.first->top_color);
-					tv.set("bottom_color", g.first->bottom_color);
-					teams_arr.set(i, tv);
-				}
-			}
-
-			emscripten::val result = emscripten::val::object();
-			result.set("players", players_arr);
-			result.set("teams", teams_arr);
-			return result;
-		})
 		.function("getPlayerView", +[](client_state_t& self, size_t index) -> playerview_t* {
 			if (index >= cl.splitclients) {
 				throw std::out_of_range("Player view index out of range");
@@ -724,6 +571,54 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		char cmd[64];
 		snprintf(cmd, sizeof(cmd), "demo_jump %d\n", new_secs);
 		Cbuf_AddText(cmd, RESTRICT_LOCAL);
+	});
+
+	// One-line summary of the current match. Built from the same
+	// participant data as getParticipants. Output uses the original
+	// UTF-8 names/teams (quake special chars and ^X color codes
+	// preserved).
+	//   local listen server      -> "Localhost"
+	//   serverinfo mode == tot   -> "tot: <name1>, <name2>, ..."
+	//   teams.size() >= 2        -> "<team1> vs <team2>"
+	//   players.size() == 2      -> "<name1> vs <name2>"
+	//   serverinfo mode == 1on1
+	//     and players.size() == 1 -> "<name1>"
+	//   otherwise                -> "<N> players"
+	// Returns "" when disconnected or no active players.
+	function("getTitle", +[]() -> std::string {
+		if (cls.state == ca_disconnected) return std::string();
+#ifndef CLIENTONLY
+		if (sv.state != ss_dead) return std::string("Localhost");
+#endif
+
+		hub_participants_t set;
+		Hub_BuildParticipants(&set);
+
+		const char *mode = InfoBuf_ValueForKey(&cl.serverinfo, "mode");
+
+		if (!strcasecmp(mode, "tot")) {
+			if (set.player_count == 0) return std::string("tot");
+			std::string out = "tot: ";
+			for (int i = 0; i < set.player_count; i++) {
+				if (i > 0) out += ", ";
+				out += set.players[i].name;
+			}
+			return out;
+		}
+		if (set.team_count >= 2) {
+			return std::string(set.teams[0].team) + " vs " + std::string(set.teams[1].team);
+		}
+		if (set.player_count == 2) {
+			return std::string(set.players[0].name) + " vs " + std::string(set.players[1].name);
+		}
+		if (!strcasecmp(mode, "1on1") && set.player_count == 1) {
+			return std::string(set.players[0].name);
+		}
+		if (set.player_count == 0) return std::string();
+
+		char buf[32];
+		snprintf(buf, sizeof(buf), "%d players", set.player_count);
+		return std::string(buf);
 	});
 
 }

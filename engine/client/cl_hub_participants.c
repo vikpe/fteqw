@@ -1,0 +1,203 @@
+// SPDX-License-Identifier: 0BSD
+
+#include "quakedef.h"
+#include "cl_hub_participants.h"
+
+// Forward declarations so the file reads top-down.
+static void gather_players(hub_participants_t *out);
+static int  should_build_teams(const hub_participants_t *p);
+static void compute_team_groups(hub_participants_t *p);
+static void decode_quake_string(const char *src,
+                                char *out_unicode, int unicode_size,
+                                char *out_ascii,   int ascii_size);
+static void encode_conchar_to_unicode(conchar_t *src, char *out, int outsize);
+static int  hub_is_netquake_demo(void);
+static int  compare_player_by_name_ascii(const void *a, const void *b);
+static int  compare_team_by_team_ascii(const void *a, const void *b);
+
+// ----- entry point ----------------------------------------------------------
+
+void Hub_BuildParticipants(hub_participants_t *out)
+{
+	out->player_count = 0;
+	out->team_count   = 0;
+	if (cls.state == ca_disconnected)
+		return;
+
+	gather_players(out);
+	if (should_build_teams(out))
+		compute_team_groups(out);
+}
+
+// ----- gather + grouping ----------------------------------------------------
+
+// Walks cl.players, applies the spectator + dem-playback-ghost filter,
+// decodes name/team into the output, and sorts by name_ascii.
+static void gather_players(hub_participants_t *out)
+{
+	int is_netquake_demo = hub_is_netquake_demo();
+	int i;
+	out->player_count = 0;
+	for (i = 0; i < cl.allocated_client_slots && out->player_count < HUB_PARTICIPANT_MAX; i++) {
+		player_info_t *p = &cl.players[i];
+		if (!p->name[0] || p->spectator)
+			continue;
+		if (is_netquake_demo && p->frags < 1 && p->rbottomcolor == 0 && p->rtopcolor == 0)
+			continue;
+
+		hub_participant_player_t *e = &out->players[out->player_count];
+		e->userid = p->userid;
+		e->frags  = p->frags;
+
+		decode_quake_string(p->name, e->name, sizeof(e->name), e->name_ascii, sizeof(e->name_ascii));
+		decode_quake_string(p->team, e->team, sizeof(e->team), e->team_ascii, sizeof(e->team_ascii));
+
+		int top = p->rtopcolor;
+		int bot = p->rbottomcolor;
+		if (top < 0) top = 0;
+		if (top > 16) top = 16;
+		if (bot < 0) bot = 0;
+		if (bot > 16) bot = 16;
+		e->top_color    = top;
+		e->bottom_color = bot;
+
+		out->player_count++;
+	}
+	qsort(out->players, out->player_count, sizeof(out->players[0]), compare_player_by_name_ascii);
+}
+
+// 2-team detection: >2 active players AND exactly 2 distinct teams.
+// NetQuake demos key on bottom_color (the team userinfo field isn't
+// broadcast); other protocols key on the raw team string.
+static int should_build_teams(const hub_participants_t *p)
+{
+	int i;
+	if (p->player_count <= 2)
+		return 0;
+	if (hub_is_netquake_demo()) {
+		int seen[17] = {0};
+		int distinct_count = 0;
+		for (i = 0; i < p->player_count; i++) {
+			int bot = p->players[i].bottom_color;
+			if (bot < 0 || bot > 16)
+				continue;
+			if (!seen[bot]) {
+				seen[bot] = 1;
+				distinct_count++;
+			}
+		}
+		return distinct_count == 2;
+	} else {
+		int distinct_count = 0;
+		int j;
+		for (i = 0; i < p->player_count; i++) {
+			int is_first = 1;
+			for (j = 0; j < i; j++) {
+				if (!strcmp(p->players[i].team, p->players[j].team)) {
+					is_first = 0;
+					break;
+				}
+			}
+			if (is_first) {
+				distinct_count++;
+				if (distinct_count > 2)
+					return 0;
+			}
+		}
+		return distinct_count == 2;
+	}
+}
+
+// Groups players by team string, sums frags, sorts by team_ascii.
+static void compute_team_groups(hub_participants_t *p)
+{
+	int i, k;
+	p->team_count = 0;
+	for (i = 0; i < p->player_count; i++) {
+		const hub_participant_player_t *player = &p->players[i];
+		int existing = -1;
+		for (k = 0; k < p->team_count; k++) {
+			if (!strcmp(p->teams[k].team, player->team)) {
+				existing = k;
+				break;
+			}
+		}
+		if (existing < 0) {
+			if (p->team_count >= HUB_PARTICIPANT_MAX)
+				break;
+			hub_participant_team_t *g = &p->teams[p->team_count];
+			g->frag_sum = player->frags;
+			Q_strncpyz(g->team,       player->team,       sizeof(g->team));
+			Q_strncpyz(g->team_ascii, player->team_ascii, sizeof(g->team_ascii));
+			p->team_count++;
+		} else {
+			p->teams[existing].frag_sum += player->frags;
+		}
+	}
+	qsort(p->teams, p->team_count, sizeof(p->teams[0]), compare_team_by_team_ascii);
+}
+
+// ----- decode / introspection -----------------------------------------------
+
+// Decodes a raw quake-encoded string into both flavors at once: the
+// `out_unicode` buffer maps each raw quake byte to its Latin-1 unicode
+// codepoint (byte 0xXX -> U+00XX, so a red/2nd-charset 'a' lands at
+// U+00E1 == 'a'), encoded as UTF-8; the `out_ascii` buffer strips
+// colors and approximates special chars to ASCII (for sort keys).
+static void decode_quake_string(const char *src,
+                                char *out_unicode, int unicode_size,
+                                char *out_ascii,   int ascii_size)
+{
+	conchar_t buf[HUB_PARTICIPANT_NAME_BYTES];
+	COM_ParseFunString(CON_WHITEMASK, src, buf, sizeof(buf), qfalse);
+	encode_conchar_to_unicode(buf, out_unicode, unicode_size);
+	COM_DeFunString(buf, NULL, out_ascii, ascii_size, qtrue, qfalse);
+}
+
+// Walks a conchar buffer, drops hidden/markup chars, restores the high
+// bit for any char carrying CON_2NDCHARSETTEXT (the parser stripped it
+// into the flag), then UTF-8 encodes each codepoint. Result is the
+// raw-byte-as-Latin-1 unicode mapping a/o/e/dash become a/o/a/(soft-hyphen).
+static void encode_conchar_to_unicode(conchar_t *src, char *out, int outsize)
+{
+	if (outsize <= 0)
+		return;
+	char *p = out;
+	int   remaining = outsize - 1;
+	unsigned int codeflags, codepoint;
+	while (*src && remaining > 0) {
+		src = Font_Decode(src, &codeflags, &codepoint);
+		if (codeflags & CON_HIDDEN)
+			continue;
+		if ((codeflags & CON_2NDCHARSETTEXT) && codepoint < 0x80)
+			codepoint += 128;
+		unsigned int wrote = utf8_encode(p, codepoint, remaining);
+		if (!wrote)
+			break;
+		p += wrote;
+		remaining -= wrote;
+	}
+	*p = '\0';
+}
+
+static int hub_is_netquake_demo(void)
+{
+	char *m = Cmd_GetMacroValue("demoplayback");
+	return (m && !strcmp(m, "demplayback")) ? 1 : 0;
+}
+
+// ----- qsort comparators ----------------------------------------------------
+
+static int compare_player_by_name_ascii(const void *a, const void *b)
+{
+	const hub_participant_player_t *pa = (const hub_participant_player_t *)a;
+	const hub_participant_player_t *pb = (const hub_participant_player_t *)b;
+	return strcasecmp(pa->name_ascii, pb->name_ascii);
+}
+
+static int compare_team_by_team_ascii(const void *a, const void *b)
+{
+	const hub_participant_team_t *ta = (const hub_participant_team_t *)a;
+	const hub_participant_team_t *tb = (const hub_participant_team_t *)b;
+	return strcasecmp(ta->team_ascii, tb->team_ascii);
+}

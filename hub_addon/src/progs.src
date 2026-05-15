@@ -46,7 +46,7 @@ minimap.qc
 minimap_teleport.qc
 minimap_commands.qc
 
-score_overlay.qc
+overlay.qc
 player_info.qc
 
 // Mode-driven side effects (cvar toggles etc.)

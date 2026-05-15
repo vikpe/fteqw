@@ -59,6 +59,7 @@ char *snap_strings[] = {
     "sfree",
     "ifree",
     "hfree",
+    "window",
 };
 #define  num_snap_strings  (sizeof(snap_strings) / sizeof(snap_strings[0]))
 
@@ -1023,6 +1024,14 @@ qbool HUD_PrepareDraw(hud_t *hud, int width, int height, // In.
 				bounds_width = vw;
 				bounds_height = vh;
 				break;
+			case HUD_PLACE_WINDOW:
+				// Full window (raw video size), not the active player view
+				// rect. Secondary seats are already suppressed above.
+				bounds_x = 0;
+				bounds_y = 0;
+				bounds_width  = vid.width;
+				bounds_height = vid.height;
+				break;
 			case HUD_PLACE_SBAR:
 				bounds_x = vx;
 				bounds_y = vy + vh - sb_lines;
@@ -1487,13 +1496,17 @@ void HUD_DrawObject(hud_t *hud)
 	// the element's size/position cvars by it so layout + drawing both see
 	// scaled values, then restore. Restore order does not matter since we
 	// only mutate scalars we just read.
+	//
+	// WINDOW-placed elements anchor to the raw vid window rather than the
+	// per-seat rect, so applying the seat-shrink scale to them would make
+	// them shrink inappropriately - skip the mutation.
 	extern float hud_seat_scale;
 	cvar_t *scale_cv  = NULL;
 	cvar_t *width_cv  = NULL;
 	cvar_t *height_cv = NULL;
 	float scale_save = 0, width_save = 0, height_save = 0;
 	float pos_x_save = 0, pos_y_save = 0;
-	qbool scaled = (hud_seat_scale != 1.0f);
+	qbool scaled = (hud_seat_scale != 1.0f) && (hud->place_num != HUD_PLACE_WINDOW);
 	if (scaled)
 	{
 		scale_cv  = HUD_FindVar(hud, "scale");
@@ -1574,14 +1587,35 @@ void HUD_Draw(void)
 
     while (hud)
     {
-        // Draw.
-        HUD_DrawObject(hud);
+        // WINDOW-placed elements are drawn by HUD_DrawWindowOnly during
+        // the engine's post-CSQC plugin pass; skip them here so they
+        // don't draw twice (and so they end up on top of CSQC content).
+        if (hud->place_num != HUD_PLACE_WINDOW)
+            HUD_DrawObject(hud);
 
         // Go to next.
         hud = hud->next;
     }
 
 	HUD_AfterDraw();
+}
+
+//
+// Draws only HUD_PLACE_WINDOW elements. Called from the post-CSQC plugin
+// hook (EZHud_DrawPostCsqc) so window-anchored overlays land on top of
+// everything CSQC drew.
+//
+void HUD_DrawWindowOnly(void)
+{
+    hud_t *hud = hud_huds;
+    HUD_BeforeDraw();
+    while (hud)
+    {
+        if (hud->place_num == HUD_PLACE_WINDOW)
+            HUD_DrawObject(hud);
+        hud = hud->next;
+    }
+    HUD_AfterDraw();
 }
 
 //

@@ -976,7 +976,7 @@ void SCR_HUD_DrawMatchTag(hud_t *hud)
 	}
 
 	tag = Info_ValueForKey(cl.serverinfo, "matchtag");
-	if (cvarfuncs->GetFloat("cl_splitscreen") >= 1 || !tag || !tag[0])
+	if (!tag || !tag[0])
 	{
 		HUD_PrepareDraw(hud, width, height, &x, &y);
 		return;
@@ -8210,7 +8210,7 @@ void CommonDraw_Init(void)
     // init matchtag
 	HUD_Register("matchtag", NULL, "Shows the serverinfo \"matchtag\" value, e.g. a tournament round label.",
         HUD_PLUSMINUS, ca_disconnected, 8, SCR_HUD_DrawMatchTag,
-        "0", "screen", "right", "top", "0", "0", "0", "0 0 0", NULL,
+        "0", "window", "right", "top", "0", "0", "0", "0 0 0", NULL,
         "scale",    "1",
         "color",    "255 255 255",
         NULL);

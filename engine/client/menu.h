@@ -560,6 +560,7 @@ void		Plug_Shutdown(qboolean preliminary);
 qboolean	Plug_Menu_Event(int eventtype, int keyparam, int unicodeparam);
 void		Plug_ResChanged(qboolean restarted);
 void		Plug_SBar(playerview_t *pv);
+void		Plug_PostCsqc(void);
 qboolean	Plug_ServerMessage(char *buffer, int messagelevel);
 void		Plug_Tick(void);
 qboolean	Plugin_ExecuteString(void);
