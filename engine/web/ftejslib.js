@@ -69,6 +69,13 @@ mergeInto(LibraryManager.library,
 		ctxwarned:0,
 		pointerislocked:0,
 		pointerwantlock:0,
+		// Optional pre-dispatch hook installed by the embedding web app.
+		// Signature: (event) => boolean. Returning true consumes the
+		// event - skips pointerlock acquisition and skips forwarding to
+		// the engine's evcb.* callbacks. Returning false (or leaving
+		// the hook null) is full passthrough to FTE, which then runs
+		// its own dispatcher (CSQC_InputEvent in the addon).
+		preEvent:null,
 		clipboard:"",
 		linebuffer:'',
 		localstorefailure:false,
@@ -173,6 +180,8 @@ mergeInto(LibraryManager.library,
 
 		handleevent : function(event)
 		{
+			if (FTEC.preEvent && FTEC.preEvent(event))
+				return;
 			switch(event.type)
 			{
 				case 'message':
