@@ -7045,11 +7045,17 @@ static void CL_ParseKtxBackpackDrop(void)
 	// playernum format). Forward to the events scan so weapon-drop
 	// markers appear in the analytics timeline. Skipped silently when
 	// absent (some older KTX builds omit the arg).
-	if (Cmd_Argc() >= 3 && entnum < cl_baselines_count)
+	//
+	// NULL origin tells Hub_DemoEvents_OnKtxDrop / events_push to fall
+	// back to the dropper's most recent playerstate origin (their body
+	// position at the moment of death). The previous cl_baselines lookup
+	// returned stale data - baselines for runtime-spawned backpacks are
+	// either zero (never written) or leftover state from a prior entity
+	// that occupied the same entnum slot.
+	if (Cmd_Argc() >= 3)
 	{
 		int player_slot = atoi(Cmd_Argv(2)) - 1;
-		Hub_DemoEvents_OnKtxDrop(player_slot, items,
-		                         cl_baselines[entnum].origin, entnum);
+		Hub_DemoEvents_OnKtxDrop(player_slot, items, NULL, entnum);
 	}
 }
 

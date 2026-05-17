@@ -62,16 +62,15 @@ static const unsigned int tracked_item_bits[HUB_TRACKED_ITEM_COUNT] = {
 };
 static int open_span_start_ms[MAX_CLIENTS][HUB_TRACKED_ITEM_COUNT];
 
-// Frag tally per (slot, item idx) for the currently-open span. Reset
-// to 0 when a span opens, incremented on each death-event attribution
-// where the killer is `slot` and their STAT_ITEMS-at-death holds
-// `tracked_item_bits[idx]`. Snapshotted into hub_demo_span_t.frag_count
-// at span close. Parallel rl/lg/rlg breakdowns classify the kill by
-// the killer's RL/LG state at death time (mutually exclusive).
-static int open_span_frags[MAX_CLIENTS][HUB_TRACKED_ITEM_COUNT];
-static int open_span_rl_kills[MAX_CLIENTS][HUB_TRACKED_ITEM_COUNT];
-static int open_span_lg_kills[MAX_CLIENTS][HUB_TRACKED_ITEM_COUNT];
-static int open_span_rlg_kills[MAX_CLIENTS][HUB_TRACKED_ITEM_COUNT];
+// Frag counts (total + RL/LG/RLG breakdown) live on hub_demo_span_t and
+// are filled by count_span_frags() at end of scan via a post-hoc pass
+// over the death events. No per-open-span running counter - the death
+// event already carries time_ms + killer_user_id + killer_items, so
+// every kill that lands inside a span's [start, end] window with the
+// span's weapon bit set in killer_items counts toward that span. This
+// avoids the ordering bug where the attacker's span could close (e.g.
+// they died moments after firing) before the victim's STAT_HEALTH
+// transition fired, losing the attribution.
 
 // Most recently closed span per (slot, item idx). Recorded when
 // update_item_spans pushes a closure so that a //ktx drop arriving
@@ -171,10 +170,6 @@ void Hub_DemoEvents_Reset(void)
 		for (int w = 0; w < HUB_TRACKED_ITEM_COUNT; w++)
 		{
 			open_span_start_ms[i][w]         = -1;
-			open_span_frags[i][w]            = 0;
-			open_span_rl_kills[i][w]         = 0;
-			open_span_lg_kills[i][w]         = 0;
-			open_span_rlg_kills[i][w]        = 0;
 			last_closed_span_index[i][w]     = -1;
 			last_closed_span_time_ms[i][w]   = 0;
 			suppress_pickup_until_ms[i][w]   = 0;
@@ -191,10 +186,10 @@ static void register_player(int slot);
 static void events_push(hub_demo_event_kind_t kind, int player_slot,
                         unsigned int items, const float *origin);
 
+// Frag counts are zeroed here; count_span_frags() fills them after the
+// scan loop by walking the death events array.
 static void spans_push(int user_id, unsigned int weapon_bit,
-                       int start_ms, int end_ms,
-                       int frag_count, int rl_kills,
-                       int lg_kills, int rlg_kills)
+                       int start_ms, int end_ms)
 {
 	if (hub_demo_span_count >= spans_capacity)
 	{
@@ -209,10 +204,10 @@ static void spans_push(int user_id, unsigned int weapon_bit,
 	sp->user_id     = user_id;
 	sp->items       = weapon_bit;
 	sp->was_dropped = false;
-	sp->frag_count  = frag_count;
-	sp->rl_kills    = rl_kills;
-	sp->lg_kills    = lg_kills;
-	sp->rlg_kills   = rlg_kills;
+	sp->frag_count  = 0;
+	sp->rl_kills    = 0;
+	sp->lg_kills    = 0;
+	sp->rlg_kills   = 0;
 }
 
 // Diff old/new STAT_ITEMS for the tracked weapon bits and open/close
@@ -247,10 +242,6 @@ static void update_item_spans(int slot, unsigned int old_mask,
 			if (open_span_start_ms[slot][w] < 0)
 			{
 				open_span_start_ms[slot][w]  = t;
-				open_span_frags[slot][w]     = 0;
-				open_span_rl_kills[slot][w]  = 0;
-				open_span_lg_kills[slot][w]  = 0;
-				open_span_rlg_kills[slot][w] = 0;
 				// Skip the ground-pickup emit when the matching
 				// backpack-pickup hook just fired - otherwise the
 				// event log would show both "took RL" and "took
@@ -265,23 +256,12 @@ static void update_item_spans(int slot, unsigned int old_mask,
 		{
 			// Loss: close span. -1 = no open span (e.g. transition
 			// observed before the slot ever had the bit during scan).
-			int start    = open_span_start_ms[slot][w];
-			int frags    = open_span_frags[slot][w];
-			int rl_k     = open_span_rl_kills[slot][w];
-			int lg_k     = open_span_lg_kills[slot][w];
-			int rlg_k    = open_span_rlg_kills[slot][w];
-			open_span_start_ms[slot][w]  = -1;
-			open_span_frags[slot][w]     = 0;
-			open_span_rl_kills[slot][w]  = 0;
-			open_span_lg_kills[slot][w]  = 0;
-			open_span_rlg_kills[slot][w] = 0;
-			Con_Printf("[frag-dbg] span CLOSE slot=%d (uid %d) bit=0x%x"
-			           " start=%d end=%d frags=%d\n",
-			           slot, cl.players[slot].userid, bit, start, t, frags);
+			int start = open_span_start_ms[slot][w];
+			open_span_start_ms[slot][w] = -1;
 			if (start < 0) continue;
 			int uid = cl.players[slot].userid;
 			if (uid <= 0) continue;
-			spans_push(uid, bit, start, t, frags, rl_k, lg_k, rlg_k);
+			spans_push(uid, bit, start, t);
 			register_player(slot);
 			// Remember this span so a //ktx drop arriving in the next
 			// few packets can patch was_dropped on it.
@@ -293,6 +273,14 @@ static void update_item_spans(int slot, unsigned int old_mask,
 
 // Close any still-open weapon spans at end-of-scan demtime. Called
 // after the pump loop completes so the final scanned_demtime is stable.
+// Two passes: close any spans still open at end of scan, then walk the
+// death events array once and tally frags into every span whose
+// [start_ms, end_ms] window contains the event AND whose user_id matches
+// the killer. The span existing IS the proof that the player held the
+// weapon during that window, so we don't also check killer_items against
+// the span's bit. RL/LG/RLG breakdown comes from the killer_items
+// snapshot the event captured at kill time. Self-frags carry
+// killer_user_id == 0 and skip naturally.
 static void finalize_spans(void)
 {
 	int t = (int)floor(demtime * 1000);
@@ -301,20 +289,30 @@ static void finalize_spans(void)
 		int uid = cl.players[slot].userid;
 		for (int w = 0; w < HUB_TRACKED_ITEM_COUNT; w++)
 		{
-			int start  = open_span_start_ms[slot][w];
-			int frags  = open_span_frags[slot][w];
-			int rl_k   = open_span_rl_kills[slot][w];
-			int lg_k   = open_span_lg_kills[slot][w];
-			int rlg_k  = open_span_rlg_kills[slot][w];
+			int start = open_span_start_ms[slot][w];
 			if (start < 0) continue;
-			open_span_start_ms[slot][w]  = -1;
-			open_span_frags[slot][w]     = 0;
-			open_span_rl_kills[slot][w]  = 0;
-			open_span_lg_kills[slot][w]  = 0;
-			open_span_rlg_kills[slot][w] = 0;
+			open_span_start_ms[slot][w] = -1;
 			if (uid <= 0) continue;
-			spans_push(uid, tracked_item_bits[w], start, t,
-			           frags, rl_k, lg_k, rlg_k);
+			spans_push(uid, tracked_item_bits[w], start, t);
+		}
+	}
+
+	for (int i = 0; i < hub_demo_span_count; i++)
+	{
+		hub_demo_span_t *sp = &hub_demo_spans[i];
+		for (int j = 0; j < hub_demo_event_count; j++)
+		{
+			hub_demo_event_t *ev = &hub_demo_events[j];
+			if (ev->kind != HDE_KIND_DEATH)        continue;
+			if (ev->killer_user_id != sp->user_id) continue;
+			if (ev->time_ms < sp->start_ms)        continue;
+			if (ev->time_ms > sp->end_ms)          continue;
+			sp->frag_count++;
+			qboolean has_rl = (ev->killer_items & IT_ROCKET_LAUNCHER) != 0;
+			qboolean has_lg = (ev->killer_items & IT_LIGHTNING)       != 0;
+			if      (has_rl && has_lg) sp->rlg_kills++;
+			else if (has_rl)           sp->rl_kills++;
+			else if (has_lg)           sp->lg_kills++;
 		}
 	}
 }
@@ -431,64 +429,16 @@ static void events_push(hub_demo_event_kind_t kind, int player_slot,
 			ev->victim_items = cached_items[player_slot];
 			int atk = last_dmg_attacker[player_slot];
 			int dt  = ev->time_ms - last_dmg_time_ms[player_slot];
-			Con_Printf("[frag-dbg] death t=%d victim=%d (uid %d)"
-			           " last_dmg_attacker=%d last_dmg_t=%d dt=%d\n",
-			           ev->time_ms, player_slot, cl.players[player_slot].userid,
-			           atk, last_dmg_time_ms[player_slot], dt);
-			if (atk >= 0 && atk < MAX_CLIENTS &&
+			// Self-frags (atk == player_slot) leave killer_user_id at 0
+			// so post-hoc span attribution (count_span_frags) skips
+			// them naturally.
+			if (atk >= 0 && atk < MAX_CLIENTS && atk != player_slot &&
 			    dt >= 0 && dt <= HUB_DMG_ATTRIBUTION_WINDOW_MS)
 			{
 				ev->killer_user_id = cl.players[atk].userid;
 				ev->killer_items   = cached_items[atk];
 				ev->frag_type      = last_dmg_type[player_slot];
 				register_player(atk);
-
-				// Frag attribution to the killer's currently-open
-				// hold-spans. We don't know which weapon the killer
-				// actually fired (mvdhidden_dmgdone type isn't piped
-				// through), so every tracked item bit the killer is
-				// holding gets +1 - "frags during this hold" by
-				// presence, not by use. Self-frags (suicide) skip:
-				// the kill column on a hold shouldn't reward dying
-				// with the weapon.
-				if (atk != player_slot)
-				{
-					unsigned int kitems  = cached_items[atk];
-					qboolean has_rl      = (kitems & IT_ROCKET_LAUNCHER) != 0;
-					qboolean has_lg      = (kitems & IT_LIGHTNING) != 0;
-					qboolean is_rlg_kill = has_rl && has_lg;
-					qboolean is_rl_kill  = has_rl && !has_lg;
-					qboolean is_lg_kill  = has_lg && !has_rl;
-					Con_Printf("[frag-dbg] t=%d kill atk=%d (uid %d, items 0x%x)"
-					           " -> victim=%d (uid %d) dt=%d\n",
-					           ev->time_ms, atk, cl.players[atk].userid, kitems,
-					           player_slot, cl.players[player_slot].userid, dt);
-					for (int w = 0; w < HUB_TRACKED_ITEM_COUNT; w++)
-					{
-						qboolean has_bit  = (kitems & tracked_item_bits[w]) != 0;
-						qboolean span_open = open_span_start_ms[atk][w] >= 0;
-						if (has_bit && span_open)
-						{
-							open_span_frags[atk][w]++;
-							if (is_rlg_kill)
-								open_span_rlg_kills[atk][w]++;
-							else if (is_rl_kill)
-								open_span_rl_kills[atk][w]++;
-							else if (is_lg_kill)
-								open_span_lg_kills[atk][w]++;
-							Con_Printf("[frag-dbg]   w=%d bit=0x%x INC -> frags=%d\n",
-							           w, tracked_item_bits[w],
-							           open_span_frags[atk][w]);
-						}
-						else if (has_bit || span_open)
-						{
-							Con_Printf("[frag-dbg]   w=%d bit=0x%x has_bit=%d"
-							           " span_open=%d (start_ms=%d) SKIP\n",
-							           w, tracked_item_bits[w], has_bit,
-							           span_open, open_span_start_ms[atk][w]);
-						}
-					}
-				}
 			}
 			last_dmg_attacker[player_slot] = -1;
 		}
@@ -680,22 +630,11 @@ void Hub_DemoEvents_OnDamage(int attacker_slot, int targ_slot,
 	if (targ_slot < 0 || targ_slot >= MAX_CLIENTS) return;
 	if (attacker_slot < 0 || attacker_slot >= MAX_CLIENTS) return;
 
-	if (!in_match_time())
-	{
-		Con_Printf("[frag-dbg] dmg dropped (outside match) t=%d atk=%d targ=%d countdown=%d\n",
-		           (int)floor(demtime * 1000), attacker_slot, targ_slot,
-		           hub_demo_countdown_ms);
-		return;
-	}
+	if (!in_match_time()) return;
 
 	last_dmg_attacker[targ_slot] = attacker_slot;
 	last_dmg_time_ms[targ_slot]  = (int)floor(demtime * 1000);
 	last_dmg_type[targ_slot]     = dmg_type;
-	Con_Printf("[frag-dbg] dmg t=%d atk=%d (uid %d) -> targ=%d (uid %d) type=0x%x\n",
-	           last_dmg_time_ms[targ_slot],
-	           attacker_slot, cl.players[attacker_slot].userid,
-	           targ_slot,     cl.players[targ_slot].userid,
-	           dmg_type);
 }
 
 void Hub_DemoEvents_OnDemoInfo(int payload_len, unsigned int is_more)
