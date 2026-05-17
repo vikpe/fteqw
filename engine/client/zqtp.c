@@ -1792,6 +1792,21 @@ qboolean TP_HaveLocations(void)
 {
 	return loc_numentries>0;
 }
+
+// Force-reload the .loc file for the current map regardless of
+// TP_NewMap's same-map cache. Lets batch processors (demo-events scan,
+// bindings.cpp getDemoEvents) resolve location names even when no
+// render frame has fired TP_NewMap yet, or when something cleared
+// loc_numentries between map load and now.
+void TP_ReloadCurrentLocs(void)
+{
+	char locname[MAX_QPATH];
+	extern cvar_t host_mapname;
+	if (!*host_mapname.string)
+		return;
+	Q_snprintfz(locname, sizeof(locname), "%s.loc", host_mapname.string);
+	TP_LoadLocFile(locname, true);
+}
 char *TP_LocationName (const vec3_t location)
 {
 	int		i, j, minnum;
