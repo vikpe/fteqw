@@ -1318,6 +1318,75 @@ void Cam_Track_f(void)
 	}
 }
 
+// Unambiguous-userid track: same locking path as Cam_TrackPlayer but
+// skips the nick lookup and the "#sortidx" branch entirely. Matches
+// only on player_info_t::userid (or "off"), so callers that already
+// know the userid (web client, csqc helpers) don't risk pulling the
+// wrong player when a nick happens to look like a digit string.
+static void Cam_TrackPlayerByUserid(int seat, char *plrarg)
+{
+	playerview_t *pv = &cl.playerview[seat];
+	int slot, userid;
+	char *e;
+
+	if (seat >= MAX_SPLITS)
+		return;
+	if (cls.state <= ca_connected) {
+		Con_Printf("Not connected.\n");
+		return;
+	}
+	if (!pv->spectator) {
+		Con_Printf("Not spectating.\n");
+		return;
+	}
+
+	// Match the regular track command: any explicit pick takes the
+	// camera off any auto-tracking mode.
+	if (autotrackmode != TM_USER)
+		Cam_AutoTrack_Update("user");
+
+	if (!Q_strcasecmp(plrarg, "off")) {
+		Cam_Unlock(pv);
+		return;
+	}
+
+	userid = strtoul(plrarg, &e, 10);
+	if (*e || userid <= 0) {
+		Con_Printf("track_userid: expected numeric userid, got '%s'\n",
+		           plrarg);
+		return;
+	}
+	for (slot = 0; slot < cl.allocated_client_slots; slot++) {
+		player_info_t *s = &cl.players[slot];
+		if (s->name[0] && !s->spectator && s->userid == userid)
+			break;
+	}
+	if (slot == cl.allocated_client_slots) {
+		Con_Printf("Couldn't find userid %i\n", userid);
+		return;
+	}
+	Cam_Lock(pv, slot);
+}
+
+void Cam_TrackUserid_f(void)
+{
+	int i, j;
+
+	if (Cmd_Argc() < 2) {
+		Con_Printf("Usage: %s userid|off [userid ...]\n", Cmd_Argv(0));
+		return;
+	}
+
+	i = 1;
+	j = Cmd_Argc() - 1;
+	if (j > MAX_SPLITS) j = MAX_SPLITS;
+	while (j > 0) {
+		Cam_TrackPlayerByUserid(i - 1, Cmd_Argv(i));
+		i++;
+		j--;
+	}
+}
+
 void Cam_Track1_f(void)
 {
 	if (Cmd_Argc() < 2)
@@ -1378,6 +1447,7 @@ void CL_InitCam(void)
 	Cmd_AddCommand("track2", Cam_Track2_f);
 	Cmd_AddCommand("track3", Cam_Track3_f);
 	Cmd_AddCommand("track4", Cam_Track4_f);
+	Cmd_AddCommand("track_userid", Cam_TrackUserid_f);
 }
 
 
