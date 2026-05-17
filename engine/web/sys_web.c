@@ -351,6 +351,20 @@ void Sys_OpenFile_f(void)
 	emscriptenfte_openfile();
 }
 
+// Bridge for CSQC: invokes Module.FTE_RequestPointerLock so that QC code
+// (e.g. the per-seat pointerlock button) can request pointer lock via
+// localcmd("requestpointerlock\n"). The browser only honors the request
+// when the call stack still has transient user activation, which holds
+// when this fires from the cbuf in the same task as the originating
+// CSQC_InputEvent mouse click.
+static void Sys_RequestPointerLock_f(void)
+{
+	EM_ASM({
+		if (typeof Module !== 'undefined' && Module['FTE_RequestPointerLock'])
+			Module['FTE_RequestPointerLock']();
+	});
+}
+
 
 static void Sys_Register_File_Associations_f(void)
 {	//we should be able to register 'web+foo://' schemes here. we can't skip the web+ part though, which is a shame.
@@ -385,6 +399,7 @@ void Sys_Init(void)
 	vid_height.flags &= ~CVAR_VIDEOLATCH;
 
 	Cmd_AddCommandD("sys_browserredirect", Sys_BrowserRedirect_f, "Navigates the browser to a different url. For sites using quake maps as a more interesting sitemap.");
+	Cmd_AddCommandD("requestpointerlock", Sys_RequestPointerLock_f, "Asks the browser to lock the mouse pointer to the canvas. Must be triggered from a user gesture (e.g. CSQC click handler).");
 	if (EM_ASM_INT(return window.showOpenFilePicker!=undefined;))	//doesn't work in firefox.
 		Cmd_AddCommandD("sys_openfile", Sys_OpenFile_f, "Opens a file picker");	//opens file picker
 	if (EM_ASM_INT(return Module['mayregisterscemes'] != false;))	//needs to be able to pass args via the url. don't bother adding the command if it'll fail. hurrah for checkcmd
