@@ -13,10 +13,15 @@ set -u
 input=$(cat)
 cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // empty')
 
-# Only fire for FTE web builds. Pattern requires both gl-rel and LINK_EZHUD=1
-# in the command - matches whether the user runs `make ... gl-rel ... LINK_EZHUD=1`
-# from engine/ or a `cd engine && make ...` form.
-if ! printf '%s' "$cmd" | grep -qE 'gl-rel.*LINK_EZHUD|LINK_EZHUD.*gl-rel'; then
+# Only fire for FTE web builds or hub_addon CSQC builds. The engine
+# pattern requires both gl-rel and LINK_EZHUD=1 in the command; the
+# CSQC pattern matches a `make` issued against the hub_addon
+# directory (covers `make -C .../hub_addon` and `cd hub_addon && make`).
+is_engine_build=0
+is_addon_build=0
+printf '%s' "$cmd" | grep -qE 'gl-rel.*LINK_EZHUD|LINK_EZHUD.*gl-rel' && is_engine_build=1
+printf '%s' "$cmd" | grep -qE 'make.*hub_addon|hub_addon.*make' && is_addon_build=1
+if [ $is_engine_build -eq 0 ] && [ $is_addon_build -eq 0 ]; then
     exit 0
 fi
 
