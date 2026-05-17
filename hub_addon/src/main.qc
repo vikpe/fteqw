@@ -53,8 +53,18 @@ void() CSQC_WorldLoaded =
 // entirely FTE's responsibility.
 float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent =
 {
+    // MouseLock runs first: a click on the AIM button must not fall
+    // through to PlayerInfo (which would treat it as a row click) or
+    // Minimap (teleport). Also owns the IE_MOUSEABS -> "lock released"
+    // edge detection that flips cursor mode back on.
+    if (MouseLockInputEvent(evtype, scanx, chary, devid)) return 1;
     if (PlayerInfoInputEvent(evtype, scanx, chary, devid)) return 1;
     if (MinimapInputEvent(evtype, scanx, chary, devid)) return 1;
+    // Last: while the cursor is visible (we don't hold the lock), drop
+    // any mouse button / wheel event that none of the UI handlers
+    // claimed. Stops a miss-click from being interpreted by the engine
+    // as +attack on a player view the user can't even aim.
+    if (MouseLockSwallowMissed(evtype, scanx)) return 1;
     return 0;
 };
 
@@ -105,6 +115,8 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
         // PlayerInfoDraw can append fresh rows. Done outside the seat loop
         // because the table needs to span all seats for input dispatch.
         PlayerInfoBeginFrame();
+        // Same pattern for the per-seat mouselock button.
+        MouseLockBeginFrame();
 
         for (float seat = 0; seat < seat_count; seat += 1) {
             vector seat_min, seat_size;
@@ -149,6 +161,11 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
             // records are tagged with `seat` so PlayerInfoInputEvent can
             // dispatch trackN to the seat owning the clicked row.
             PlayerInfoDraw(seat, seat_min, seat_size);
+
+            // Mouselock prompt. Drawn last so it sits above the HUD
+            // and player_info; hidden automatically while we hold the
+            // lock (see mouselock.qc state tracking).
+            MouseLockDraw(seat, seat_min, seat_size);
         }
 
         // Restore primary seat so the overlays below (powcam, minimap,

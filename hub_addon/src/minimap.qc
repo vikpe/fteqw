@@ -172,9 +172,19 @@ void(float vwidth, float vheight) MinimapRender =
         float energies[HEATMAP_MAX_POINTS];
         int   hcount   = 0;
         float hn       = tokenize(autocvar_minimap_heatmap);
+        // When the map has cull volumes, drop any point whose XY falls
+        // outside the union of all volume footprints - those are kills
+        // that landed in the void / outside the playable shape (the
+        // typical cause: stale or fuzzy event origins). Maps with no
+        // cull volumes get no filtering, so vanilla setups still work.
+        float has_volumes = (minimap_num_volumes > 0);
         for (int i = 0; i + 1 < hn && hcount < HEATMAP_MAX_POINTS; i += 2) {
-            hxs[hcount] = stof(argv(i));
-            hys[hcount] = stof(argv(i + 1));
+            float x = stof(argv(i));
+            float y = stof(argv(i + 1));
+            if (has_volumes && MinimapPointInCullVolumeXY(x, y) < 0)
+                continue;
+            hxs[hcount] = x;
+            hys[hcount] = y;
             hcount++;
         }
 
@@ -226,7 +236,21 @@ void(float vwidth, float vheight) MinimapRender =
             else
                 color = [1, 1 - (t - 0.5) * 2, 0]; // yellow -> red
             vector sp = project([hxs[i], hys[i], hz]);
-            MinimapDrawCloudBlob(sp, blob_px, color, intensity, falloff);
+
+            // Clamp the per-blob draw radius so its world-space quad
+            // can't extend past the playable area. The plan grid was
+            // built at map load via top-down tracelines + a chamfer
+            // pass, so MinimapMaxRadiusFromPlan is an O(1) lookup of
+            // "world-space distance from this XY to the nearest non-
+            // playable cell". Without this clamp, blobs whose centers
+            // sit near walls bleed visibly into the void as the user
+            // cranks up minimap_heatmap_radius.
+            float r_world_cap = blob_px * scale;
+            float r_world     = MinimapMaxRadiusFromPlan(hxs[i], hys[i], r_world_cap);
+            float r_px        = r_world / scale;
+            if (r_px <= 0) continue;
+
+            MinimapDrawCloudBlob(sp, r_px, color, intensity, falloff);
         }
     }
 

@@ -42,6 +42,10 @@ float() MinimapLoad =
     filestream fh = fopen(cull_path, FILE_READ);
     if (fh < 0) {
         println("[minimap] no cull file '%s'", cull_path);
+        // No .cull file - still build the plan grid so the heatmap
+        // has a playable-shape mask to clamp against, even on
+        // unconfigured maps.
+        MinimapBuildPlanCells();
         return 0;
     }
 
@@ -53,6 +57,7 @@ float() MinimapLoad =
 
     minimap_loaded = 1;
     MinimapDeriveBoundsFromVolumes();
+    MinimapBuildPlanCells();
     println("[minimap] loaded custom cull file %s (%d volumes)",
             cull_path, (float)minimap_num_volumes);
     return 1;

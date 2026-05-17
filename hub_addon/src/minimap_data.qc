@@ -57,7 +57,7 @@ typedef struct {
 // Cvars.
 // ----------------------------------------------------------------------------
 
-var float  autocvar_minimap_mode               = MINIMAP_SPLIT;
+var float  autocvar_minimap_mode               = MINIMAP_OFF;
 
 // External world-coordinate marker drawn on top of the minimap. Format:
 // "X Y Z" (whitespace-separated). Empty string = no highlight. Set
@@ -76,9 +76,14 @@ var string autocvar_minimap_heatmap            = "";
 //   radius    - blob world-radius. Lower = tighter splats, less bleed.
 //   intensity - per-blob alpha (vc.a in the shader). Lower = dimmer cores.
 //   falloff   - Gaussian sharpness. Higher = steeper edges (less bleed).
-var float  autocvar_minimap_heatmap_radius     = 192;
-var float  autocvar_minimap_heatmap_intensity  = 0.25;
-var float  autocvar_minimap_heatmap_falloff    = 16;
+// Defaults picked to look reasonable on typical QW maps after the
+// plan-grid clamp is applied: a wide blob (radius) for visible cluster
+// halos, a low per-blob intensity so overlapping points accumulate
+// gradually without blowing out, and a fairly tight Gaussian falloff
+// so individual cores still read.
+var float  autocvar_minimap_heatmap_radius     = 128;
+var float  autocvar_minimap_heatmap_intensity  = 0.24;
+var float  autocvar_minimap_heatmap_falloff    = 24;
 var float  autocvar_minimap_player_radius      = 7;
 var float  autocvar_minimap_player_alpha       = 0.8;
 var float  autocvar_minimap_player_name_length = 4;
@@ -126,6 +131,19 @@ var float  minimap_loaded      = 0;
 // Name of the last map MinimapLoad processed. Used to re-run the load
 // pipeline when `mapname` changes mid-session (e.g. demo seek across maps).
 var string minimap_loaded_for  = "";
+
+// "Plan" grid: a low-res top-down mask of the playable area, built at
+// map load via top-down tracelines. plan_dist[i] = chebyshev distance
+// in cells to the nearest non-playable cell (0 = the cell itself is
+// non-playable; >0 = playable, deeper into the map). Used by the
+// heatmap to clamp each blob's draw radius to the local distance-to-wall,
+// which gives a far better approximation of "stay inside the map"
+// than the coarse cull-volume rect-edge clamp.
+#define MAP_PLAN_RES 64
+var float  map_plan_dist[MAP_PLAN_RES * MAP_PLAN_RES];
+var vector map_plan_origin    = '0 0 0';  // world XY of cell (0,0)'s mins
+var float  map_plan_cell_size = 0;        // world units per cell side
+var float  map_plan_loaded    = 0;        // 1 once MinimapBuildPlanCells ran
 
 // Inverse-projection state cached by MinimapRender. CSQC_InputEvent uses
 // these to map a click in screen space back to a world XY before snapping
@@ -443,6 +461,7 @@ void main()
         blendfunc add
     }
 })");
+
 };
 
 // ----------------------------------------------------------------------------
@@ -460,6 +479,159 @@ float(vector p) MinimapPointInCullVolume =
         }
     }
     return -1;
+};
+
+// XY-only cull-volume membership test. Heatmap points carry no Z (the
+// setMinimapHeatmap web API drops it), so the full-3D MinimapPointInCullVolume
+// check would over-reject anything authored at a Z outside the current
+// camera's room. The XY footprint is the union of all rooms' walkable
+// extents, which is what we want for "is this kill inside the map".
+float(float x, float y) MinimapPointInCullVolumeXY =
+{
+    for (int i = 0; i < minimap_num_volumes; i++) {
+        if (x >= minimap_volumes[i].mins.x && x <= minimap_volumes[i].maxs.x &&
+            y >= minimap_volumes[i].mins.y && y <= minimap_volumes[i].maxs.y) {
+            return i;
+        }
+    }
+    return -1;
+};
+
+// Top-down trace at a single cell center. Returns 1 if the ray finds a
+// non-sky / non-clip surface and the trace endpoint is inside one of
+// the cull volumes (i.e. inside the configured playable shape). When
+// no cull volumes are configured, falls back to "any solid that isn't
+// sky/clip" so unconfigured maps still get a reasonable plan.
+float(float wx, float wy) MinimapPlanCellPlayable =
+{
+    float reject_bits = CONTENTBIT_SKY | CONTENTBIT_PLAYERCLIP | CONTENTBIT_MONSTERCLIP;
+    float top_z      = minimap_world_top_z + 32;
+    float bottom_z   = minimap_center.z - 4096;
+    vector ray_start = [wx, wy, top_z];
+    vector ray_end   = [wx, wy, bottom_z];
+    float steps      = 16;
+    while (steps > 0) {
+        steps--;
+        traceline(ray_start, ray_end, MOVE_NORMAL | MOVE_NOMONSTERS, world);
+        if (trace_fraction == 1) return 0;
+        float vol = MinimapPointInCullVolume(trace_endpos);
+        if (vol >= 0) {
+            // Skip through the volume's air column.
+            ray_start = [trace_endpos.x, trace_endpos.y,
+                         minimap_volumes[vol].mins.z - 1];
+            if (ray_start.z <= ray_end.z) return 0;
+            continue;
+        }
+        if (trace_endcontents & reject_bits) return 0;
+        // No cull volumes configured? Accept any non-sky/clip hit.
+        return (minimap_num_volumes == 0) ? 1 : 0;
+    }
+    return 0;
+};
+
+// Builds the plan grid: trace every cell center, then run a two-pass
+// chamfer (forward + backward) over the result so every playable cell
+// records its chebyshev distance to the nearest non-playable cell.
+// Lookups via MinimapMaxRadiusFromPlan are then O(1).
+void() MinimapBuildPlanCells =
+{
+    map_plan_loaded = 0;
+    if (minimap_world_dx <= 0 || minimap_world_dy <= 0) return;
+
+    float ext       = max(minimap_world_dx, minimap_world_dy);
+    map_plan_cell_size = ext / MAP_PLAN_RES;
+    map_plan_origin = [minimap_center.x - ext * 0.5,
+                       minimap_center.y - ext * 0.5, 0];
+
+    int total = MAP_PLAN_RES * MAP_PLAN_RES;
+    // Initial pass: 0 for non-playable, MAP_PLAN_RES (a value larger
+    // than the grid diameter) for playable cells. The chamfer below
+    // replaces playable entries with their actual chebyshev distance.
+    for (int iy = 0; iy < MAP_PLAN_RES; iy++) {
+        for (int ix = 0; ix < MAP_PLAN_RES; ix++) {
+            float wx = map_plan_origin.x + (ix + 0.5) * map_plan_cell_size;
+            float wy = map_plan_origin.y + (iy + 0.5) * map_plan_cell_size;
+            map_plan_dist[iy * MAP_PLAN_RES + ix] =
+                MinimapPlanCellPlayable(wx, wy) ? MAP_PLAN_RES : 0;
+        }
+    }
+
+    // Forward chamfer: each cell takes min(self, prev-row/col + 1).
+    for (int iy = 0; iy < MAP_PLAN_RES; iy++) {
+        for (int ix = 0; ix < MAP_PLAN_RES; ix++) {
+            int idx = iy * MAP_PLAN_RES + ix;
+            float d = map_plan_dist[idx];
+            if (d == 0) continue;
+            float cand;
+            if (ix > 0) {
+                cand = map_plan_dist[idx - 1] + 1;
+                if (cand < d) d = cand;
+            }
+            if (iy > 0) {
+                cand = map_plan_dist[idx - MAP_PLAN_RES] + 1;
+                if (cand < d) d = cand;
+                if (ix > 0) {
+                    cand = map_plan_dist[idx - MAP_PLAN_RES - 1] + 1;
+                    if (cand < d) d = cand;
+                }
+                if (ix < MAP_PLAN_RES - 1) {
+                    cand = map_plan_dist[idx - MAP_PLAN_RES + 1] + 1;
+                    if (cand < d) d = cand;
+                }
+            }
+            map_plan_dist[idx] = d;
+        }
+    }
+    // Backward chamfer.
+    for (int iy = MAP_PLAN_RES - 1; iy >= 0; iy--) {
+        for (int ix = MAP_PLAN_RES - 1; ix >= 0; ix--) {
+            int idx = iy * MAP_PLAN_RES + ix;
+            float d = map_plan_dist[idx];
+            if (d == 0) continue;
+            float cand;
+            if (ix < MAP_PLAN_RES - 1) {
+                cand = map_plan_dist[idx + 1] + 1;
+                if (cand < d) d = cand;
+            }
+            if (iy < MAP_PLAN_RES - 1) {
+                cand = map_plan_dist[idx + MAP_PLAN_RES] + 1;
+                if (cand < d) d = cand;
+                if (ix > 0) {
+                    cand = map_plan_dist[idx + MAP_PLAN_RES - 1] + 1;
+                    if (cand < d) d = cand;
+                }
+                if (ix < MAP_PLAN_RES - 1) {
+                    cand = map_plan_dist[idx + MAP_PLAN_RES + 1] + 1;
+                    if (cand < d) d = cand;
+                }
+            }
+            map_plan_dist[idx] = d;
+        }
+    }
+    map_plan_loaded = 1;
+};
+
+// Returns the largest world-space radius around (wx, wy) that stays
+// inside contiguous playable cells. Output is conservatively `(d-1) *
+// cell_size` so the bounding box of a circle at the input still fits
+// inside the playable region. Returns 0 if the center cell itself is
+// non-playable (so the heatmap loop can skip the blob entirely), or
+// the input `r_world` cap if the plan isn't loaded.
+float(float wx, float wy, float r_world) MinimapMaxRadiusFromPlan =
+{
+    if (!map_plan_loaded || map_plan_cell_size <= 0) return r_world;
+    int ix = (int)floor((wx - map_plan_origin.x) / map_plan_cell_size);
+    int iy = (int)floor((wy - map_plan_origin.y) / map_plan_cell_size);
+    if (ix < 0 || ix >= MAP_PLAN_RES || iy < 0 || iy >= MAP_PLAN_RES) return 0;
+    float d = map_plan_dist[iy * MAP_PLAN_RES + ix];
+    if (d <= 0) return 0;
+    // d cells deep -> (d-1)*cell_size of safe radius (rounded by the
+    // cell quantisation; one cell of slack covers the half-cell error
+    // from snapping the input to the cell grid).
+    float r_max = (d - 1) * map_plan_cell_size;
+    if (r_max < 0) r_max = 0;
+    if (r_max > r_world) r_max = r_world;
+    return r_max;
 };
 
 // Filled disc with a radial gradient: alpha goes from `center_alpha` at the
@@ -496,7 +668,7 @@ void(vector pos, float radius, vector color, float intensity, float falloff) Min
     R_EndPolygon();
 };
 
-// 2D ring. For thickness == 1 we use line segments (cheap). For thicker
+/// 2D ring. For thickness == 1 we use line segments (cheap). For thicker
 // rings we draw an annulus as a sequence of quads sharing inner/outer
 // vertices with their neighbors - no butt-joint gaps and no overlap, unlike
 // stacking thick-line segments end-to-end.

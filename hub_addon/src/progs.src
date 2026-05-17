@@ -59,6 +59,10 @@ powcam_commands.qc
 // prefix + MM_IT_* item bits + weapon colors).
 player_info.qc
 
+// Per-seat mouselock prompt (button rendered on hover, click bridges to
+// Module.FTE_RequestPointerLock via the `requestpointerlock` engine command).
+mouselock.qc
+
 // Console commands (depend on all feature state above)
 commands.qc
 
