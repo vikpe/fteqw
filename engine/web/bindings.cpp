@@ -124,6 +124,54 @@ static void collect_infobuf(void *ctx, const char *key, const char *value) {
 	result->set(key, value);
 }
 
+// Standard Quake brush-box items (item_health, item_shells, _spikes,
+// _rockets, _cells) call setmodel("maps/b_*.bsp") at runtime; the box
+// geometry sits at the +X / +Y corner of the entity origin, so the
+// visual center is at origin + (16, 16). Used by both getEntities()
+// and highlightEntityIndex() so the web sees a single consistent
+// position for marker placement and teleport target.
+static bool is_brush_box_item(const char *classname) {
+	return !strcmp(classname, "item_health")  ||
+	       !strcmp(classname, "item_shells")  ||
+	       !strcmp(classname, "item_spikes")  ||
+	       !strcmp(classname, "item_rockets") ||
+	       !strcmp(classname, "item_cells");
+}
+
+// Resolves the effective world position of a BSP entity record.
+// Point entities carry their position directly in `origin`. Brush
+// entities (trigger_teleport, trigger_hurt, ...) leave origin at
+// 0,0,0 and reference a worldmodel submodel via `model "*N"`; for
+// those we compute the bbox center from the model_t submodel table.
+// Returns true on success.
+static bool resolve_bsp_entity_origin(const char *origin_str,
+                                      const char *model_str,
+                                      float *ox, float *oy, float *oz) {
+	float x = 0, y = 0, z = 0;
+	int parsed = sscanf(origin_str, "%f %f %f", &x, &y, &z);
+	bool origin_present = parsed == 3 && (x != 0 || y != 0 || z != 0);
+	if (origin_present) {
+		*ox = x; *oy = y; *oz = z;
+		return true;
+	}
+	if (model_str && model_str[0] == '*' && cl.worldmodel &&
+	    cl.worldmodel->submodels) {
+		int n = atoi(model_str + 1);
+		if (n > 0 && n < cl.worldmodel->numsubmodels) {
+			mmodel_t *sm = &cl.worldmodel->submodels[n];
+			*ox = (sm->mins[0] + sm->maxs[0]) * 0.5f;
+			*oy = (sm->mins[1] + sm->maxs[1]) * 0.5f;
+			*oz = (sm->mins[2] + sm->maxs[2]) * 0.5f;
+			return true;
+		}
+	}
+	if (parsed == 3) {  // origin was explicitly "0 0 0"
+		*ox = x; *oy = y; *oz = z;
+		return true;
+	}
+	return false;
+}
+
 static lerpents_t* get_player_lerped(int index) {
 	if (index + 1 < cl.maxlerpents && cl.lerpentssequence && cl.lerpents[index + 1].sequence == cl.lerpentssequence)
 		return &cl.lerpents[index + 1];
@@ -549,9 +597,20 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	// minimap (see hub_addon/src/minimap.qc). Pass NaN/empty equivalent
 	// via clearMinimapHighlight() to remove the marker.
 	function("setMinimapHighlight", +[](double x, double y, double z) {
+		// Default marker style (yellow stroked disc, radius 8,
+		// angle 0) emitted as the 9-token-per-point format CSQC
+		// consumes. "disc" uses MinimapDrawRing -> drawline, which
+		// rasterizes reliably at any size; the filled "dot" shape
+		// collapses to sub-pixel triangle fans at small radii.
 		char buf[96];
-		snprintf(buf, sizeof(buf), "%g %g %g", x, y, z);
+		snprintf(buf, sizeof(buf), "%g %g %g disc 8 1 1 0 0", x, y, z);
 		Cvar_Set(Cvar_FindVar("minimap_highlight"), buf);
+		// Auto-enable the minimap if it's off so the highlight is
+		// actually visible. Matches setMinimapHeatmap's behavior;
+		// caller doesn't have to coordinate minimap_mode separately.
+		cvar_t *mm = Cvar_FindVar("minimap_mode");
+		if (mm && mm->value == 0)
+			Cvar_Set(mm, "2");
 	});
 
 	function("clearMinimapHighlight", +[]() {
@@ -661,21 +720,31 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		// ca_active. The scan's CL_PlayDemoStream restart leaves cls.state
 		// at ca_demostart; it won't flip back to ca_active until the next
 		// Host_Frame's CL_MakeActive (cl_main.c:7355-7358). Force the
-		// flag locally so we can resolve names now. The .loc data itself
-		// is in zqtp.c statics, untouched by the demo restart, so it
-		// persists from before the scan (provided the user rendered at
-		// least one frame after demo open, which is when Surf_NewMap
-		// loads it).
+		// flag locally so we can resolve names now.
 		cactive_t saved_state = cls.state;
 		cls.state = ca_active;
 
-		emscripten::val result = emscripten::val::array();
+		// Force-load the .loc file for the current map even if the
+		// scan's demo restart cleared loc_numentries and no Surf_NewMap
+		// has fired since. Without this every event renders "someplace"
+		// because TP_LocationName has no zones to match origins against.
+		TP_ReloadCurrentLocs();
+
+		// Two parallel arrays in one response object: events carry the
+		// victim/killer user ids only, and `players` is the userid->name
+		// table for display lookup. Drops the per-event name dup (was up
+		// to 256 bytes per event); ~16 entries in players vs ~200 events.
+		emscripten::val events = emscripten::val::array();
 		for (int i = 0; i < hub_demo_event_count; i++) {
 			emscripten::val ev = emscripten::val::object();
-			ev.set("time_ms",       hub_demo_events[i].time_ms);
-			ev.set("kind",          (int)hub_demo_events[i].kind);
-			ev.set("victim_userid", hub_demo_events[i].victim_userid);
-			ev.set("victim",        std::string(hub_demo_events[i].victim));
+			ev.set("time_ms",        hub_demo_events[i].time_ms);
+			ev.set("kind",           (int)hub_demo_events[i].kind);
+			ev.set("items",          (double)hub_demo_events[i].items);
+			ev.set("victim_user_id", hub_demo_events[i].victim_user_id);
+			ev.set("killer_user_id", hub_demo_events[i].killer_user_id);
+			ev.set("victim_items",   (double)hub_demo_events[i].victim_items);
+			ev.set("killer_items",   (double)hub_demo_events[i].killer_items);
+			ev.set("frag_type",      (double)hub_demo_events[i].frag_type);
 			emscripten::val origin = emscripten::val::object();
 			origin.set("x", hub_demo_events[i].origin[0]);
 			origin.set("y", hub_demo_events[i].origin[1]);
@@ -683,11 +752,365 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			ev.set("origin", origin);
 			const char *loc = TP_LocationName(hub_demo_events[i].origin);
 			ev.set("location", std::string(loc ? loc : ""));
-			result.set(i, ev);
+			events.set(i, ev);
 		}
+
+		emscripten::val players = emscripten::val::array();
+		for (int i = 0; i < hub_demo_player_count; i++) {
+			emscripten::val p = emscripten::val::object();
+			p.set("userid",    hub_demo_players[i].userid);
+			p.set("name",      std::string(hub_demo_players[i].name));
+			p.set("team",      std::string(hub_demo_players[i].team));
+			p.set("is_active", (bool)hub_demo_players[i].is_active);
+			players.set(i, p);
+		}
+
+		emscripten::val spans = emscripten::val::array();
+		for (int i = 0; i < hub_demo_span_count; i++) {
+			emscripten::val sp = emscripten::val::object();
+			sp.set("start_ms",    hub_demo_spans[i].start_ms);
+			sp.set("end_ms",      hub_demo_spans[i].end_ms);
+			sp.set("user_id",     hub_demo_spans[i].user_id);
+			sp.set("items",       (double)hub_demo_spans[i].items);
+			sp.set("was_dropped", (bool)hub_demo_spans[i].was_dropped);
+			sp.set("frag_count",  hub_demo_spans[i].frag_count);
+			sp.set("rl_kills",    hub_demo_spans[i].rl_kills);
+			sp.set("lg_kills",    hub_demo_spans[i].lg_kills);
+			sp.set("rlg_kills",   hub_demo_spans[i].rlg_kills);
+			spans.set(i, sp);
+		}
+
+		emscripten::val result = emscripten::val::object();
+		result.set("events",  events);
+		result.set("players", players);
+		result.set("spans",   spans);
 
 		cls.state = saved_state;
 		return result;
+	});
+
+	// Returns the embedded ktxstats JSON string, or null if the demo
+	// carries no mvdhidden_demoinfo payload (most non-KTX MVDs and
+	// live games). Uses Hub_DemoStats_Scan, which walks the demo file
+	// directly and only parses hidden-message frame bodies (seeking
+	// past everything else). Cheap enough to run synchronously - tens
+	// of ms instead of the ~1s a full event scan costs. A prior full
+	// events scan also counts as a cache hit.
+	function("getKtxStats", +[]() -> emscripten::val {
+		Hub_DemoStats_Scan();
+		if (!hub_ktxstats_json) return emscripten::val::null();
+		return emscripten::val(std::string(hub_ktxstats_json));
+	});
+
+	// Enumerate every entity defined in the currently-loaded map's BSP
+	// entity string (cl.worldmodel->entities_raw). Each entry is
+	//   { classname, spawnflags, origin: {x, y, z} }
+	// classname is the QC entity classname (e.g. "item_armor1",
+	// "weapon_rocketlauncher", "item_health"); spawnflags lets the
+	// caller distinguish variants (e.g. mega health = item_health
+	// with spawnflags & 2). Empty array when no map is loaded.
+	//
+	// Sourced from the BSP itself, not the network state - works
+	// uniformly across demo playback, local listen server (`+map`),
+	// and live connection. Independent of cl_baselines being
+	// populated.
+	function("getEntities", +[]() -> emscripten::val {
+		emscripten::val result = emscripten::val::array();
+		if (!cl.worldmodel) return result;
+		const char *ents = Mod_GetEntitiesString(cl.worldmodel);
+		if (!ents) return result;
+
+		int out_idx = 0;
+		char token[1024];
+		while (ents && *ents) {
+			ents = COM_ParseOut(ents, token, sizeof(token));
+			if (token[0] != '{') continue;
+
+			char classname[128]        = "";
+			char origin_str[128]       = "";
+			char model_field[128]      = "";
+			char target_field[128]     = "";
+			char targetname_field[128] = "";
+			int  spawnflags            = 0;
+			while (ents && *ents) {
+				ents = COM_ParseOut(ents, token, sizeof(token));
+				if (token[0] == '}') break;
+				char value[1024];
+				ents = COM_ParseOut(ents, value, sizeof(value));
+				if (!strcmp(token, "classname"))
+					Q_strncpyz(classname, value, sizeof(classname));
+				else if (!strcmp(token, "origin"))
+					Q_strncpyz(origin_str, value, sizeof(origin_str));
+				else if (!strcmp(token, "model"))
+					Q_strncpyz(model_field, value, sizeof(model_field));
+				else if (!strcmp(token, "target"))
+					Q_strncpyz(target_field, value, sizeof(target_field));
+				else if (!strcmp(token, "targetname"))
+					Q_strncpyz(targetname_field, value,
+					           sizeof(targetname_field));
+				else if (!strcmp(token, "spawnflags"))
+					spawnflags = atoi(value);
+			}
+			if (!classname[0]) continue;
+
+			float ox = 0, oy = 0, oz = 0;
+			// resolve_bsp_entity_origin handles both point entities
+			// (uses origin as-is) and brush entities like
+			// trigger_teleport (computes the submodel bbox center
+			// since origin is "0 0 0" in the BSP entity string).
+			resolve_bsp_entity_origin(origin_str, model_field,
+			                          &ox, &oy, &oz);
+			// Brush-box items render with their geometry shifted to
+			// the +X / +Y corner of the entity origin. Surface the
+			// visual center so the web's marker placement and the
+			// click-to-teleport target both land on what the user
+			// actually sees on the minimap.
+			if (is_brush_box_item(classname)) {
+				ox += 16;
+				oy += 16;
+			}
+
+			emscripten::val e = emscripten::val::object();
+			e.set("id",         out_idx);
+			e.set("classname",  std::string(classname));
+			e.set("spawnflags", spawnflags);
+			e.set("target",     std::string(target_field));
+			e.set("targetname", std::string(targetname_field));
+			emscripten::val origin = emscripten::val::object();
+			origin.set("x", ox);
+			origin.set("y", oy);
+			origin.set("z", oz);
+			e.set("origin", origin);
+			result.set(out_idx++, e);
+		}
+		return result;
+	});
+
+	// Set the CSQC minimap highlight to the world position of the
+	// entity at iteration index `id` (same id field getEntities()
+	// returns). For teleporters (trigger_teleport / info_teleport_-
+	// destination) the linked partner is highlighted too via the
+	// target/targetname relationship - the cvar format supports
+	// multiple "x y z" triplets that the CSQC renders together and
+	// draws a dotted connector between consecutive points. No-op
+	// for out-of-range id or no map.
+	function("highlightEntityIndex", +[](int id, emscripten::val marker_val) {
+		// Marker style defaults match the legacy yellow dot. Caller
+		// can override via { shape: "dot"|"ring", size: number,
+		// color: "#RRGGBB" }; missing fields fall back to defaults.
+		std::string shape = "dot";
+		double size = 4.0;
+		double mr = 1.0, mg = 1.0, mb = 0.0;
+		if (!marker_val.isUndefined() && !marker_val.isNull()) {
+			emscripten::val v_shape = marker_val["shape"];
+			emscripten::val v_size  = marker_val["size"];
+			emscripten::val v_color = marker_val["color"];
+			if (!v_shape.isUndefined())
+				shape = v_shape.as<std::string>();
+			if (!v_size.isUndefined())
+				size = v_size.as<double>();
+			if (!v_color.isUndefined()) {
+				std::string hex = v_color.as<std::string>();
+				if (hex.size() == 7 && hex[0] == '#') {
+					int r, g, b;
+					if (sscanf(hex.c_str() + 1, "%2x%2x%2x",
+					           &r, &g, &b) == 3) {
+						mr = r / 255.0;
+						mg = g / 255.0;
+						mb = b / 255.0;
+					}
+				}
+			}
+		}
+		if (id < 0) return;
+		if (!cl.worldmodel) return;
+		const char *ents0 = Mod_GetEntitiesString(cl.worldmodel);
+		if (!ents0) return;
+
+		// Pass 1: find the entity at index `id` and capture the
+		// fields we need (classname + origin + model + target/
+		// targetname for the teleporter-pair lookup).
+		char  target_classname[128]  = "";
+		char  target_origin_str[128] = "";
+		char  target_model[128]      = "";
+		char  target_target[128]     = "";
+		char  target_targetname[128] = "";
+		float target_angle           = 0;
+		bool found = false;
+		int  idx   = 0;
+		const char *ents = ents0;
+		char token[1024];
+		while (ents && *ents) {
+			ents = COM_ParseOut(ents, token, sizeof(token));
+			if (token[0] != '{') continue;
+			char  classname[128]        = "";
+			char  origin_str[128]       = "";
+			char  model_field[128]      = "";
+			char  target_field[128]     = "";
+			char  targetname_field[128] = "";
+			float angle_field           = 0;
+			while (ents && *ents) {
+				ents = COM_ParseOut(ents, token, sizeof(token));
+				if (token[0] == '}') break;
+				char value[1024];
+				ents = COM_ParseOut(ents, value, sizeof(value));
+				if (!strcmp(token, "classname"))
+					Q_strncpyz(classname, value, sizeof(classname));
+				else if (!strcmp(token, "origin"))
+					Q_strncpyz(origin_str, value, sizeof(origin_str));
+				else if (!strcmp(token, "model"))
+					Q_strncpyz(model_field, value, sizeof(model_field));
+				else if (!strcmp(token, "target"))
+					Q_strncpyz(target_field, value, sizeof(target_field));
+				else if (!strcmp(token, "targetname"))
+					Q_strncpyz(targetname_field, value,
+					           sizeof(targetname_field));
+				else if (!strcmp(token, "angle"))
+					angle_field = (float)atof(value);
+				else if (!strcmp(token, "angles")) {
+					// "pitch yaw roll" - yaw is index 1.
+					float pitch, yaw, roll;
+					if (sscanf(value, "%f %f %f",
+					           &pitch, &yaw, &roll) == 3)
+						angle_field = yaw;
+				}
+			}
+			if (!classname[0]) continue;
+			if (idx == id) {
+				Q_strncpyz(target_classname,  classname,
+				           sizeof(target_classname));
+				Q_strncpyz(target_origin_str, origin_str,
+				           sizeof(target_origin_str));
+				Q_strncpyz(target_model,      model_field,
+				           sizeof(target_model));
+				Q_strncpyz(target_target,     target_field,
+				           sizeof(target_target));
+				Q_strncpyz(target_targetname, targetname_field,
+				           sizeof(target_targetname));
+				target_angle = angle_field;
+				found = true;
+				break;
+			}
+			idx++;
+		}
+		if (!found) return;
+
+		// Teleporter pair lookup. Entrance links to destination via
+		// `target` -> partner.targetname; reverse direction works
+		// the other way. Other entity classes get a single
+		// highlight only.
+		bool match_via_target     = false;
+		bool match_via_targetname = false;
+		if (!strcmp(target_classname, "trigger_teleport") &&
+		    target_target[0]) {
+			match_via_target = true;
+		} else if (!strcmp(target_classname, "info_teleport_destination") &&
+		           target_targetname[0]) {
+			match_via_targetname = true;
+		}
+
+		char  partner_origin_str[128] = "";
+		char  partner_model[128]      = "";
+		float partner_angle           = 0;
+		bool  partner_found           = false;
+		if (match_via_target || match_via_targetname) {
+			const char *ents2 = ents0;
+			while (ents2 && *ents2) {
+				ents2 = COM_ParseOut(ents2, token, sizeof(token));
+				if (token[0] != '{') continue;
+				char  origin_str[128]       = "";
+				char  model_field[128]      = "";
+				char  target_field[128]     = "";
+				char  targetname_field[128] = "";
+				float angle_field           = 0;
+				while (ents2 && *ents2) {
+					ents2 = COM_ParseOut(ents2, token, sizeof(token));
+					if (token[0] == '}') break;
+					char value[1024];
+					ents2 = COM_ParseOut(ents2, value, sizeof(value));
+					if (!strcmp(token, "origin"))
+						Q_strncpyz(origin_str, value, sizeof(origin_str));
+					else if (!strcmp(token, "model"))
+						Q_strncpyz(model_field, value, sizeof(model_field));
+					else if (!strcmp(token, "target"))
+						Q_strncpyz(target_field, value,
+						           sizeof(target_field));
+					else if (!strcmp(token, "targetname"))
+						Q_strncpyz(targetname_field, value,
+						           sizeof(targetname_field));
+					else if (!strcmp(token, "angle"))
+						angle_field = (float)atof(value);
+					else if (!strcmp(token, "angles")) {
+						float pitch, yaw, roll;
+						if (sscanf(value, "%f %f %f",
+						           &pitch, &yaw, &roll) == 3)
+							angle_field = yaw;
+					}
+				}
+				bool hit = (match_via_target &&
+				            !strcmp(targetname_field, target_target)) ||
+				           (match_via_targetname &&
+				            !strcmp(target_field, target_targetname));
+				if (hit) {
+					Q_strncpyz(partner_origin_str, origin_str,
+					           sizeof(partner_origin_str));
+					Q_strncpyz(partner_model, model_field,
+					           sizeof(partner_model));
+					partner_angle = angle_field;
+					partner_found = true;
+					break;
+				}
+			}
+		}
+
+		float ox = 0, oy = 0, oz = 0;
+		resolve_bsp_entity_origin(target_origin_str, target_model, &ox, &oy, &oz);
+		if (is_brush_box_item(target_classname)) {
+			ox += 16;
+			oy += 16;
+		}
+		// Per-point format: x y z shape size r g b angle (9 tokens).
+		// Both endpoints share the marker style. `angle` is the
+		// entity's yaw in degrees (0 for entities with no angle
+		// field) - used by the CSQC arrow renderer to orient the
+		// arrowhead at the destination toward the player's facing
+		// direction after teleport. CSQC parses groups of 9 and
+		// draws the line + arrow between consecutive points.
+		char buf[512];
+		const char *s = shape.c_str();
+		if (partner_found) {
+			float px = 0, py = 0, pz = 0;
+			if (resolve_bsp_entity_origin(partner_origin_str, partner_model,
+			                   &px, &py, &pz)) {
+				bool target_is_entrance =
+				    !strcmp(target_classname, "trigger_teleport");
+				float ax = target_is_entrance ? ox : px;
+				float ay = target_is_entrance ? oy : py;
+				float az = target_is_entrance ? oz : pz;
+				float bx = target_is_entrance ? px : ox;
+				float by = target_is_entrance ? py : oy;
+				float bz = target_is_entrance ? pz : oz;
+				float aa = target_is_entrance ? target_angle : partner_angle;
+				float ba = target_is_entrance ? partner_angle : target_angle;
+				snprintf(buf, sizeof(buf),
+				         "%g %g %g %s %g %g %g %g %g  %g %g %g %s %g %g %g %g %g",
+				         ax, ay, az, s, size, mr, mg, mb, aa,
+				         bx, by, bz, s, size, mr, mg, mb, ba);
+			} else {
+				snprintf(buf, sizeof(buf),
+				         "%g %g %g %s %g %g %g %g %g",
+				         ox, oy, oz, s, size, mr, mg, mb, target_angle);
+			}
+		} else {
+			snprintf(buf, sizeof(buf),
+			         "%g %g %g %s %g %g %g %g %g",
+			         ox, oy, oz, s, size, mr, mg, mb, target_angle);
+		}
+		Cvar_Set(Cvar_FindVar("minimap_highlight"), buf);
+		// Auto-enable the minimap if it's off so the marker shows.
+		cvar_t *mm = Cvar_FindVar("minimap_mode");
+		if (mm && mm->value == 0)
+			Cvar_Set(mm, "2");
 	});
 
 	// Seek the active demo to `seconds` from the start. Floors and clamps
@@ -731,25 +1154,24 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 
 		const char *mode = InfoBuf_ValueForKey(&cl.serverinfo, "mode");
 
-		if (!strcasecmp(mode, "tot")) {
-			if (parts.player_count == 0) return std::string("tot");
-			std::string out = "tot: ";
+		auto join_player_names = [&](const char *prefix) -> std::string {
+			std::string out = prefix;
 			for (int i = 0; i < parts.player_count; i++) {
 				if (i > 0) out += ", ";
 				out += parts.players[i].name_unicode;
 			}
 			return out;
+		};
+
+		if (!strcasecmp(mode, "tot")) {
+			if (parts.player_count == 0) return std::string();
+			return join_player_names("tot: ");
 		}
 
 		// Race modes have no head-to-head matchup - just list all players.
 		if (mode && strstr(mode, "race")) {
 			if (parts.player_count == 0) return std::string();
-			std::string out;
-			for (int i = 0; i < parts.player_count; i++) {
-				if (i > 0) out += ", ";
-				out += parts.players[i].name_unicode;
-			}
-			return out;
+			return join_player_names("");
 		}
 		if (parts.team_count >= 2) {
 			return std::string(parts.teams[0].team_unicode) + " vs " + std::string(parts.teams[1].team_unicode);

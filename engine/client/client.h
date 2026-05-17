@@ -1597,6 +1597,7 @@ void		TP_Init(void);
 qboolean	TP_HaveLocations(void);
 char*		TP_LocationName (const vec3_t location);
 void		TP_NewMap (void);
+void		TP_ReloadCurrentLocs(void); // force-reload <mapname>.loc, bypassing TP_NewMap's same-map cache; for batch demo-events lookups before the first render-driven load.
 qboolean	TP_CheckSoundTrigger (char *str);				//plays sound files when some substring exists in chat.
 void		TP_SearchForMsgTriggers (char *s, int level);	//msg_trigger: executes aliases when a chat message contains some user-defined string.
 qboolean	TP_SuppressMessage(char *buf);	//true when the message contains macro results that the local player isn't meant to see (teamplay messages that contain enemy player counts for instance)

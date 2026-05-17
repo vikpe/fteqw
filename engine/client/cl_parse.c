@@ -6970,6 +6970,16 @@ static void CL_ParseKtxBackpackRemove(void) {
 
 	entnum = strtoul(Cmd_Argv(0), NULL, 0);
 
+	// //ktx bp <entnum> <player entnum> = picked up; //ktx expire
+	// <entnum> = timed out / removed. Only the picked-up variant
+	// gets forwarded to the demo-events scan, distinguishable by
+	// the presence of the player-entnum arg.
+	if (Cmd_Argc() >= 2)
+	{
+		int player_slot = atoi(Cmd_Argv(1)) - 1;
+		Hub_DemoEvents_OnKtxBackpackPickup(player_slot, entnum);
+	}
+
 	current = cl.itemtimers;
 	previous = NULL;
 
@@ -7030,6 +7040,17 @@ static void CL_ParseKtxBackpackDrop(void)
 	timer->rgb[0] = ((rgb>>16)&0xff)/255.0f;
 	timer->rgb[1] = ((rgb>> 8)&0xff)/255.0f;
 	timer->rgb[2] = ((rgb)    &0xff)/255.0f;
+
+	// The 3rd arg is the dropper's 1-based entnum (matches the took
+	// playernum format). Forward to the events scan so weapon-drop
+	// markers appear in the analytics timeline. Skipped silently when
+	// absent (some older KTX builds omit the arg).
+	if (Cmd_Argc() >= 3 && entnum < cl_baselines_count)
+	{
+		int player_slot = atoi(Cmd_Argv(2)) - 1;
+		Hub_DemoEvents_OnKtxDrop(player_slot, items,
+		                         cl_baselines[entnum].origin, entnum);
+	}
 }
 
 static void CL_ParseKtxItemTimer(void)
@@ -7150,6 +7171,16 @@ static void CL_ParseKtxItemTimer(void)
 	timer->rgb[0] = ((rgb>>16)&0xff)/255.0;
 	timer->rgb[1] = ((rgb>> 8)&0xff)/255.0;
 	timer->rgb[2] = ((rgb)    &0xff)/255.0;
+
+	// "//ktx took" carries a 3rd arg (player slot); "//ktx timer" doesn't.
+	// We only want to emit pickup events for the took variant. KTX sends
+	// playernum as a 1-based entnum (matches mvdhidden_dmgdone); convert
+	// to a 0-based cl.players[] slot before forwarding.
+	if (Cmd_Argc() >= 3)
+	{
+		int player_slot = atoi(Cmd_Argv(2)) - 1;
+		Hub_DemoEvents_OnKtxTook(player_slot, mdl, ent->skinnum, org);
+	}
 }
 
 static void CL_ParseItemTimer(void)
@@ -7788,8 +7819,15 @@ void CLEZ_ParseHiddenDemoMessage(void)
 			return;	//can't handle it... protocol is stupid.
 
 		case 0x0003://mvdhidden_demoinfo
-			MSG_ReadUInt16();		//'more'
-			MSG_ReadSkip(size-2);	//probably json
+			{
+				// `size` is the byte count after the cmd UInt16. The
+				// 2 bytes of 'more' come next, then size-2 bytes of
+				// payload (the ktxstats JSON chunk). Hub_DemoEvents
+				// consumes the payload itself when scanning so it can
+				// build up the full string; otherwise it skips.
+				unsigned int is_more = MSG_ReadUInt16();
+				Hub_DemoEvents_OnDemoInfo(size - 2, is_more);
+			}
 			break;
 		case 0x0007://mvdhidden_dmgdone
 			{
@@ -7802,6 +7840,15 @@ void CLEZ_ParseHiddenDemoMessage(void)
 				unsigned short isteamdamage = (attacker==targ) || (cl.teamplay && attacker-1<countof(cl.players)&&targ-1<countof(cl.players)&&!strcmp(cl.players[attacker].team, cl.players[targ].team));
 
 				typeandflags &= ~0x8000;
+
+				// Record last-attacker per victim for the demo-events
+				// scan's kill attribution. attacker/targ are 1-based
+				// entnums per the wire protocol; convert to 0-based
+				// player slots. typeandflags here has had the splash
+				// bit (0x8000) stripped already - it's the raw
+				// server-side dtype/MOD enum. No-op outside scan.
+				Hub_DemoEvents_OnDamage((int)attacker - 1, (int)targ - 1,
+				                        typeandflags);
 
 				//let csqc handle it consistently with other ktx quirks.
 				for (cmd = 0; cmd < cl.splitclients; cmd++)
