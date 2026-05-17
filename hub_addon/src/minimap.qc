@@ -278,61 +278,47 @@ void(float vwidth, float vheight) MinimapRender =
                 float dx     = hs.x - hs_prev.x;
                 float dy     = hs.y - hs_prev.y;
                 float length = sqrt(dx * dx + dy * dy);
+
+                // Arrow direction (post-teleport facing). Independent
+                // of the projected line length, so we compute it
+                // unconditionally - the arrow always renders, even
+                // when entrance/destination project to the same
+                // pixel (e.g. vertically stacked teleporters).
+                float yaw_rad = angle * (M_PI / 180);
+                float wx = cos(yaw_rad);
+                float wy = sin(yaw_rad);
+                vector wxd = minimap_view_wx_delta;
+                vector wyd = minimap_view_wy_delta;
+                float arx = wx * wxd.x + wy * wyd.x;
+                float ary = wx * wxd.y + wy * wyd.y;
+                float arlen = sqrt(arx * arx + ary * ary);
+                float aux, auy;
+                if (arlen > 0.001) {
+                    aux = arx / arlen;
+                    auy = ary / arlen;
+                } else if (length > 0.001) {
+                    aux = dx / length;
+                    auy = dy / length;
+                } else {
+                    aux = 0;
+                    auy = -1;
+                }
+
+                float arrow_len  = 9;
+                float arrow_half = 3.75;
+                float tip_x = hs.x + aux * (arrow_len * 0.5);
+                float tip_y = hs.y + auy * (arrow_len * 0.5);
+
+                // Dotted connector chevrons between entrance and
+                // exit. Each "dash" is a small ">" formed by two
+                // drawline segments; the row is animated at
+                // flow_speed px/sec to read the teleport direction
+                // at a glance. cltime keeps ticking through pauses.
+                // Skipped when the two endpoints project too close
+                // - no useful chevrons fit.
                 if (length >= 6) {
-                    float ux  = dx / length;
-                    float uy  = dy / length;
-
-                    // Arrow direction: convert the destination
-                    // entity's world yaw (degrees) into a screen-
-                    // space unit vector using the cached minimap
-                    // projection deltas. The arrow points along the
-                    // direction the player ends up facing AFTER the
-                    // teleport (Quake's `angle` field on
-                    // info_teleport_destination). Falls back to the
-                    // line direction when the destination has no
-                    // angle (angle == 0 and length is short, etc).
-                    float yaw_rad = angle * (M_PI / 180);
-                    float wx = cos(yaw_rad);
-                    float wy = sin(yaw_rad);
-                    vector wxd = minimap_view_wx_delta;
-                    vector wyd = minimap_view_wy_delta;
-                    float arx = wx * wxd.x + wy * wyd.x;
-                    float ary = wx * wxd.y + wy * wyd.y;
-                    float arlen = sqrt(arx * arx + ary * ary);
-                    float aux, auy;
-                    if (arlen > 0.001) {
-                        aux = arx / arlen;
-                        auy = ary / arlen;
-                    } else {
-                        // No projection axes yet (shouldn't happen
-                        // mid-render) - fall back to line direction.
-                        aux = ux;
-                        auy = uy;
-                    }
-
-                    // Arrowhead centered at the destination exit
-                    // (hs), oriented along the facing direction.
-                    // Tip extends arrow_len/2 past the center, base
-                    // sits arrow_len/2 before the center, so the
-                    // exit point of the teleport sits in the middle
-                    // of the arrow.
-                    float arrow_len   = 9;
-                    float arrow_half  = 3.75;
-                    float tip_x  = hs.x + aux * (arrow_len * 0.5);
-                    float tip_y  = hs.y + auy * (arrow_len * 0.5);
-
-                    // Dot connector. Dots flow from the start disc's
-                    // center to the arrowhead's base, animated at
-                    // flow_speed px/sec so the direction of teleport
-                    // reads at a glance. cltime keeps ticking
-                    // regardless of pause / server state so the
-                    // animation runs in any context.
-                    // Each "dash" is a small chevron arrowhead
-                    // pointing along the line direction - two short
-                    // drawline segments forming a ">" shape. Tip
-                    // sits at the front of the chevron, two wings
-                    // splay backward. Reinforces the direction of
-                    // travel visually along the whole line.
+                    float ux = dx / length;
+                    float uy = dy / length;
                     float chev_half_len  = 1.6;
                     float chev_half_wing = 1.6;
                     float clong_x = ux * chev_half_len;
@@ -340,23 +326,16 @@ void(float vwidth, float vheight) MinimapRender =
                     float cperp_x = -uy * chev_half_wing;
                     float cperp_y =  ux * chev_half_wing;
 
-                    float spacing     = 8;
-                    float flow_speed  = 16;
-                    float phase       = cltime * flow_speed;
+                    float spacing    = 8;
+                    float flow_speed = 16;
+                    float phase      = cltime * flow_speed;
                     phase = phase - floor(phase / spacing) * spacing;
-                    // Chevrons start right at the source disc rim;
-                    // the fade-in below ramps their alpha so they
-                    // appear smoothly rather than popping in.
                     float start_clear = size;
                     float end_clear   = arrow_len * 0.5;
                     int   steps       = (int)floor(length / spacing) + 1;
-                    // Smooth ramp at both ends so chevrons fade in
-                    // at the source side and out at the arrowhead
-                    // side instead of popping at the clear margins.
-                    // Fade region spans `fade_dist` past each bound.
-                    float fade_dist = spacing * 1.5;
-                    float min_t     = start_clear;
-                    float max_t     = length - end_clear;
+                    float fade_dist   = spacing * 1.5;
+                    float min_t       = start_clear;
+                    float max_t       = length - end_clear;
                     for (int s = 0; s <= steps; s++) {
                         float t = phase + s * spacing;
                         if (t < min_t) continue;
@@ -376,26 +355,24 @@ void(float vwidth, float vheight) MinimapRender =
                         drawline(1, wl, tip, color, alpha);
                         drawline(1, tip, wr, color, alpha);
                     }
-                    float base_x  = tip_x - aux * arrow_len;
-                    float base_y  = tip_y - auy * arrow_len;
-                    float bperp_x = -auy * arrow_half;
-                    float bperp_y =  aux * arrow_half;
-                    R_BeginPolygon("minimap_fill_v3", 0, 1);
-                    R_PolygonVertex([tip_x, tip_y, 0],
-                                    '0 0 0', color, 0.95);
-                    R_PolygonVertex([base_x + bperp_x, base_y + bperp_y, 0],
-                                    '0 0 0', color, 0.95);
-                    R_PolygonVertex([base_x - bperp_x, base_y - bperp_y, 0],
-                                    '0 0 0', color, 0.95);
-                    R_EndPolygon();
                 }
+
+                // Arrowhead at the destination, always drawn.
+                float base_x  = tip_x - aux * arrow_len;
+                float base_y  = tip_y - auy * arrow_len;
+                float bperp_x = -auy * arrow_half;
+                float bperp_y =  aux * arrow_half;
+                R_BeginPolygon("minimap_fill_v3", 0, 1);
+                R_PolygonVertex([tip_x, tip_y, 0],
+                                '0 0 0', color, 0.95);
+                R_PolygonVertex([base_x + bperp_x, base_y + bperp_y, 0],
+                                '0 0 0', color, 0.95);
+                R_PolygonVertex([base_x - bperp_x, base_y - bperp_y, 0],
+                                '0 0 0', color, 0.95);
+                R_EndPolygon();
             }
-            // Endpoint marker. "dot" = filled circle, "disc" =
-            // stroked circle (a ring at the requested radius). Other
-            // shape values fall through to dot. Second-and-later
-            // points in a multi-point sequence (the teleport-exit
-            // end of a teleporter pair) skip the disc - the
-            // arrowhead drawn above already marks the exit.
+            // First-point disc (entrance / single-point marker).
+            // Subsequent points use the arrow above instead.
             if (p == 0) {
                 if (shape == "disc") {
                     MinimapDrawRing(hs, size, color, 1.0, 1);

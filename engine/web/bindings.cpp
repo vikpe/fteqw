@@ -826,12 +826,13 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			ents = COM_ParseOut(ents, token, sizeof(token));
 			if (token[0] != '{') continue;
 
-			char classname[128]        = "";
-			char origin_str[128]       = "";
-			char model_field[128]      = "";
-			char target_field[128]     = "";
-			char targetname_field[128] = "";
-			int  spawnflags            = 0;
+			char  classname[128]        = "";
+			char  origin_str[128]       = "";
+			char  model_field[128]      = "";
+			char  target_field[128]     = "";
+			char  targetname_field[128] = "";
+			int   spawnflags            = 0;
+			float angle_field           = 0;
 			while (ents && *ents) {
 				ents = COM_ParseOut(ents, token, sizeof(token));
 				if (token[0] == '}') break;
@@ -850,6 +851,14 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 					           sizeof(targetname_field));
 				else if (!strcmp(token, "spawnflags"))
 					spawnflags = atoi(value);
+				else if (!strcmp(token, "angle"))
+					angle_field = (float)atof(value);
+				else if (!strcmp(token, "angles")) {
+					float pitch, yaw, roll;
+					if (sscanf(value, "%f %f %f",
+					           &pitch, &yaw, &roll) == 3)
+						angle_field = yaw;
+				}
 			}
 			if (!classname[0]) continue;
 
@@ -876,6 +885,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			e.set("spawnflags", spawnflags);
 			e.set("target",     std::string(target_field));
 			e.set("targetname", std::string(targetname_field));
+			e.set("angle",      angle_field);
 			emscripten::val origin = emscripten::val::object();
 			origin.set("x", ox);
 			origin.set("y", oy);
@@ -1009,15 +1019,27 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			match_via_targetname = true;
 		}
 
+		// Required partner classname: clicking the destination looks
+		// for the entrance brush; clicking the entrance looks for the
+		// destination point. Filtering here prevents an unrelated
+		// entity (door, button, train) that happens to share the
+		// targetname/target string from being picked first - the
+		// failure mode the symmetric search hit on maps where the
+		// teleporter target is reused.
+		const char *expected_partner_classname =
+		    match_via_target           ? "info_teleport_destination" :
+		    match_via_targetname       ? "trigger_teleport"          : NULL;
+
 		char  partner_origin_str[128] = "";
 		char  partner_model[128]      = "";
 		float partner_angle           = 0;
 		bool  partner_found           = false;
-		if (match_via_target || match_via_targetname) {
+		if (expected_partner_classname) {
 			const char *ents2 = ents0;
 			while (ents2 && *ents2) {
 				ents2 = COM_ParseOut(ents2, token, sizeof(token));
 				if (token[0] != '{') continue;
+				char  classname_field[128]  = "";
 				char  origin_str[128]       = "";
 				char  model_field[128]      = "";
 				char  target_field[128]     = "";
@@ -1028,7 +1050,10 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 					if (token[0] == '}') break;
 					char value[1024];
 					ents2 = COM_ParseOut(ents2, value, sizeof(value));
-					if (!strcmp(token, "origin"))
+					if (!strcmp(token, "classname"))
+						Q_strncpyz(classname_field, value,
+						           sizeof(classname_field));
+					else if (!strcmp(token, "origin"))
 						Q_strncpyz(origin_str, value, sizeof(origin_str));
 					else if (!strcmp(token, "model"))
 						Q_strncpyz(model_field, value, sizeof(model_field));
@@ -1047,6 +1072,8 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 							angle_field = yaw;
 					}
 				}
+				if (strcmp(classname_field, expected_partner_classname))
+					continue;
 				bool hit = (match_via_target &&
 				            !strcmp(targetname_field, target_target)) ||
 				           (match_via_targetname &&
