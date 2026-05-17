@@ -543,6 +543,79 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		return std::string(Cvar_VariableString(name.c_str()));
 	});
 
+	// Bridge from the web app to the CSQC minimap overlay. Writes a
+	// "X Y Z" string to the minimap_highlight cvar; the addon's
+	// MinimapRender reads it each frame and projects the coord onto the
+	// minimap (see hub_addon/src/minimap.qc). Pass NaN/empty equivalent
+	// via clearMinimapHighlight() to remove the marker.
+	function("setMinimapHighlight", +[](double x, double y, double z) {
+		char buf[96];
+		snprintf(buf, sizeof(buf), "%g %g %g", x, y, z);
+		Cvar_Set(Cvar_FindVar("minimap_highlight"), buf);
+	});
+
+	function("clearMinimapHighlight", +[]() {
+		Cvar_Set(Cvar_FindVar("minimap_highlight"), "");
+	});
+
+	// Heatmap: an array of 2D world points rendered on top of the
+	// minimap as accumulating heat blobs. Each entry is read as
+	// { x: number, y: number } (z ignored - the minimap is top-down).
+	// Serialized to the minimap_heatmap cvar as "x0 y0 x1 y1 ...";
+	// the CSQC side (hub_addon/src/minimap.qc) tokenizes and draws.
+	// Pass an empty array (or call clearMinimapHeatmap) to remove it.
+	//
+	// The optional second arg is a config object that hot-tweaks the
+	// heatmap look without rebuilding the wasm. Recognized keys
+	// (each optional; unspecified keys leave the current cvar alone):
+	//   radius    -> minimap_heatmap_radius     (world units, blob size)
+	//   intensity -> minimap_heatmap_intensity  (0..1, per-blob alpha)
+	//   falloff   -> minimap_heatmap_falloff    (Gaussian sharpness; higher = less bleed)
+	// Pass undefined / {} to keep the existing values.
+	//
+	// Side effect: when the input is non-empty and minimap_mode == 0
+	// (minimap off), flip it to MINIMAP_SPLIT (2) so the heatmap is
+	// actually visible. Any other mode is left alone. Caller doesn't
+	// need to know about minimap_mode to make the heatmap show up.
+	function("setMinimapHeatmap", +[](emscripten::val points, emscripten::val config) {
+		auto apply_cvar = [&](const char *key, const char *cvar_name) {
+			emscripten::val v = config[key];
+			if (v.isUndefined() || v.isNull()) return;
+			char buf[32];
+			snprintf(buf, sizeof(buf), "%g", v.as<double>());
+			Cvar_Set(Cvar_FindVar(cvar_name), buf);
+		};
+		if (!config.isUndefined() && !config.isNull()) {
+			apply_cvar("radius",    "minimap_heatmap_radius");
+			apply_cvar("intensity", "minimap_heatmap_intensity");
+			apply_cvar("falloff",   "minimap_heatmap_falloff");
+		}
+
+		std::string serialized;
+		serialized.reserve(64 * 16);
+		int n = points["length"].as<int>();
+		for (int i = 0; i < n; i++) {
+			emscripten::val p = points[i];
+			double x = p["x"].as<double>();
+			double y = p["y"].as<double>();
+			char buf[64];
+			snprintf(buf, sizeof(buf), "%s%g %g",
+			         i == 0 ? "" : " ", x, y);
+			serialized += buf;
+		}
+		Cvar_Set(Cvar_FindVar("minimap_heatmap"), serialized.c_str());
+
+		if (n > 0) {
+			cvar_t *mm = Cvar_FindVar("minimap_mode");
+			if (mm && mm->value == 0)
+				Cvar_Set(mm, "2");
+		}
+	});
+
+	function("clearMinimapHeatmap", +[]() {
+		Cvar_Set(Cvar_FindVar("minimap_heatmap"), "");
+	});
+
 	function("getMacroValue", +[](std::string name) -> std::string {
 		char *value = Cmd_GetMacroValue(name.c_str());
 		return value ? std::string(value) : std::string("");

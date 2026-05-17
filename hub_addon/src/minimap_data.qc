@@ -57,7 +57,28 @@ typedef struct {
 // Cvars.
 // ----------------------------------------------------------------------------
 
-var float  autocvar_minimap_mode               = MINIMAP_OFF;
+var float  autocvar_minimap_mode               = MINIMAP_SPLIT;
+
+// External world-coordinate marker drawn on top of the minimap. Format:
+// "X Y Z" (whitespace-separated). Empty string = no highlight. Set
+// from the web app via Module.setMinimapHighlight(x, y, z) when the
+// user hovers an event row in the sidebar; cleared on hover-out.
+var string autocvar_minimap_highlight          = "";
+
+// 2D point cloud rendered as an additive heatmap on top of the minimap.
+// Format: "x0 y0 x1 y1 ..." (pairs, whitespace-separated). Z is dropped
+// at the call site since the minimap is orthographic top-down. Empty
+// string = no heatmap. Set via Module.setMinimapHeatmap(points).
+var string autocvar_minimap_heatmap            = "";
+// Heatmap tuning. All three can be hot-tweaked via Module.setMinimapHeatmap
+// 's optional config arg (bindings.cpp), so the web app can dial the look
+// in without rebuilding:
+//   radius    - blob world-radius. Lower = tighter splats, less bleed.
+//   intensity - per-blob alpha (vc.a in the shader). Lower = dimmer cores.
+//   falloff   - Gaussian sharpness. Higher = steeper edges (less bleed).
+var float  autocvar_minimap_heatmap_radius     = 192;
+var float  autocvar_minimap_heatmap_intensity  = 0.25;
+var float  autocvar_minimap_heatmap_falloff    = 16;
 var float  autocvar_minimap_player_radius      = 7;
 var float  autocvar_minimap_player_alpha       = 0.8;
 var float  autocvar_minimap_player_name_length = 4;
@@ -332,6 +353,49 @@ void() MinimapRegisterShaders =
         blendfunc blend
     }
 })");
+    // Cloud-style heatmap blob: inline GLSL program that draws a true
+    // Gaussian falloff in the fragment shader (vertex-color interpolation
+    // alone would be linear and lose the soft glow). The caller pre-scales
+    // texcoords on the QC side so tc is already centered on 0 and scaled
+    // by sqrt(falloff / 4), letting the shader use a constant
+    // `exp(-dot(tc, tc))`. That keeps the Gaussian sigma fully runtime-
+    // tunable (per draw) without recompiling the shader. vc.a passes
+    // through as a per-draw intensity scalar; additive blending sums
+    // overlapping blobs into bright hot spots.
+    shaderforname("minimap_heatmap_blob", R"({
+    program
+    {
+!!ver 100
+#ifdef VERTEX_SHADER
+attribute vec2 v_texcoord;
+attribute vec4 v_colour;
+varying vec2 tc;
+varying vec4 vc;
+void main()
+{
+    tc = v_texcoord;
+    vc = v_colour;
+    gl_Position = ftetransform();
+}
+#endif
+#ifdef FRAGMENT_SHADER
+#ifdef GL_ES
+precision mediump float;
+#endif
+varying vec2 tc;
+varying vec4 vc;
+void main()
+{
+    float a = exp(-dot(tc, tc));
+    gl_FragColor = vec4(vc.rgb * vc.a * a, 1.0);
+}
+#endif
+    }
+    {
+        map $whiteimage
+        blendfunc add
+    }
+})");
 };
 
 // ----------------------------------------------------------------------------
@@ -364,6 +428,24 @@ void(vector pos, float radius, vector color, float center_alpha, float edge_alph
         vector p = [pos.x + cos(a) * radius, pos.y + sin(a) * radius, 0];
         R_PolygonVertex(p, '0 0 0', color, edge_alpha);
     }
+    R_EndPolygon();
+};
+
+// Soft additive blob for cloud-style heatmaps. The corners are placed at
+// +/- `radius` in world space, and the texcoords are pre-scaled by
+// sqrt(falloff / 4) so that the fragment shader's `exp(-dot(tc, tc))`
+// matches the historical hard-coded `exp(-dot(d, d) * 16)` when
+// falloff == 16. Higher falloff = tighter Gaussian (less bleed at the
+// rim); lower = softer, broader halo. `intensity` (0..1) is passed
+// through as vc.a and scales the per-pixel contribution.
+void(vector pos, float radius, vector color, float intensity, float falloff) MinimapDrawCloudBlob =
+{
+    float s = sqrt(falloff / 4);
+    R_BeginPolygon("minimap_heatmap_blob", 0, 1);
+    R_PolygonVertex([pos.x - radius, pos.y - radius, 0], [-s, -s, 0], color, intensity);
+    R_PolygonVertex([pos.x + radius, pos.y - radius, 0], [ s, -s, 0], color, intensity);
+    R_PolygonVertex([pos.x + radius, pos.y + radius, 0], [ s,  s, 0], color, intensity);
+    R_PolygonVertex([pos.x - radius, pos.y + radius, 0], [-s,  s, 0], color, intensity);
     R_EndPolygon();
 };
 

@@ -155,6 +155,81 @@ void(float vwidth, float vheight) MinimapRender =
     minimap_view_wx_delta       = project(minimap_center + '1 0 0') - minimap_view_center_screen;
     minimap_view_wy_delta       = project(minimap_center + '0 1 0') - minimap_view_center_screen;
 
+    // External heatmap: web app feeds a "x0 y0 x1 y1 ..." cvar via
+    // Module.setMinimapHeatmap. Two-pass render:
+    //   1. Compute a density energy per point (distance-weighted count
+    //      of neighbours within HEATMAP_NEIGHBOUR_R world units).
+    //   2. Map energy to a green->yellow->red color and draw a soft,
+    //      additively-blended blob per point at that color. Overlapping
+    //      blobs accumulate brightness, giving clusters a cloud-like
+    //      glow with bright cores while isolated points stay faint.
+    // Drawn before players so player markers stay readable on hot spots.
+    if (autocvar_minimap_heatmap != "") {
+        #define HEATMAP_MAX_POINTS 256
+        #define HEATMAP_NEIGHBOUR_R 384  // world units
+        float hxs[HEATMAP_MAX_POINTS];
+        float hys[HEATMAP_MAX_POINTS];
+        float energies[HEATMAP_MAX_POINTS];
+        int   hcount   = 0;
+        float hn       = tokenize(autocvar_minimap_heatmap);
+        for (int i = 0; i + 1 < hn && hcount < HEATMAP_MAX_POINTS; i += 2) {
+            hxs[hcount] = stof(argv(i));
+            hys[hcount] = stof(argv(i + 1));
+            hcount++;
+        }
+
+        // Pass 1: energy per point. Linear falloff (1 - d^2/r^2) gives a
+        // smoother gradient than a hard-edge count; the self term is
+        // included so a lone point still has e == 1 and gets the cold
+        // color rather than dividing by zero downstream.
+        float r2  = HEATMAP_NEIGHBOUR_R * HEATMAP_NEIGHBOUR_R;
+        // Initial sentinel: max possible energy per point is HEATMAP_MAX_POINTS
+        // (each contributing up to 1.0), so anything > 256 sits safely above
+        // the real range. fteqcc doesn't parse scientific notation.
+        float min_e = 1000000;
+        float max_e = 0;
+        for (int i = 0; i < hcount; i++) {
+            float e = 0;
+            for (int j = 0; j < hcount; j++) {
+                float dx = hxs[i] - hxs[j];
+                float dy = hys[i] - hys[j];
+                float d2 = dx * dx + dy * dy;
+                if (d2 < r2) e += 1 - d2 / r2;
+            }
+            energies[i] = e;
+            if (e < min_e) min_e = e;
+            if (e > max_e) max_e = e;
+        }
+
+        // Pass 2: draw one cloud blob per point. `scale` is the local
+        // world-units-per-pixel factor used to size fov earlier, so a
+        // world-space blob radius converts to pixels by dividing through
+        // it. Clamped to >= 12 px so tightly-zoomed PIP renders still
+        // produce a visible halo. Color piecewise green -> yellow -> red
+        // across the [min_e, max_e] band so the user sees relative
+        // density regardless of absolute counts; uniform fields
+        // (max == min) fall back to green. Radius, intensity and falloff
+        // come from cvars so the web app can tune them live via the
+        // setMinimapHeatmap config arg.
+        float hz        = minimap_center.z;
+        float erng      = max_e - min_e;
+        float blob_px   = autocvar_minimap_heatmap_radius / scale;
+        float intensity = autocvar_minimap_heatmap_intensity;
+        float falloff   = autocvar_minimap_heatmap_falloff;
+        if (blob_px < 12) blob_px = 12;
+        if (falloff < 0.0001) falloff = 0.0001;
+        for (int i = 0; i < hcount; i++) {
+            float t = erng > 0 ? (energies[i] - min_e) / erng : 0;
+            vector color;
+            if (t < 0.5)
+                color = [t * 2, 1, 0];          // green -> yellow
+            else
+                color = [1, 1 - (t - 0.5) * 2, 0]; // yellow -> red
+            vector sp = project([hxs[i], hys[i], hz]);
+            MinimapDrawCloudBlob(sp, blob_px, color, intensity, falloff);
+        }
+    }
+
     // Overlay players (project() reads the view state we just set).
     MinimapDrawPlayers(cam_origin);
 
@@ -165,6 +240,25 @@ void(float vwidth, float vheight) MinimapRender =
     if (MinimapIsFreeflySpectator()) {
         vector cam_screen = project(CullEditPlayerOrigin());
         drawfill([cam_screen.x - 2, cam_screen.y - 2, 0], '4 4 0', '1 0 1', 1);
+    }
+
+    // External highlight: web app drops a world coordinate here via the
+    // minimap_highlight cvar (set by Module.setMinimapHighlight on event
+    // hover). Renders as a yellow ring at the projected XY. Z is ignored
+    // by the orthographic projection but kept in the cvar so the
+    // round-trip stays explicit.
+    if (autocvar_minimap_highlight != "") {
+        float n = tokenize(autocvar_minimap_highlight);
+        if (n >= 2) {
+            vector hl = [stof(argv(0)), stof(argv(1)),
+                         n >= 3 ? stof(argv(2)) : minimap_center.z];
+            vector hs = project(hl);
+            // Filled inner dot + outline ring so the marker reads against
+            // both dark and light minimap pixels without picking up the
+            // background through a pure outline.
+            drawfill([hs.x - 4, hs.y - 4, 0], '8 8 0', '0 0 0', 0.7);
+            drawfill([hs.x - 3, hs.y - 3, 0], '6 6 0', '1 1 0', 1);
+        }
     }
 
     // Ring-search debug overlay: concentric circles at each radius
