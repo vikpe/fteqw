@@ -602,15 +602,13 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		// consumes. "disc" uses MinimapDrawRing -> drawline, which
 		// rasterizes reliably at any size; the filled "dot" shape
 		// collapses to sub-pixel triangle fans at small radii.
+		//
+		// Does NOT auto-enable the minimap (unlike setMinimapHeatmap /
+		// highlightEntityIndex). Callers that want the highlight to be
+		// visible must set minimap_mode themselves first.
 		char buf[96];
 		snprintf(buf, sizeof(buf), "%g %g %g disc 8 1 1 0 0", x, y, z);
 		Cvar_Set(Cvar_FindVar("minimap_highlight"), buf);
-		// Auto-enable the minimap if it's off so the highlight is
-		// actually visible. Matches setMinimapHeatmap's behavior;
-		// caller doesn't have to coordinate minimap_mode separately.
-		cvar_t *mm = Cvar_FindVar("minimap_mode");
-		if (mm && mm->value == 0)
-			Cvar_Set(mm, "2");
 	});
 
 	function("clearMinimapHighlight", +[]() {
