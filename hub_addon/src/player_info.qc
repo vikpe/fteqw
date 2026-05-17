@@ -240,7 +240,7 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
     float powerups_w = 3 * stringwidth("Q", 0, L.font_size) + L.col_gap;
     float content_w = powerups_w
                     + max_name_w
-                    + L.col_gap + L.location_w
+                    + L.col_gap * 3 + L.location_w
                     + L.col_gap + L.armor_w
                     + L.col_gap + L.health_w
                     + L.col_gap + L.weapon_w
@@ -426,9 +426,10 @@ void(pi_layout_t L, vector right_top, float content_w, float seat, float tracked
     float slash_gap      = L.col_gap + ceil(4 * L.scale);
     float armor_right    = health_right   - L.health_w   - slash_gap;
     float location_right = armor_right    - L.armor_w    - L.col_gap;
-    // Extra char-width between location and name so the bracketed location
-    // string has visual breathing room from the name text.
-    float name_right     = location_right - L.location_w - L.col_gap * 2;
+    // Two extra char-widths between location and name on top of the
+    // regular col_gap, so the bracketed location string has clear
+    // breathing room from the name text.
+    float name_right     = location_right - L.location_w - L.col_gap * 3;
 
     // Name truncated to PI_PLAYER_NAME_MAX visible chars (markup preserved).
     // Width computed up front so the powerup block can sit next to it.
