@@ -56,9 +56,12 @@ typedef struct {
 void Hub_BuildParticipants(hub_participants_t *out);
 
 // Convert a raw quake-encoded string (color codes, 2nd-charset bytes)
-// into UTF-8 with each raw byte mapped to its Latin-1 codepoint
-// (byte 0xXX -> U+00XX). ^X color codes and hidden markup are dropped.
-void Hub_QuakeStringToUtf8(const char *src, char *out, int out_size);
+// into a unicode string serialised as UTF-8. First-charset special
+// glyphs (0x00..0x1F) and their 2nd-charset gold duplicates are mapped
+// to their ASCII equivalents (16/17 -> '[' / ']' etc.) so clan tags
+// like "[sr]" survive into JS-side text rendering. ^X color codes and
+// hidden markup are dropped.
+void Hub_QuakeStringToUnicode(const char *src, char *out, int out_size);
 
 // Convert a raw quake-encoded string into 7-bit ASCII: color codes
 // stripped, special chars approximated. Suitable for sort keys.

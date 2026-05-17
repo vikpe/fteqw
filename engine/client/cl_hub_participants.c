@@ -52,7 +52,7 @@ static void gather_players(hub_participants_t *out)
 
 		Q_strncpyz(e->name_bytestr, p->name, sizeof(e->name_bytestr));
 		Q_strncpyz(e->team_bytestr, p->team, sizeof(e->team_bytestr));
-		Hub_QuakeStringToUtf8(p->name, e->name_unicode, sizeof(e->name_unicode));
+		Hub_QuakeStringToUnicode(p->name, e->name_unicode, sizeof(e->name_unicode));
 		Hub_QuakeStringToAscii(p->name, e->name_ascii, sizeof(e->name_ascii));
 
 		int top = p->rtopcolor;
@@ -154,7 +154,7 @@ static void compute_team_groups(hub_participants_t *p)
 			g->bottom_rgb[1] = player->bottom_rgb[1];
 			g->bottom_rgb[2] = player->bottom_rgb[2];
 			Q_strncpyz(g->team_bytestr, player->team_bytestr, sizeof(g->team_bytestr));
-			Hub_QuakeStringToUtf8(player->team_bytestr,
+			Hub_QuakeStringToUnicode(player->team_bytestr,
 			                      g->team_unicode, sizeof(g->team_unicode));
 			Hub_QuakeStringToAscii(player->team_bytestr,
 			                       g->team_ascii, sizeof(g->team_ascii));
@@ -168,7 +168,7 @@ static void compute_team_groups(hub_participants_t *p)
 
 // ----- decode / introspection -----------------------------------------------
 
-void Hub_QuakeStringToUtf8(const char *src, char *out, int out_size)
+void Hub_QuakeStringToUnicode(const char *src, char *out, int out_size)
 {
 	conchar_t buf[HUB_PARTICIPANT_NAME_BYTES];
 	COM_ParseFunString(CON_WHITEMASK, src, buf, sizeof(buf), qfalse);
@@ -182,10 +182,13 @@ void Hub_QuakeStringToAscii(const char *src, char *out, int out_size)
 	COM_DeFunString(buf, NULL, out, out_size, qtrue, qfalse);
 }
 
-// Walks a conchar buffer, drops hidden/markup chars, restores the high
-// bit for any char carrying CON_2NDCHARSETTEXT (the parser stripped it
-// into the flag), then UTF-8 encodes each codepoint. Result is the
-// raw-byte-as-Latin-1 unicode mapping a/o/e/dash become a/o/a/(soft-hyphen).
+// Walks a conchar buffer, drops hidden/markup chars, and emits each
+// codepoint as UTF-8. Quake-specific glyphs (gold brackets/digits,
+// dashes, dots from the special-graphics range) are routed through
+// COM_DeQuake by packing the byte back into the Quake private-use
+// area first; that's the same engine helper SV_MVD and the log writer
+// use, so player tags like "[sr]" come out as the real ASCII brackets
+// instead of C0/C1 control codepoints that JS renders as "undefined".
 static void encode_conchar_to_unicode(conchar_t *src, char *out, int outsize)
 {
 	if (outsize <= 0)
@@ -197,8 +200,23 @@ static void encode_conchar_to_unicode(conchar_t *src, char *out, int outsize)
 		src = Font_Decode(src, &codeflags, &codepoint);
 		if (codeflags & CON_HIDDEN)
 			continue;
-		if ((codeflags & CON_2NDCHARSETTEXT) && codepoint < 0x80)
-			codepoint += 128;
+		// Normalise to the raw Quake byte representation:
+		//   - Bare 0..0x7F with the CON_2NDCHARSETTEXT flag becomes
+		//     0x80..0xFF (the 2nd-charset slot in the JS lookup).
+		//   - PUA-form codepoints (0xE000..0xE0FF) drop the prefix.
+		// Keeping the raw byte (rather than running it through
+		// COM_DeQuake) preserves the slot that the JS BYTE_COLORS
+		// table reads as "gold" for special-graphics chars
+		// (0x10..0x1B / 0x90..0x9B) and "brown" for high-bit text,
+		// while CHAR_TABLE still maps 0x10/0x90 to '[', 0x11/0x91 to
+		// ']', and so on. Real unicode codepoints (>= 0x100, outside
+		// the PUA) fall through unchanged.
+		if (codepoint < 0x80) {
+			if (codeflags & CON_2NDCHARSETTEXT)
+				codepoint |= 0x80;
+		} else if (codepoint >= 0xe000 && codepoint < 0xe100) {
+			codepoint &= 0xff;
+		}
 		unsigned int wrote = utf8_encode(p, codepoint, remaining);
 		if (!wrote)
 			break;
