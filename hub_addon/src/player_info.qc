@@ -36,16 +36,13 @@
  *     threshold (<= 25), white otherwise.
  */
 
-// Layout reference height in pixels. All sizes scale with main_size.y / this.
-#define PI_REF_HEIGHT 720
-
-// Scale clamps.
-#define PI_SCALE_MIN 0.6
-#define PI_SCALE_MAX 2.0
-
-// Pixel sizes at scale = 1.
-#define PI_FONT_PX         10
-#define PI_TEAM_GAP_PX     4   // extra space above each team header (except the first)
+// Pixel sizes at scale = 1. Base font matches ezhud's 8x8 conchar so a
+// numeric scale value renders the same height in both: an ezhud element
+// at hud_*_scale 2 and a playerinfo at playerinfo_scale 2 both produce
+// 16px-tall text. No viewport auto-scaling - readability across
+// viewports is the user's job via playerinfo_scale.
+#define PI_FONT_PX         8
+#define PI_TEAM_GAP_PX     3   // extra space above each team header (except the first)
 
 // Web app overlays a demo time slider along the bottom of the FTE viewport
 // during demo playback; reserve extra vertical margin so the widget clears it.
@@ -53,9 +50,10 @@
 
 // User cvars (registered automatically via autocvar_ prefix).
 // playerinfo 0/1                   - master enable
-// playerinfo_margin "X Y"          - margin in design pixels (scaled with viewport)
-// playerinfo_scale                 - user scale multiplier (applied on top of the
-//                                    viewport-driven scale, after clamping)
+// playerinfo_margin "X Y"          - margin in design pixels at scale = 1
+// playerinfo_scale                 - scale multiplier on every dimension.
+//                                    Matches ezhud's hud_*_scale convention:
+//                                    1 = 8px text, 2 = 16px, etc.
 // playerinfo_font                  - font name; empty = engine default (gl_font)
 // playerinfo_player_padding "X Y"  - per-row padding (inflates row hit zone +
 //                                    highlight box; replaces the inter-row gap)
@@ -80,10 +78,10 @@ float  PI_LoadedFontSlot;
 
 // Column widths at scale = 1. Rendered text right-aligns within its column,
 // then the row right-aligns to the viewport edge.
-#define PI_LOCATION_W_PX  56
-#define PI_HEALTH_W_PX    24
-#define PI_ARMOR_W_PX     24
-#define PI_WEAPON_W_PX    24
+#define PI_LOCATION_W_PX  45
+#define PI_HEALTH_W_PX    19
+#define PI_ARMOR_W_PX     19
+#define PI_WEAPON_W_PX    19
 #define PI_FRAGS_CHARS     3   // most matches are won in 2-3 digit ranges
 #define PI_LOC_NAME_SIZE   5   // inner chars between the location brackets
 #define PI_PLAYER_NAME_MAX 10  // visible-char cap on player names (markup-stripped)
@@ -327,13 +325,12 @@ float(float evtype, float scanx, float chary, float devid) PlayerInfoInputEvent 
         // the infobuf and return empty.
         string userid = getplayerkeyvalue(pi_hits[i].slot, "userid");
         if (userid == "") return 1;
-        // Set the cvar (not just the command) so autotrack stays off across
-        // map resets - "set cl_autotrack user" triggers the change callback
-        // which sets autotrackmode = TM_USER, stopping killer/hightrack/etc.
-        // from reclaiming the camera. Without this, the next stats update
-        // would re-track the highest-scoring player.
-        localcmd(sprintf("set cl_autotrack user\ntrack%d %s\n",
-                         pi_hits[i].seat + 1, userid));
+        // Engine-side: any track/trackN command call falls through to
+        // Cam_TrackPlayer (cl_cam.c), which now flips autotrackmode to
+        // TM_USER on every explicit track. No need to set the cvar from
+        // here - manual control survives until the user issues `autotrack`
+        // (or reloads with cl_autotrack still set to a non-user mode).
+        localcmd(sprintf("track%d %s\n", pi_hits[i].seat + 1, userid));
         return 1;
     }
     return 0;
@@ -614,14 +611,12 @@ string(string raw) PI_FormatLocation =
 
 void(vector view_size, __out pi_layout_t L) PI_LayoutFor =
 {
-    float scale = view_size.y / PI_REF_HEIGHT;
-    if (scale < PI_SCALE_MIN) scale = PI_SCALE_MIN;
-    if (scale > PI_SCALE_MAX) scale = PI_SCALE_MAX;
-    // User multiplier applied after the viewport clamp - explicit user
-    // preference overrides the auto-scaling bounds.
-    if (autocvar_playerinfo_scale > 0) {
-        scale = scale * autocvar_playerinfo_scale;
-    }
+    // Raw user scale, matching ezhud's hud_*_scale convention. The
+    // viewport dimension intentionally isn't an input - sizing should
+    // be predictable from the cvar alone, identical to every ezhud
+    // element. Defaults to 1 when unset or negative.
+    float scale = autocvar_playerinfo_scale;
+    if (scale <= 0) scale = 1;
     L.scale = scale;
 
     float fpx   = floor(PI_FONT_PX * scale);
