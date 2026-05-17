@@ -690,6 +690,30 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		web_log_enabled = enabled ? (qboolean)true : (qboolean)false;
 	});
 
+	// Web app's hover-on-canvas signal. The embedding page already tracks
+	// this for hiding the demo time slider when the cursor leaves the
+	// canvas; routing it through here lets CSQC overlays follow the same
+	// rule (currently consumed by hub_addon/src/mouselock.qc to hide the
+	// AIM button). Stored as a float cvar so CSQC reads it via
+	// autocvar_canvas_hover. The cvar is created on first call (Cvar_Get
+	// returns a registered cvar_t even if no QC declared it yet).
+	function("setCanvasHover", +[](bool hovered) {
+		Cvar_Set(Cvar_Get("canvas_hover", "1", 0, "Hub state"),
+		         hovered ? "1" : "0");
+	});
+
+	// Web app's focus-on-canvas signal. Parallels setCanvasHover; the page
+	// should wire its canvas focus/blur listeners (or whatever owns the
+	// "is the user typing into FTE vs. into some external input" call)
+	// through here. CSQC consults autocvar_canvas_focus to decide whether
+	// keys it would otherwise swallow (Tab, Space) should reach the
+	// engine. Defaults to "1" so the QC gate is permissive until the web
+	// app explicitly downgrades it.
+	function("setCanvasFocus", +[](bool focused) {
+		Cvar_Set(Cvar_Get("canvas_focus", "1", 0, "Hub state"),
+		         focused ? "1" : "0");
+	});
+
 	// Fast-parse the current demo to extract per-player events
 	// (currently STAT_HEALTH-based deaths during MATCH_INPROGRESS).
 	// Idempotent: the underlying scan caches per demo path and returns
