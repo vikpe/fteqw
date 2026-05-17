@@ -1232,6 +1232,13 @@ void Cam_TrackPlayer(int seat, char *cmdname, char *plrarg)
 		return;
 	}
 
+	// Explicit track command overrides any automatic tracking. Without
+	// this, killer / hightrack / stats modes reclaim the camera on the
+	// next stats update or frag message. Applies to both "track <player>"
+	// and "track off" - the user wants manual control either way.
+	if (autotrackmode != TM_USER)
+		Cam_AutoTrack_Update("user");
+
 	if (!Q_strcasecmp(plrarg, "off"))
 	{
 		Cam_Unlock(pv);
