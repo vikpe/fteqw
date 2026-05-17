@@ -353,6 +353,53 @@ void() MinimapRegisterShaders =
         blendfunc blend
     }
 })");
+    // Dotted line for paired highlights (teleporter entrance <->
+    // destination). Renders a single thin quad whose fragment shader
+    // stamps anti-aliased dots along the long axis. Period/radius
+    // are baked in (6px / 1.5px) - tweak here if the look needs to
+    // change. The CSQC caller passes tc.x = pixel-distance along
+    // the line and tc.y = pixel offset from the line center
+    // (-thickness/2..+thickness/2 over a 4px thick quad).
+    shaderforname("minimap_dotted_line", R"({
+    program
+    {
+!!ver 100
+#ifdef VERTEX_SHADER
+attribute vec2 v_texcoord;
+attribute vec4 v_colour;
+varying vec2 tc;
+varying vec4 vc;
+void main()
+{
+    tc = v_texcoord;
+    vc = v_colour;
+    gl_Position = ftetransform();
+}
+#endif
+#ifdef FRAGMENT_SHADER
+#ifdef GL_ES
+precision mediump float;
+#endif
+varying vec2 tc;
+varying vec4 vc;
+void main()
+{
+    // tc is in screen pixels (caller passes pixel-distance along the
+    // line + pixel offset from center), so a fixed 1-pixel smoothstep
+    // window gives clean AA without needing fwidth() (which on
+    // GLSL ES 1.00 requires the OES_standard_derivatives extension).
+    float u = mod(tc.x, 6.0) - 3.0;
+    float d = length(vec2(u, tc.y));
+    float a = 1.0 - smoothstep(1.0, 2.0, d);
+    gl_FragColor = vec4(vc.rgb, vc.a * a);
+}
+#endif
+    }
+    {
+        map $whiteimage
+        blendfunc blend
+    }
+})");
     // Cloud-style heatmap blob: inline GLSL program that draws a true
     // Gaussian falloff in the fragment shader (vertex-color interpolation
     // alone would be linear and lose the soft glow). The caller pre-scales
