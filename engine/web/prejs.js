@@ -12,6 +12,14 @@ if (!Module.canvas) {
 	}
 }
 
+// Make the canvas focusable so the engine's focus/blur listeners actually
+// fire when the user clicks into it or tabs away to another input. Without
+// tabindex the canvas never gains focus and canvas_focus stays stuck at
+// its default. -1 keeps it out of the normal Tab cycle while still
+// allowing programmatic / click focus.
+if (Module.canvas.tabIndex < 0)
+	Module.canvas.tabIndex = -1;
+
 var CONTENT_TYPE_TO_EXTENSION = {
 	"application/gltf-binary": ".glb",
 	"application/x-ftemanifest": ".fmf",

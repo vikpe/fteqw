@@ -321,6 +321,18 @@ mergeInto(LibraryManager.library,
 					{{{makeDynCall('iiiii','FTEC.evcb.key')}}}(0, false, 18, 0); //ctrl
 					if (FTEC.pointerislocked == -1)
 						FTEC.pointerislocked = 0;
+					//Sync canvas_focus cvar (consumed by CSQC mouselock).
+					//currentTarget is the listener target (canvas vs window)
+					//since these events are bound to both; only the canvas
+					//one represents "FTE has keyboard focus".
+					if (event.currentTarget === Module['canvas'] && Module['setCanvasFocus'])
+						Module['setCanvasFocus'](event.type === 'focus');
+					break;
+				case 'mouseenter':
+					if (Module['setCanvasHover']) Module['setCanvasHover'](true);
+					break;
+				case 'mouseleave':
+					if (Module['setCanvasHover']) Module['setCanvasHover'](false);
 					break;
 				case 'keypress':
 //			    if (!FTEC.pointerislocked) {
@@ -610,7 +622,8 @@ mergeInto(LibraryManager.library,
 			FTEC.donecb = 1;
 			Module['FTE_RequestPointerLock'] = FTEC.requestPointerLock;
 			var events = ['mousedown', 'mouseup', 'mousemove', 'wheel', 'mousewheel', 'mouseout',
-						'keypress', 'keydown', 'keyup', 
+						'mouseenter', 'mouseleave',   //drive canvas_hover cvar
+						'keypress', 'keydown', 'keyup',
 						'touchstart', 'touchend', 'touchcancel', 'touchleave', 'touchmove',
 						'dragenter', 'dragover', 'drop',
 						'message', 'resize',
