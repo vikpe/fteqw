@@ -133,8 +133,8 @@ void(vector view_size, __out pi_layout_t L)                                     
 void()                                                                                                     PI_SortPlayersByName;
 void()                                                                                                     PI_SortTeamsByName;
 string(string raw)                                                                                         PI_FormatLocation;
-void(pi_layout_t L, vector right_top, float content_w, float seat, float tracked_slot, float match_active, participant_t p) PI_DrawPlayerRow;
-void(pi_layout_t L, vector right_top, participant_t t)                                                     PI_DrawTeamHeader;
+void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float match_active, participant_t player) PI_DrawPlayerRow;
+void(pi_layout_t L, vector right_top, participant_t team)                                                                              PI_DrawTeamHeader;
 float()                                                                                                    PI_FontSlot;
 
 // ----- entry points ---------------------------------------------------------
@@ -220,54 +220,54 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
     if (isdemo()) {
         margin_y += DEMO_TIMESLIDER_HEIGHT_PX * L.scale;
     }
-    float right_x  = view_min.x + view_size.x - margin_x;
-    float top_y    = view_min.y + view_size.y - margin_y - total_height;
+    float anchor_right = view_min.x + view_size.x - margin_x;
+    float anchor_top   = view_min.y + view_size.y - margin_y - total_height;
 
     // Row content width: widest of (player row content) and (team header
     // content). Powerups extend leftward outside the column block but
     // are included so the hit rect / highlight wraps them too. Used by the
     // background frame, the tracked-row highlight, and the per-row hit rect.
-    float max_name_w = 0;
+    float max_name_width = 0;
     for (int i = 0; i < Participants_PlayerCount; i++) {
-        string trunc = MinimapColoredPrefix(Participants_Players[i].name, PI_PLAYER_NAME_MAX);
-        float  w     = stringwidth(trunc, 1, L.font_size);
-        if (w > L.name_w) w = L.name_w;
-        if (w > max_name_w) max_name_w = w;
+        string truncated_name  = MinimapColoredPrefix(Participants_Players[i].name, PI_PLAYER_NAME_MAX);
+        float  truncated_width = stringwidth(truncated_name, 1, L.font_size);
+        if (truncated_width > L.name_w) truncated_width = L.name_w;
+        if (truncated_width > max_name_width) max_name_width = truncated_width;
     }
     // A player can carry at most 3 powerups at once (Q/P/R). Each glyph is
     // one char-width, no margin between them; col_gap separates the
     // rightmost glyph from the name.
-    float powerups_w = 3 * stringwidth("Q", 0, L.font_size) + L.col_gap;
-    float content_w = powerups_w
-                    + max_name_w
-                    + L.col_gap * 3 + L.location_w
-                    + L.col_gap + L.armor_w
-                    + L.col_gap + L.health_w
-                    + L.col_gap + L.weapon_w
-                    + L.col_gap + L.frags_w;
+    float powerups_width = 3 * stringwidth("Q", 0, L.font_size) + L.col_gap;
+    float content_width  = powerups_width
+                         + max_name_width
+                         + L.col_gap * 3   + L.location_w
+                         + L.col_gap       + L.armor_w
+                         + L.col_gap * 1.5 + L.health_w
+                         + L.col_gap       + L.weapon_w
+                         + L.col_gap       + L.frags_w;
     if (has_groups) {
         for (int g = 0; g < Participants_TeamCount; g++) {
-            float tnw = stringwidth(Participants_Teams[g].name, 1, L.font_size);
-            float team_row_w = tnw + L.col_gap + L.team_box_width;
-            if (team_row_w > content_w) content_w = team_row_w;
+            float team_name_width = stringwidth(Participants_Teams[g].name, 1, L.font_size);
+            float team_row_width  = team_name_width + L.col_gap + L.team_box_width;
+            if (team_row_width > content_width) content_width = team_row_width;
         }
     }
 
     // Background frame. Alpha == 0 disables the frame entirely.
     {
-        float  n_col       = tokenize(autocvar_playerinfo_frame_color);
-        float  frame_r     = (n_col >= 1) ? stof(argv(0)) : 0;
-        float  frame_g     = (n_col >= 2) ? stof(argv(1)) : 0;
-        float  frame_b     = (n_col >= 3) ? stof(argv(2)) : 0;
-        float  frame_alpha = (n_col >= 4) ? stof(argv(3)) : 0;
+        float  frame_argc  = tokenize(autocvar_playerinfo_frame_color);
+        float  frame_red   = (frame_argc >= 1) ? stof(argv(0)) : 0;
+        float  frame_green = (frame_argc >= 2) ? stof(argv(1)) : 0;
+        float  frame_blue  = (frame_argc >= 3) ? stof(argv(2)) : 0;
+        float  frame_alpha = (frame_argc >= 4) ? stof(argv(3)) : 0;
 
         if (frame_alpha > 0) {
-            float  pad_x = autocvar_playerinfo_frame_padding.x * L.scale;
-            float  pad_y = autocvar_playerinfo_frame_padding.y * L.scale;
-            vector frame_pos  = [right_x - content_w - pad_x, top_y - pad_y, 0];
-            vector frame_size = [content_w + pad_x * 2,
-                                 total_height + pad_y * 2, 0];
-            vector frame_rgb  = [frame_r, frame_g, frame_b] / 255;
+            float  frame_pad_x = autocvar_playerinfo_frame_padding.x * L.scale;
+            float  frame_pad_y = autocvar_playerinfo_frame_padding.y * L.scale;
+            vector frame_pos   = [anchor_right - content_width - frame_pad_x, anchor_top - frame_pad_y, 0];
+            vector frame_size  = [content_width + frame_pad_x * 2,
+                                  total_height + frame_pad_y * 2, 0];
+            vector frame_rgb   = [frame_red, frame_green, frame_blue] / 255;
             drawfill(frame_pos, frame_size, frame_rgb, frame_alpha);
         }
     }
@@ -285,7 +285,7 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
     float prev_font = drawfont;
     drawfont = PI_FontSlot();
 
-    vector cursor = [right_x, top_y, 0];
+    vector cursor = [anchor_right, anchor_top, 0];
     if (has_groups) {
         for (int g = 0; g < Participants_TeamCount; g++) {
             if (g > 0) cursor.y += L.team_gap;
@@ -293,13 +293,13 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
             cursor.y += L.team_box_height;
             for (int i = 0; i < Participants_PlayerCount; i++) {
                 if (Participants_Players[i].team != Participants_Teams[g].name) continue;
-                PI_DrawPlayerRow(L, cursor, content_w, seat, tracked_slot, match_active, Participants_Players[i]);
+                PI_DrawPlayerRow(L, cursor, content_width, seat, tracked_slot, match_active, Participants_Players[i]);
                 cursor.y += L.row_height;
             }
         }
     } else {
         for (int i = 0; i < Participants_PlayerCount; i++) {
-            PI_DrawPlayerRow(L, cursor, content_w, seat, tracked_slot, match_active, Participants_Players[i]);
+            PI_DrawPlayerRow(L, cursor, content_width, seat, tracked_slot, match_active, Participants_Players[i]);
             cursor.y += L.row_height;
         }
     }
@@ -316,10 +316,10 @@ float(float evtype, float scanx, float chary, float devid) PlayerInfoInputEvent 
     if (!autocvar_playerinfo) return 0;
     if (evtype != IE_KEYDOWN || scanx != K_MOUSE1) return 0;
 
-    vector cur = getmousepos();
+    vector cursor_pos = getmousepos();
     for (int i = 0; i < pi_hit_count; i++) {
-        if (cur.x < pi_hits[i].pos.x || cur.x >= pi_hits[i].pos.x + pi_hits[i].size.x) continue;
-        if (cur.y < pi_hits[i].pos.y || cur.y >= pi_hits[i].pos.y + pi_hits[i].size.y) continue;
+        if (cursor_pos.x < pi_hits[i].pos.x || cursor_pos.x >= pi_hits[i].pos.x + pi_hits[i].size.x) continue;
+        if (cursor_pos.y < pi_hits[i].pos.y || cursor_pos.y >= pi_hits[i].pos.y + pi_hits[i].size.y) continue;
         // "userid" is special-cased in the engine's getplayerkey lookup
         // (engine/client/pr_csqc.c:4508). "*userid" would fall through to
         // the infobuf and return empty.
@@ -379,28 +379,28 @@ void() PI_SortTeamsByName =
 // horizontally and L.row_height vertically; content draws inset by player_pad.
 // Stats are skipped when match_active is 0. Tracked-row highlight + the hit
 // rect for click dispatch both span the full outer block.
-void(pi_layout_t L, vector right_top, float content_w, float seat, float tracked_slot, float match_active, participant_t p) PI_DrawPlayerRow =
+void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float match_active, participant_t player) PI_DrawPlayerRow =
 {
     vector font = L.font_size;
 
     // Outer block (highlight + hit zone). Content right-aligns to
     // right_top.x - player_pad.x; content vertically offset by player_pad.y.
-    float  outer_w     = content_w + L.player_pad.x * 2;
-    vector outer_pos   = [right_top.x - outer_w, right_top.y, 0];
-    vector outer_size  = [outer_w, L.row_height, 0];
-    float  content_rx  = right_top.x - L.player_pad.x;
-    float  y           = right_top.y + L.player_pad.y;
+    float  outer_width    = content_width + L.player_pad.x * 2;
+    vector outer_pos      = [right_top.x - outer_width, right_top.y, 0];
+    vector outer_size     = [outer_width, L.row_height, 0];
+    float  content_right_x = right_top.x - L.player_pad.x;
+    float  content_y      = right_top.y + L.player_pad.y;
 
     // Tracked-player highlight (drawn under the row content). Parse track_color
     // each call - cheap, lets users tweak live; partial input falls back to
     // opaque black.
-    if (p.slot == tracked_slot) {
-        float  n_tc = tokenize(autocvar_playerinfo_track_color);
-        float  tr   = (n_tc >= 1) ? stof(argv(0)) : 0;
-        float  tg   = (n_tc >= 2) ? stof(argv(1)) : 0;
-        float  tb   = (n_tc >= 3) ? stof(argv(2)) : 0;
-        float  ta   = (n_tc >= 4) ? stof(argv(3)) : 1;
-        drawfill(outer_pos, outer_size, [tr, tg, tb], ta);
+    if (player.slot == tracked_slot) {
+        float  track_argc  = tokenize(autocvar_playerinfo_track_color);
+        float  track_red   = (track_argc >= 1) ? stof(argv(0)) : 0;
+        float  track_green = (track_argc >= 2) ? stof(argv(1)) : 0;
+        float  track_blue  = (track_argc >= 3) ? stof(argv(2)) : 0;
+        float  track_alpha = (track_argc >= 4) ? stof(argv(3)) : 1;
+        drawfill(outer_pos, outer_size, [track_red, track_green, track_blue], track_alpha);
     }
 
     // Record click target. Drop frames silently if the table is full -
@@ -409,7 +409,7 @@ void(pi_layout_t L, vector right_top, float content_w, float seat, float tracked
     if (pi_hit_count < PI_MAX_HITS) {
         pi_hits[pi_hit_count].pos  = outer_pos;
         pi_hits[pi_hit_count].size = outer_size;
-        pi_hits[pi_hit_count].slot = p.slot;
+        pi_hits[pi_hit_count].slot = player.slot;
         pi_hits[pi_hit_count].seat = seat;
         pi_hit_count++;
     }
@@ -418,13 +418,14 @@ void(pi_layout_t L, vector right_top, float content_w, float seat, float tracked
     // Layout: [powerups] | name | location | armor | health | weapon | frags
     // Powerups have no dedicated column; they hug the left edge of the
     // rendered name (see name_x below).
-    float frags_right    = content_rx;
+    float frags_right    = content_right_x;
     float weapon_right   = frags_right    - L.frags_w    - L.col_gap;
     float health_right   = weapon_right   - L.weapon_w   - L.col_gap;
-    // 2px breathing room on each side of the "/" delimiter between armor
-    // and health, on top of the regular col_gap.
-    float slash_gap      = L.col_gap + ceil(4 * L.scale);
-    float armor_right    = health_right   - L.health_w   - slash_gap;
+    // armor | slash | 0.5 col_gap | health: slash sits flush against
+    // armor's right edge (no margin), then a half col_gap before the
+    // health column. The slash itself is one char wide, so total armor-
+    // to-health distance is 1.5 * col_gap.
+    float armor_right    = health_right   - L.health_w   - L.col_gap * 1.5;
     float location_right = armor_right    - L.armor_w    - L.col_gap;
     // Two extra char-widths between location and name on top of the
     // regular col_gap, so the bracketed location string has clear
@@ -433,105 +434,106 @@ void(pi_layout_t L, vector right_top, float content_w, float seat, float tracked
 
     // Name truncated to PI_PLAYER_NAME_MAX visible chars (markup preserved).
     // Width computed up front so the powerup block can sit next to it.
-    string p_name = MinimapColoredPrefix(p.name, PI_PLAYER_NAME_MAX);
-    float  nw     = stringwidth(p_name, 1, font);
-    if (nw > L.name_w) nw = L.name_w;
-    float name_x = name_right - nw;
+    string player_name       = MinimapColoredPrefix(player.name, PI_PLAYER_NAME_MAX);
+    float  player_name_width = stringwidth(player_name, 1, font);
+    if (player_name_width > L.name_w) player_name_width = L.name_w;
+    float  name_x            = name_right - player_name_width;
 
     // Frags (always shown).
-    string frags_s = ftos(p.score);
-    float  fw      = stringwidth(frags_s, 0, font);
-    drawstring([frags_right - fw, y, 0], frags_s, font, '1 1 1', 1, 0);
+    string frags_text       = ftos(player.score);
+    float  frags_text_width = stringwidth(frags_text, 0, font);
+    drawstring([frags_right - frags_text_width, content_y, 0], frags_text, font, '1 1 1', 1, 0);
 
     // Live stats: location, health/armor, best weapon.
     if (match_active) {
-        vector origin = getentity(p.slot + 1, GE_ORIGIN);
+        vector origin = getentity(player.slot + 1, GE_ORIGIN);
         if (origin != '0 0 0') {
-            string loc = getlocationname(origin);
-            if (loc != "") {
+            string location_name = getlocationname(origin);
+            if (location_name != "") {
                 // Three pieces: open-bracket | content | close-bracket, with
                 // a half-char gap between each bracket and the content so the
                 // brackets aren't crammed against the text.
-                string loc_content = PI_FormatLocation(loc);
-                float  loc_w       = stringwidth(loc_content, 0, font);
-                float  bracket_w   = stringwidth(chr2str(16), 0, font);
-                float  half_char   = font.x * 0.5;
-                float  total_w     = bracket_w + half_char + loc_w + half_char + bracket_w;
-                float  x_open      = location_right - total_w;
-                float  x_content   = x_open + bracket_w + half_char;
-                float  x_close     = x_content + loc_w + half_char;
-                drawstring([x_open,    y, 0], chr2str(16),  font, '1 1 1', 1, 0);
-                drawstring([x_content, y, 0], loc_content,  font, '1 1 1', 1, 0);
-                drawstring([x_close,   y, 0], chr2str(17), font, '1 1 1', 1, 0);
+                string location_inner       = PI_FormatLocation(location_name);
+                float  location_inner_width = stringwidth(location_inner, 0, font);
+                float  bracket_width        = stringwidth(chr2str(16), 0, font);
+                float  half_char_width      = font.x * 0.5;
+                float  location_total_width = bracket_width + half_char_width + location_inner_width + half_char_width + bracket_width;
+                float  location_open_x      = location_right - location_total_width;
+                float  location_content_x   = location_open_x + bracket_width + half_char_width;
+                float  location_close_x     = location_content_x + location_inner_width + half_char_width;
+                drawstring([location_open_x,    content_y, 0], chr2str(16),    font, '1 1 1', 1, 0);
+                drawstring([location_content_x, content_y, 0], location_inner, font, '1 1 1', 1, 0);
+                drawstring([location_close_x,   content_y, 0], chr2str(17),    font, '1 1 1', 1, 0);
             }
         }
 
         // Dead-player gate: an active player entity with the player model.
         // Mirrors minimap_players.qc - matches gib/corpse/disconnect states
         // that STAT_HEALTH alone wouldn't catch.
-        float health     = getplayerstat(p.slot, STAT_HEALTH, EV_FLOAT);
-        float ent_active = getentity(p.slot + 1, GE_ACTIVE);
-        float ent_model  = getentity(p.slot + 1, GE_MODELINDEX);
-        float player_mdl = getmodelindex("progs/player.mdl");
-        if (ent_active && ent_model == player_mdl && health > 0) {
-            int    items = getplayerstat(p.slot, STAT_ITEMS, EV_INTEGER);
-            float  armor = getplayerstat(p.slot, STAT_ARMOR, EV_FLOAT);
+        float health             = getplayerstat(player.slot, STAT_HEALTH, EV_FLOAT);
+        float entity_active      = getentity(player.slot + 1, GE_ACTIVE);
+        float entity_model_index = getentity(player.slot + 1, GE_MODELINDEX);
+        float player_model_index = getmodelindex("progs/player.mdl");
+        if (entity_active && entity_model_index == player_model_index && health > 0) {
+            int    items = getplayerstat(player.slot, STAT_ITEMS, EV_INTEGER);
+            float  armor = getplayerstat(player.slot, STAT_ARMOR, EV_FLOAT);
 
             // Armor: own column, omitted at 0. Tinted by armor type
             // (GA green, YA yellow, RA red).
             if (armor > 0) {
-                string a_s     = sprintf("%d", armor);
-                float  a_w     = stringwidth(a_s, 0, font);
-                vector a_color = '1 1 1';
-                if      (items & MM_IT_ARMOR3) a_color = '1 0.3 0.3';
-                else if (items & MM_IT_ARMOR2) a_color = '1 1 0.3';
-                else if (items & MM_IT_ARMOR1) a_color = '0.3 1 0.3';
-                drawstring([armor_right - a_w, y, 0], a_s, font, a_color, 1, 0);
-                // Slash centered in the 2-char gap between armor and health
-                // columns (half-char margin on each side of the slash).
-                float slash_w = stringwidth("/", 0, font);
-                drawstring([armor_right + (slash_gap - slash_w) * 0.5, y, 0], "/", font, '0.6 0.6 0.6', 1, 0);
+                string armor_value = sprintf("%d", armor);
+                float  armor_width = stringwidth(armor_value, 0, font);
+                vector armor_color = '1 1 1';
+                if      (items & MM_IT_ARMOR3) armor_color = '1 0.3 0.3';
+                else if (items & MM_IT_ARMOR2) armor_color = '1 1 0.3';
+                else if (items & MM_IT_ARMOR1) armor_color = '0.3 1 0.3';
+                drawstring([armor_right - armor_width, content_y, 0],
+                           armor_value, font, armor_color, 1, 0);
+                // Slash flush in the col_gap between armor and health,
+                // no extra margin on either side.
+                drawstring([armor_right, content_y, 0],
+                           "/", font, '0.6 0.6 0.6', 0.75, 0);
             }
 
             // Health: hud_health rule - red at the low threshold (<= 25),
             // white otherwise. Right-aligned in the health column. Capped
             // at 999 so the value fits 3 digits.
-            float  h_display = (health > 999) ? 999 : health;
-            string h_s       = sprintf("%d", h_display);
-            float  h_w     = stringwidth(h_s, 0, font);
-            vector h_color = (health <= 25) ? '1 0.3 0.3' : '1 1 1';
-            drawstring([health_right - h_w, y, 0], h_s, font, h_color, 1, 0);
+            float  health_display    = (health > 999) ? 999 : health;
+            string health_text       = sprintf("%d", health_display);
+            float  health_text_width = stringwidth(health_text, 0, font);
+            vector health_color      = (health <= 25) ? '1 0.3 0.3' : '1 1 1';
+            drawstring([health_right - health_text_width, content_y, 0], health_text, font, health_color, 1, 0);
 
             // Powerup glyphs: single colored chars, no inter-char margin.
             // Q = quad (blue), P = pent (red), R = ring (yellow). Drawn
             // rightmost first so the highest-priority one sits closest
             // to the name.
-            float char_w    = stringwidth("Q", 0, font);
-            float powerup_x = name_x - L.col_gap - char_w;
+            float char_width = stringwidth("Q", 0, font);
+            float powerup_x  = name_x - L.col_gap - char_width;
             if (items & MM_IT_QUAD) {
-                drawstring([powerup_x, y, 0], "Q", font, '0 0 1', 1, 0);
-                powerup_x -= char_w;
+                drawstring([powerup_x, content_y, 0], "Q", font, '0.38 0.65 0.98', 1, 0);
+                powerup_x -= char_width;
             }
             if (items & MM_IT_INVULNERABILITY) {
-                drawstring([powerup_x, y, 0], "P", font, '1 0 0', 1, 0);
-                powerup_x -= char_w;
+                drawstring([powerup_x, content_y, 0], "P", font, '1 0 0', 1, 0);
+                powerup_x -= char_width;
             }
             if (items & MM_IT_INVISIBILITY) {
-                drawstring([powerup_x, y, 0], "R", font, '1 1 0', 1, 0);
+                drawstring([powerup_x, content_y, 0], "R", font, '1 1 0', 1, 0);
             }
 
             // Best weapon: RLG (both) > RL > LG > GL. Mirrors the minimap's
             // weapon labels - RLG splits into "R" (RL color) + "LG" (LG color)
             // drawn as two adjacent strings. Left-aligned in the column so
             // RL/LG/GL/RLG all start at the same x.
-            float has_rl = items & MM_IT_ROCKET_LAUNCHER;
-            float has_lg = items & MM_IT_LIGHTNING;
-            float has_gl = items & MM_IT_GRENADE_LAUNCHER;
+            float has_rl      = items & MM_IT_ROCKET_LAUNCHER;
+            float has_lg      = items & MM_IT_LIGHTNING;
+            float has_gl      = items & MM_IT_GRENADE_LAUNCHER;
             float weapon_left = weapon_right - L.weapon_w;
             if (has_rl && has_lg) {
-                float r_w = stringwidth("R", 0, font);
-                drawstring([weapon_left, y, 0],       "R",  font, MinimapWeaponColor(MM_IT_ROCKET_LAUNCHER), 1, 0);
-                drawstring([weapon_left + r_w, y, 0], "LG", font, MinimapWeaponColor(MM_IT_LIGHTNING),       1, 0);
+                float r_letter_width = stringwidth("R", 0, font);
+                drawstring([weapon_left,                  content_y, 0], "R",  font, MinimapWeaponColor(MM_IT_ROCKET_LAUNCHER), 1, 0);
+                drawstring([weapon_left + r_letter_width, content_y, 0], "LG", font, MinimapWeaponColor(MM_IT_LIGHTNING),       1, 0);
             } else {
                 string  single_label = "";
                 vector  single_color = '1 1 1';
@@ -546,46 +548,47 @@ void(pi_layout_t L, vector right_top, float content_w, float seat, float tracked
                     single_color = MinimapWeaponColor(MM_IT_GRENADE_LAUNCHER);
                 }
                 if (single_label != "") {
-                    drawstring([weapon_left, y, 0], single_label, font, single_color, 1, 0);
+                    drawstring([weapon_left, content_y, 0], single_label, font, single_color, 1, 0);
                 }
             }
         }
     }
 
     // Name (right-aligned within its column; drawn verbatim so color codes
-    // and quake chars render natively). p_name / nw / name_x computed up front.
-    drawstring([name_x, y, 0], p_name, font, '1 1 1', 1, 0);
+    // and quake chars render natively). Computed up front along with
+    // player_name_width / name_x.
+    drawstring([name_x, content_y, 0], player_name, font, '1 1 1', 1, 0);
 };
 
 // Team header row: team name on the left (plain text, vertically
 // centered against the frag-box), summed frags inside a rounded
 // color-split box on the right (top half = top_color, bottom half =
 // bottom_color). Mirrors the score-box style in overlay.qc.
-void(pi_layout_t L, vector right_top, participant_t t) PI_DrawTeamHeader =
+void(pi_layout_t L, vector right_top, participant_t team) PI_DrawTeamHeader =
 {
-    vector font   = L.font_size;
-    float  box_h  = L.team_box_height;
-    float  half_h = box_h * 0.5;
-    float  box_w  = L.team_box_width;
-    float  box_x  = right_top.x - box_w;
-    vector half_size = [box_w, half_h, 0];
+    vector font        = L.font_size;
+    float  box_height  = L.team_box_height;
+    float  half_height = box_height * 0.5;
+    float  box_width   = L.team_box_width;
+    float  box_x       = right_top.x - box_width;
+    vector half_size   = [box_width, half_height, 0];
 
-    HubDrawRoundedRect([box_x, right_top.y, 0],          half_size, L.team_box_radius, RR_TOP,    t.top_color,    1);
-    HubDrawRoundedRect([box_x, right_top.y + half_h, 0], half_size, L.team_box_radius, RR_BOTTOM, t.bottom_color, 1);
+    HubDrawRoundedRect([box_x, right_top.y, 0],               half_size, L.team_box_radius, RR_TOP,    team.top_color,    1);
+    HubDrawRoundedRect([box_x, right_top.y + half_height, 0], half_size, L.team_box_radius, RR_BOTTOM, team.bottom_color, 1);
 
     // Score text centered horizontally + vertically in the fixed-width box.
-    string score_s = ftos(t.score);
-    float  score_w = stringwidth(score_s, 0, font);
-    float  score_x = box_x + (box_w - score_w) * 0.5;
-    float  score_y = right_top.y + L.team_box_padding_y;
-    drawstring([score_x, score_y, 0], score_s, font, '1 1 1', 1, 0);
+    string score_text  = ftos(team.score);
+    float  score_width = stringwidth(score_text, 0, font);
+    float  score_x     = box_x + (box_width - score_width) * 0.5;
+    float  score_y     = right_top.y + L.team_box_padding_y;
+    drawstring([score_x, score_y, 0], score_text, font, '1 1 1', 1, 0);
 
     // Team name placed to the left of the box, vertically centered
     // against the box height.
-    float name_w = stringwidth(t.name, 1, font);
-    float name_x = box_x - L.col_gap - name_w;
-    float name_y = right_top.y + (box_h - font.y) * 0.5;
-    drawstring([name_x, name_y, 0], t.name, font, '1 1 1', 1, 0);
+    float name_width = stringwidth(team.name, 1, font);
+    float name_x     = box_x - L.col_gap - name_width;
+    float name_y     = right_top.y + (box_height - font.y) * 0.5;
+    drawstring([name_x, name_y, 0], team.name, font, '1 1 1', 1, 0);
 };
 
 // ----- location format ------------------------------------------------------
@@ -596,16 +599,16 @@ void(pi_layout_t L, vector right_top, participant_t t) PI_DrawTeamHeader =
 // the row draw code so they can sit at non-char-aligned x positions.
 string(string raw) PI_FormatLocation =
 {
-    int len       = strlen(raw);
-    int trunc_len = (len > PI_LOC_NAME_SIZE) ? PI_LOC_NAME_SIZE : len;
-    int left_pad  = PI_LOC_NAME_SIZE - trunc_len;
+    int raw_length        = strlen(raw);
+    int truncated_length  = (raw_length > PI_LOC_NAME_SIZE) ? PI_LOC_NAME_SIZE : raw_length;
+    int left_padding      = PI_LOC_NAME_SIZE - truncated_length;
 
-    string out = "";
-    for (int k = 0; k < left_pad; k++) out = strcat(out, " ");
-    for (int k = 0; k < trunc_len; k++) {
-        out = strcat(out, chr2str((int)str2chr(raw, k) | 128));
+    string result = "";
+    for (int k = 0; k < left_padding; k++) result = strcat(result, " ");
+    for (int k = 0; k < truncated_length; k++) {
+        result = strcat(result, chr2str((int)str2chr(raw, k) | 128));
     }
-    return out;
+    return result;
 };
 
 // ----- layout ---------------------------------------------------------------
@@ -620,14 +623,14 @@ void(vector view_size, __out pi_layout_t L) PI_LayoutFor =
     if (scale <= 0) scale = 1;
     L.scale = scale;
 
-    float fpx   = floor(PI_FONT_PX * scale);
-    L.font_size = [fpx, fpx, 0];
+    float font_px = floor(PI_FONT_PX * scale);
+    L.font_size = [font_px, font_px, 0];
     // player_pad cvar is in design pixels; scale to match the rest of the
     // layout. row_height already includes the vertical padding so the loop
     // can stride row_height per row without a separate gap term.
     L.player_pad = [ceil(autocvar_playerinfo_player_padding.x * scale),
                     ceil(autocvar_playerinfo_player_padding.y * scale), 0];
-    L.row_height = fpx + L.player_pad.y * 2;
+    L.row_height = font_px + L.player_pad.y * 2;
     L.team_gap  = ceil(PI_TEAM_GAP_PX * scale);
     L.col_gap   = stringwidth("0", 0, L.font_size);  // one char-width between columns
 
@@ -638,10 +641,10 @@ void(vector view_size, __out pi_layout_t L) PI_LayoutFor =
     L.weapon_w    = ceil(PI_WEAPON_W_PX * scale);
     L.frags_w     = PI_FRAGS_CHARS * stringwidth("0", 0, L.font_size);
 
-    L.team_box_padding_y = ceil(fpx * 0.5);
+    L.team_box_padding_y = ceil(font_px * 0.5);
     L.team_box_radius    = ceil(PI_TEAM_BOX_RADIUS_PX * scale);
     L.team_box_width     = PI_TEAM_BOX_CHARS * stringwidth("0", 0, L.font_size);
-    L.team_box_height    = fpx + L.team_box_padding_y * 2;
+    L.team_box_height    = font_px + L.team_box_padding_y * 2;
 };
 
 // Resolves the active drawfont slot. Empty cvar -> FONT_DEFAULT (engine's
