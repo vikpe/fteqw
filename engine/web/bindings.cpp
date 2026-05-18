@@ -172,6 +172,43 @@ static bool resolve_bsp_entity_origin(const char *origin_str,
 	return false;
 }
 
+// Resolves the world origin of the info_teleport_destination whose
+// targetname matches `target`. Walks the BSP entity string once. Returns
+// true on hit (and writes ox/oy/oz); false when no destination has that
+// targetname or no map is loaded. Used by getEntities() to surface the
+// destination's loc_name on each trigger_teleport entry so the web app
+// can show "from X to Y" without doing the lookup client-side.
+static bool find_teleport_destination_origin(const char *target,
+                                             float *ox, float *oy, float *oz) {
+	if (!target || !target[0]) return false;
+	if (!cl.worldmodel) return false;
+	const char *ents = Mod_GetEntitiesString(cl.worldmodel);
+	if (!ents) return false;
+	char token[1024];
+	while (ents && *ents) {
+		ents = COM_ParseOut(ents, token, sizeof(token));
+		if (token[0] != '{') continue;
+		char classname[128]        = "";
+		char origin_str[128]       = "";
+		char model_field[128]      = "";
+		char targetname_field[128] = "";
+		while (ents && *ents) {
+			ents = COM_ParseOut(ents, token, sizeof(token));
+			if (token[0] == '}') break;
+			char value[1024];
+			ents = COM_ParseOut(ents, value, sizeof(value));
+			if      (!strcmp(token, "classname"))  Q_strncpyz(classname,        value, sizeof(classname));
+			else if (!strcmp(token, "origin"))     Q_strncpyz(origin_str,       value, sizeof(origin_str));
+			else if (!strcmp(token, "model"))      Q_strncpyz(model_field,      value, sizeof(model_field));
+			else if (!strcmp(token, "targetname")) Q_strncpyz(targetname_field, value, sizeof(targetname_field));
+		}
+		if (strcmp(classname, "info_teleport_destination")) continue;
+		if (strcmp(targetname_field, target))               continue;
+		return resolve_bsp_entity_origin(origin_str, model_field, ox, oy, oz);
+	}
+	return false;
+}
+
 static lerpents_t* get_player_lerped(int index) {
 	if (index + 1 < cl.maxlerpents && cl.lerpentssequence && cl.lerpents[index + 1].sequence == cl.lerpentssequence)
 		return &cl.lerpents[index + 1];
@@ -661,12 +698,9 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			serialized += buf;
 		}
 		Cvar_Set(Cvar_FindVar("minimap_heatmap"), serialized.c_str());
-
-		if (n > 0) {
-			cvar_t *mm = Cvar_FindVar("minimap_mode");
-			if (mm && mm->value == 0)
-				Cvar_Set(mm, "2");
-		}
+		// Does NOT auto-enable the minimap. Callers that want it
+		// visible must set minimap_mode themselves first (parity with
+		// setMinimapHighlight / highlightEntityIndex).
 	});
 
 	function("clearMinimapHeatmap", +[]() {
@@ -842,6 +876,22 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		const char *ents = Mod_GetEntitiesString(cl.worldmodel);
 		if (!ents) return result;
 
+		// Ensure the map pack (the pak/pk3 containing the BSP) is
+		// registered with the FS. Custom maps ship their .loc inside
+		// that same pack, and FS_LoadMapPackFile runs in a later
+		// cl_parse stage than the one that sets cl.worldmodel - so
+		// without this an early getEntities() can't find the .loc
+		// even though the file is right there. Idempotent
+		// (FS_MapPackIsActive short-circuit), so calling it on every
+		// getEntities() is cheap. Then force-load the .loc and pin
+		// cls.state = ca_active for the duration so TP_LocationName
+		// doesn't bail with "someplace".
+		if (cl.worldmodel && cl.worldmodel->archive)
+			FS_LoadMapPackFile(cl.worldmodel->name, cl.worldmodel->archive);
+		TP_ReloadCurrentLocs();
+		cactive_t saved_state = cls.state;
+		cls.state = ca_active;
+
 		int out_idx = 0;
 		char token[1024];
 		while (ents && *ents) {
@@ -901,13 +951,42 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 				oy += 16;
 			}
 
+			// Resolve the entity's world position to a .loc zone name.
+			// Empty string when no .loc is loaded or the point isn't
+			// inside any zone (TP_LocationName returns "someplace" in
+			// that case - prefer "" so the consumer can decide how to
+			// render the fallback).
+			auto resolve_loc = [](float x, float y, float z) -> std::string {
+				vec3_t p = { x, y, z };
+				const char *l = TP_LocationName(p);
+				return (l && strcmp(l, "someplace")) ?
+				    std::string(l) : std::string();
+			};
+			std::string loc_name = resolve_loc(ox, oy, oz);
+
+			// Teleporter destination loc: only meaningful on
+			// trigger_teleport (entrance). info_teleport_destination
+			// entries already carry their own loc_name in the same
+			// field, no need to chase a non-existent "next" hop.
+			std::string destination_loc_name;
+			if (!strcmp(classname, "trigger_teleport") &&
+			    target_field[0]) {
+				float dx = 0, dy = 0, dz = 0;
+				if (find_teleport_destination_origin(target_field,
+				                                     &dx, &dy, &dz)) {
+					destination_loc_name = resolve_loc(dx, dy, dz);
+				}
+			}
+
 			emscripten::val e = emscripten::val::object();
-			e.set("id",         out_idx);
-			e.set("classname",  std::string(classname));
-			e.set("spawnflags", spawnflags);
-			e.set("target",     std::string(target_field));
-			e.set("targetname", std::string(targetname_field));
-			e.set("angle",      angle_field);
+			e.set("id",                   out_idx);
+			e.set("classname",            std::string(classname));
+			e.set("spawnflags",           spawnflags);
+			e.set("target",               std::string(target_field));
+			e.set("targetname",           std::string(targetname_field));
+			e.set("angle",                angle_field);
+			e.set("loc_name",             loc_name);
+			e.set("destination_loc_name", destination_loc_name);
 			emscripten::val origin = emscripten::val::object();
 			origin.set("x", ox);
 			origin.set("y", oy);
@@ -915,6 +994,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			e.set("origin", origin);
 			result.set(out_idx++, e);
 		}
+		cls.state = saved_state;
 		return result;
 	});
 
@@ -1125,6 +1205,15 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		// arrowhead at the destination toward the player's facing
 		// direction after teleport. CSQC parses groups of 9 and
 		// draws the line + arrow between consecutive points.
+		//
+		// Override the caller-supplied shape to "spawn" for player
+		// spawn classes (info_player_deathmatch, _start, _coop,
+		// _team1, _team2, ...). The CSQC side renders that shape as
+		// a disc PLUS an arrow oriented at the entity's yaw so the
+		// minimap shows which way the player will face when they
+		// spawn here. A plain "dot" loses that information.
+		if (!strncmp(target_classname, "info_player_", 12))
+			shape = "spawn";
 		char buf[512];
 		const char *s = shape.c_str();
 		if (partner_found) {
@@ -1156,10 +1245,9 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			         ox, oy, oz, s, size, mr, mg, mb, target_angle);
 		}
 		Cvar_Set(Cvar_FindVar("minimap_highlight"), buf);
-		// Auto-enable the minimap if it's off so the marker shows.
-		cvar_t *mm = Cvar_FindVar("minimap_mode");
-		if (mm && mm->value == 0)
-			Cvar_Set(mm, "2");
+		// Does NOT auto-enable the minimap. Callers that want the
+		// marker visible must set minimap_mode themselves first (parity
+		// with setMinimapHighlight / setMinimapHeatmap).
 	});
 
 	// Seek the active demo to `seconds` from the start. Floors and clamps
