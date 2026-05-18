@@ -4,6 +4,7 @@
 #include <strings.h>
 #include "quakedef.h"
 #include "fragstats.h"
+#include "../client/cl_hub_cam.h"
 #include "../client/cl_hub_participants.h"
 #include "../client/cl_hub_demo.h"
 #include "../client/cl_hub_demo_event.h"
@@ -791,6 +792,16 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	function("setCanvasFocus", +[](bool focused) {
 		Cvar_Set(Cvar_Get("canvas_focus", "1", 0, "Hub state"),
 		         focused ? "1" : "0");
+	});
+
+	// Lock the spectator camera in `seat` (0-based) onto the player whose
+	// userid matches `userid`. Pass userid as a numeric string ("1234") or
+	// the literal "off" to release. Routed directly to Hub_TrackPlayerByUserid
+	// so callers don't have to construct a cbuf command. Used by the web
+	// app's scoreboard click handler; the CSQC player_info widget uses its
+	// own console-command path.
+	function("trackPlayerByUserid", +[](int seat, std::string userid) {
+		Hub_TrackPlayerByUserid(seat, const_cast<char *>(userid.c_str()));
 	});
 
 	// Fast-parse the current demo to extract per-player events

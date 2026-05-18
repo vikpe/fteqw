@@ -27,8 +27,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "winquake.h"
-#include "cl_hub_demo.h"
-#include "cl_hub_demo_timeline.h"
+#include "cl_hub_cam.h"
 
 #define	PM_SPECTATORMAXSPEED	500
 #define	PM_STOPSPEED	100
@@ -564,21 +563,7 @@ void Cam_Unlock(playerview_t *pv)
 
 void Cam_Lock(playerview_t *pv, int playernum)
 {
-	// Single-POV MVD wraps (e.g. QWD->MVD with one recording client)
-	// carry stats / origin only for that one slot. Any lock targeting
-	// a different slot - autotrack, demo-stuffcmd `ptrack`, manual
-	// `track <nick>`, etc. - would produce an empty camera (no stats,
-	// frozen origin). Force the lock back onto the recording slot at
-	// the lowest level so every path is covered. Only fires when the
-	// timeline scan resolved a concrete slot (hub_demo_pov_slot >= 0);
-	// the FROM_PLAYERVIEW sentinel (-2) is treated as "engine already
-	// picked the slot" and left alone, and multi-POV MVDs / non-demo
-	// playback fall through unchanged.
-	if (cls.demoplayback == DPB_MVD && hub_demo_pov_slot >= 0
-	    && playernum != hub_demo_pov_slot)
-	{
-		playernum = hub_demo_pov_slot;
-	}
+	playernum = Hub_ResolveCamLockSlot(playernum);
 
 	pv->cam_lastviewtime = -1000;	//allow the wallcam to re-snap as soon as it can
 
@@ -1250,13 +1235,6 @@ void Cam_TrackPlayer(int seat, char *cmdname, char *plrarg)
 		return;
 	}
 
-	// Explicit track command overrides any automatic tracking. Without
-	// this, killer / hightrack / stats modes reclaim the camera on the
-	// next stats update or frag message. Applies to both "track <player>"
-	// and "track off" - the user wants manual control either way.
-	if (autotrackmode != TM_USER)
-		Cam_AutoTrack_Update("user");
-
 	if (!Q_strcasecmp(plrarg, "off"))
 	{
 		Cam_Unlock(pv);
@@ -1336,88 +1314,6 @@ void Cam_Track_f(void)
 	}
 }
 
-// Unambiguous-userid track: same locking path as Cam_TrackPlayer but
-// skips the nick lookup and the "#sortidx" branch entirely. Matches
-// only on player_info_t::userid (or "off"), so callers that already
-// know the userid (web client, csqc helpers) don't risk pulling the
-// wrong player when a nick happens to look like a digit string.
-static void Cam_TrackPlayerByUserid(int seat, char *plrarg)
-{
-	playerview_t *pv = &cl.playerview[seat];
-	int slot, userid;
-	char *e;
-
-	if (seat >= MAX_SPLITS)
-		return;
-	if (cls.state <= ca_connected) {
-		Con_Printf("Not connected.\n");
-		return;
-	}
-	if (!pv->spectator) {
-		Con_Printf("Not spectating.\n");
-		return;
-	}
-
-	// Match the regular track command: any explicit pick takes the
-	// camera off any auto-tracking mode.
-	if (autotrackmode != TM_USER)
-		Cam_AutoTrack_Update("user");
-
-	if (!Q_strcasecmp(plrarg, "off")) {
-		Cam_Unlock(pv);
-		return;
-	}
-
-	userid = strtoul(plrarg, &e, 10);
-	if (*e || userid <= 0) {
-		Con_Printf("track_userid: expected numeric userid, got '%s'\n",
-		           plrarg);
-		return;
-	}
-
-	// Single-POV demo override: only the recording client has stats /
-	// origin / item data in the file, so trying to track any other
-	// player produces an empty camera. Force the lock onto the POV's
-	// userid no matter what the caller asked for. Multi-POV MVDs fall
-	// through with the original userid since every slot is valid
-	// there.
-	{
-		int pov_uid = Hub_GetDemoPovUserId();
-		if (Hub_IsSinglePovDemo() && pov_uid > 0 && userid != pov_uid)
-			userid = pov_uid;
-	}
-
-	for (slot = 0; slot < cl.allocated_client_slots; slot++) {
-		player_info_t *s = &cl.players[slot];
-		if (s->name[0] && !s->spectator && s->userid == userid)
-			break;
-	}
-	if (slot == cl.allocated_client_slots) {
-		Con_Printf("Couldn't find userid %i\n", userid);
-		return;
-	}
-	Cam_Lock(pv, slot);
-}
-
-void Cam_TrackUserid_f(void)
-{
-	int i, j;
-
-	if (Cmd_Argc() < 2) {
-		Con_Printf("Usage: %s userid|off [userid ...]\n", Cmd_Argv(0));
-		return;
-	}
-
-	i = 1;
-	j = Cmd_Argc() - 1;
-	if (j > MAX_SPLITS) j = MAX_SPLITS;
-	while (j > 0) {
-		Cam_TrackPlayerByUserid(i - 1, Cmd_Argv(i));
-		i++;
-		j--;
-	}
-}
-
 void Cam_Track1_f(void)
 {
 	if (Cmd_Argc() < 2)
@@ -1478,7 +1374,6 @@ void CL_InitCam(void)
 	Cmd_AddCommand("track2", Cam_Track2_f);
 	Cmd_AddCommand("track3", Cam_Track3_f);
 	Cmd_AddCommand("track4", Cam_Track4_f);
-	Cmd_AddCommand("track_userid", Cam_TrackUserid_f);
 }
 
 
