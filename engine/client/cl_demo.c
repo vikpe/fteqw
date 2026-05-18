@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "quakedef.h"
 #include "fs.h"
 #include "cl_hub_demo_timeline.h"
+#include "cl_hub_demo_event.h"
 
 void CL_FinishTimeDemo (void);
 float demtime;
@@ -954,6 +955,18 @@ readit:
 					//this is too problematic otherwise (apparently mvdsv doesn't use dem_multiple for team says any more).
 					if (1)
 						maxseat = 1;
+					// Demo-event scan needs every dem_single body parsed,
+					// not just ones aimed at a tracked player. qwdtools
+					// wraps QWD svc_print obits as dem_single targeted
+					// at the POV slot; without this bypass they'd be
+					// dropped on a freecam scan and Stats_ParsePrintLine
+					// would never see the obituary text for kill
+					// attribution.
+					if (Hub_DemoEvent_IsRecording())
+					{
+						cl.defaultnetsplit = 0;
+						break;
+					}
 					for (seat = 0; seat < maxseat; seat++)
 					{
 						tracknum = cl.playerview[seat].cam_spec_track;
@@ -2438,10 +2451,40 @@ void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int 
 
 	cls.findtrack = (demotype == DPB_MVD);
 
+#ifdef NQPROT
+	// NQ demos start with an ASCII CD-track header line that must be
+	// consumed before packet parsing begins. Done here (not in
+	// CL_PlayDemoFile) so the rewind paths (CL_DemoJump_f backward
+	// seek, Hub_DemoEvent_Scan) get the same treatment as a fresh open.
+	if (demotype == DPB_NETQUAKE)
+	{
+		int  ft  = 0;
+		int  neg = false;
+		char chr = 0;
+		while ((VFS_READ(file, &chr, 1) == 1) && chr != '\n')
+		{
+			if      (chr == ' ')                 ;
+			else if (chr == '-')                 neg = true;
+			else if (chr < '0' || chr > '9')     break;
+			else                                 ft = ft * 10 + ((int)chr - '0');
+		}
+		if (neg) ft *= -1;
+		cls.demotrack = (ft > 0) ? ft : -1;
+	}
+#endif
+
 	cls.demoplayback = demotype;
 	cls.demoeztv_ext = eztv_ext;
 	cls.protocol = protocol;
 	cls.state = ca_demostart;
+
+	// NetQuake demos don't carry per-client viewstate the way QW/MVD does,
+	// so splitscreen has nothing meaningful to render in the extra seats.
+	// Force the cvar off at NQ demo start to mirror the CSQC-side disable
+	// of the minimap (hub_addon main.qc:CSQC_WorldLoaded). The user can
+	// re-enable manually mid-demo if they really want to.
+	if (protocol == CP_NETQUAKE)
+		Cvar_ForceSet(&cl_splitscreen, "0");
 	net_message.packing = SZ_RAWBYTES;
 	Netchan_Setup (NCF_CLIENT, &cls.netchan, &net_from, 0, 0);
 
@@ -2510,34 +2553,31 @@ void CL_PlayDemoFile(vfsfile_t *f, char *demoname, qboolean issyspath)
 
 #ifdef NQPROT
 	{
-		int ft = 0, neg = false;
-		char chr;
-		//not quake2, check if its NQ
-		//work out if the first line is a int for the track number.
-		while ((VFS_READ(f, &chr, 1)==1) && (chr != '\n'))
+		// Peek at the leading bytes to detect an NQ CD-track header
+		// (ASCII digits / space / '-' terminated by '\n'). If detected,
+		// rewind to start and hand off to CL_PlayDemoStream, which
+		// re-reads + consumes the header itself. Rewinding here (instead
+		// of leaving the file past the header as the old code did) lets
+		// CL_PlayDemoStream stay symmetric across all demo types - so
+		// the backward-seek path in CL_DemoJump_f and Hub_DemoEvent_Scan
+		// can VFS_SEEK(f,0) + CL_PlayDemoStream(NQ) and have the header
+		// consumed in the same place as the initial open.
+		char     buf[24];
+		int      n = VFS_READ(f, buf, sizeof(buf) - 1);
+		qboolean is_nq = false;
+		int      i;
+		VFS_SEEK(f, start);
+		for (i = 0; i < n; i++)
 		{
-			if (chr == ' ')
-				;
-			else if (chr == '-')
-				neg = true;
-			else if (chr < '0' || chr > '9')
-				break;
-			else
-				ft = ft * 10 + ((int)chr - '0');
+			char c = buf[i];
+			if (c == '\n') { is_nq = (i > 0); break; }
+			if (c != ' ' && c != '-' && (c < '0' || c > '9')) break;
 		}
-		if (neg)
-			ft *= -1;
-		if (chr == '\n')
+		if (is_nq)
 		{
-			if (ft > 0)
-				cls.demotrack = ft;
-			else
-				cls.demotrack = -1;
-
 			CL_PlayDemoStream(f, demoname, issyspath, DPB_NETQUAKE, 0, 0);
 			return;
 		}
-		VFS_SEEK(f, start);
 	}
 #endif
 
