@@ -70,7 +70,7 @@ static int open_span_start_ms[MAX_CLIENTS][HUB_TRACKED_ITEM_COUNT];
 // they died moments after firing) before the victim's STAT_HEALTH
 // transition fired, losing the attribution.
 
-// Most recently closed span per (slot, item idx). Recorded when
+// Most recently closed span per (slot, item index). Recorded when
 // update_item_spans pushes a closure so that a //ktx drop arriving
 // shortly after can patch was_dropped on the matching weapon span.
 // -1 = no span has closed for this slot+item since the last patch
@@ -99,7 +99,7 @@ typedef struct {
 } hub_backpack_entry_t;
 static hub_backpack_entry_t backpack_by_entnum[HUB_BACKPACK_INDEX_SIZE];
 
-// Per-(slot, weapon idx) timestamp after which the STAT_ITEMS gain
+// Per-(slot, weapon index) timestamp after which the STAT_ITEMS gain
 // path is allowed to emit a HDE_KIND_ITEM_PICKUP event again. Set by
 // Hub_DemoEvent_OnKtxBackpackPickup so the subsequent dem_stat
 // (which gains the same weapon bit) doesn't double-emit as a ground
@@ -157,7 +157,7 @@ static int fragstats_death_emit_ms[MAX_CLIENTS];
 // promote it in place to DEATH (preserving fragstats' killer/weapon
 // attribution, adding origin + items from the death moment) instead of
 // emitting a duplicate. -1 = no recent fragstats event for that slot.
-static int fragstats_last_event_idx[MAX_CLIENTS];
+static int fragstats_last_event_index[MAX_CLIENTS];
 
 // Pending one-sided fragstats event awaiting completion by the next
 // svc_updatefrags delta on a teammate. Set by Hub_DemoEvent_OnFragStatsKill
@@ -165,8 +165,8 @@ static int fragstats_last_event_idx[MAX_CLIENTS];
 // X_TEAMKILLS_UNKNOWN / X_TEAMKILLED_UNKNOWN) so only one side is known.
 // Consumed by Hub_DemoEventInternal_MergePendingFragEvent which patches
 // the missing user-id in place rather than emitting a separate frag-delta
-// event. pending_event_idx = -1 means "nothing pending".
-static int pending_event_idx  = -1;
+// event. pending_event_index = -1 means "nothing pending".
+static int pending_event_index  = -1;
 static int pending_known_slot = -1;
 static int pending_known_role = 0;  // 1 = killer known (missing victim);
                                      // 0 = victim known (missing killer)
@@ -215,7 +215,7 @@ static void Hub_DemoEvent_Reset(void)
 		cached_armor[i]            = 0;
 		fragstats_kill_emit_ms[i]    = 0;
 		fragstats_death_emit_ms[i]   = 0;
-		fragstats_last_event_idx[i]  = -1;
+		fragstats_last_event_index[i]  = -1;
 		// Clear the entnum-keyed backpack cache and the per-slot
 		// suppression window the next gain transition checks.
 		for (int w = 0; w < HUB_TRACKED_ITEM_COUNT; w++)
@@ -226,7 +226,7 @@ static void Hub_DemoEvent_Reset(void)
 			suppress_pickup_until_ms[i][w]   = 0;
 		}
 	}
-	pending_event_idx  = -1;
+	pending_event_index  = -1;
 	pending_known_slot = -1;
 	pending_known_role = 0;
 	pending_time_ms    = 0;
@@ -259,9 +259,6 @@ static void spans_push(int user_id, unsigned int weapon_bit,
 	sp->items       = weapon_bit;
 	sp->was_dropped = false;
 	sp->frag_count  = 0;
-	sp->rl_kills    = 0;
-	sp->lg_kills    = 0;
-	sp->rlg_kills   = 0;
 }
 
 // Diff old/new STAT_ITEMS for the tracked weapon bits and open/close
@@ -342,10 +339,8 @@ static void update_item_spans(int slot, unsigned int old_mask,
 // death events array once and tally frags into every span whose
 // [start_ms, end_ms] window contains the event AND whose user_id matches
 // the killer. The span existing IS the proof that the player held the
-// weapon during that window, so we don't also check killer_items against
-// the span's bit. RL/LG/RLG breakdown comes from the killer_items
-// snapshot the event captured at kill time. Self-frags carry
-// killer_user_id == 0 and skip naturally.
+// item during that window. Self-frags carry killer_user_id == 0 and
+// skip naturally.
 static void finalize_spans(void)
 {
 	int t = Hub_DemoEvent_TimeMs();
@@ -373,11 +368,6 @@ static void finalize_spans(void)
 			if (ev->time_ms < sp->start_ms)        continue;
 			if (ev->time_ms > sp->end_ms)          continue;
 			sp->frag_count++;
-			qboolean has_rl = (ev->killer_items & IT_ROCKET_LAUNCHER) != 0;
-			qboolean has_lg = (ev->killer_items & IT_LIGHTNING)       != 0;
-			if      (has_rl && has_lg) sp->rlg_kills++;
-			else if (has_rl)           sp->rl_kills++;
-			else if (has_lg)           sp->lg_kills++;
 		}
 	}
 }
@@ -393,16 +383,16 @@ void Hub_DemoEvent_RegisterPlayer(int slot)
 	int uid = cl.players[slot].userid;
 	if (uid <= 0) return;
 
-	int idx = -1;
+	int index = -1;
 	for (int i = 0; i < hub_demo_player_count; i++)
 	{
 		if (hub_demo_players[i].userid == uid)
 		{
-			idx = i;
+			index = i;
 			break;
 		}
 	}
-	if (idx < 0)
+	if (index < 0)
 	{
 		if (hub_demo_player_count >= players_capacity)
 		{
@@ -411,17 +401,17 @@ void Hub_DemoEvent_RegisterPlayer(int slot)
 			                              sizeof(hub_demo_player_t) * new_cap);
 			players_capacity = new_cap;
 		}
-		idx = hub_demo_player_count++;
-		hub_demo_players[idx].userid    = uid;
-		hub_demo_players[idx].name[0]   = 0;
-		hub_demo_players[idx].team[0]   = 0;
-		hub_demo_players[idx].is_active = false;
+		index = hub_demo_player_count++;
+		hub_demo_players[index].userid    = uid;
+		hub_demo_players[index].name[0]   = 0;
+		hub_demo_players[index].team[0]   = 0;
+		hub_demo_players[index].is_active = false;
 	}
-	if (hub_demo_players[idx].name[0] == 0 && cl.players[slot].name[0])
+	if (hub_demo_players[index].name[0] == 0 && cl.players[slot].name[0])
 	{
 		Hub_QuakeStringToUnicode(cl.players[slot].name,
-		                      hub_demo_players[idx].name,
-		                      sizeof(hub_demo_players[idx].name));
+		                      hub_demo_players[index].name,
+		                      sizeof(hub_demo_players[index].name));
 	}
 }
 
@@ -645,10 +635,10 @@ void Hub_DemoEvent_OnStatUpdate(int slot, unsigned int stat,
 		// fresh emit when fragstats hadn't matched.
 		if (Hub_DemoEventInternal_IsFragSuppressed(slot, false))
 		{
-			int idx = fragstats_last_event_idx[slot];
-			if (idx >= 0 && idx < hub_demo_event_count)
+			int event_index = fragstats_last_event_index[slot];
+			if (event_index >= 0 && event_index < hub_demo_event_count)
 			{
-				hub_demo_event_t *ev = &hub_demo_events[idx];
+				hub_demo_event_t *ev = &hub_demo_events[event_index];
 				ev->victim_items = cached_items[slot];
 				float *src = cl.inframes[cl.parsecount & UPDATE_MASK]
 				                .playerstate[slot].origin;
@@ -671,7 +661,7 @@ void Hub_DemoEvent_OnStatUpdate(int slot, unsigned int stat,
 					ev->frag_type      = last_dmg_type[slot];
 					last_dmg_attacker[slot] = -1;
 				}
-				fragstats_last_event_idx[slot] = -1;
+				fragstats_last_event_index[slot] = -1;
 				goto health_done;
 			}
 		}
@@ -726,12 +716,12 @@ void Hub_DemoEvent_OnKtxDrop(int player_slot, unsigned int items,
 		unsigned int bit = tracked_item_bits[w];
 		if (!(items & bit)) continue;
 
-		int span_idx = last_closed_span_index[player_slot][w];
+		int span_index = last_closed_span_index[player_slot][w];
 		int dt       = t - last_closed_span_time_ms[player_slot][w];
-		if (span_idx >= 0 && span_idx < hub_demo_span_count &&
+		if (span_index >= 0 && span_index < hub_demo_span_count &&
 		    dt >= 0 && dt <= HUB_DROP_PATCH_WINDOW_MS)
 		{
-			hub_demo_spans[span_idx].was_dropped = true;
+			hub_demo_spans[span_index].was_dropped = true;
 		}
 		// Clear so a later unrelated drop in the same window can't
 		// re-flag the same span.
@@ -867,15 +857,15 @@ void Hub_DemoEvent_OnFragStatsRune(int player_slot, unsigned int rune_bit)
 
 qboolean Hub_DemoEventInternal_MergePendingFragEvent(int slot, int delta)
 {
-	if (pending_event_idx < 0) return false;
-	if (pending_event_idx >= hub_demo_event_count)
+	if (pending_event_index < 0) return false;
+	if (pending_event_index >= hub_demo_event_count)
 	{
-		pending_event_idx = -1;
+		pending_event_index = -1;
 		return false;
 	}
 	if (Hub_DemoEvent_TimeMs() - pending_time_ms > HUB_FRAG_SUPPRESS_WINDOW_MS)
 	{
-		pending_event_idx = -1;
+		pending_event_index = -1;
 		return false;
 	}
 	if (slot < 0 || slot >= MAX_CLIENTS) return false;
@@ -889,14 +879,14 @@ qboolean Hub_DemoEventInternal_MergePendingFragEvent(int slot, int delta)
 	int new_uid = cl.players[slot].userid;
 	if (new_uid <= 0) return false;
 
-	hub_demo_event_t *ev = &hub_demo_events[pending_event_idx];
+	hub_demo_event_t *ev = &hub_demo_events[pending_event_index];
 	if (pending_known_role == 1 && delta < 0)
 	{
 		// Killer known, missing victim. Negative delta on a teammate
 		// is the player who lost a frag from being teamkilled.
 		ev->victim_user_id = new_uid;
 		Hub_DemoEvent_RegisterPlayer(slot);
-		pending_event_idx = -1;
+		pending_event_index = -1;
 		return true;
 	}
 	if (pending_known_role == 0 && delta > 0)
@@ -905,7 +895,7 @@ qboolean Hub_DemoEventInternal_MergePendingFragEvent(int slot, int delta)
 		// is the player who scored from the teamkill.
 		ev->killer_user_id = new_uid;
 		Hub_DemoEvent_RegisterPlayer(slot);
-		pending_event_idx = -1;
+		pending_event_index = -1;
 		return true;
 	}
 	return false;
@@ -972,13 +962,13 @@ void Hub_DemoEvent_OnFragStatsKill(int killer_slot, int victim_slot, int wid)
 		if (killer_uid > 0) ev->killer_user_id = killer_uid;
 		if (victim_uid > 0) ev->victim_user_id = victim_uid;
 		if (wid > 0)        ev->frag_type      = (unsigned int)wid;
-		// Record this idx so the STAT_HEALTH death hook can still
-		// enrich origin + items via the existing fragstats_last_event_idx
+		// Record this index so the STAT_HEALTH death hook can still
+		// enrich origin + items via the existing fragstats_last_event_index
 		// path.
 		if (killer_slot >= 0 && killer_slot < MAX_CLIENTS)
-			fragstats_last_event_idx[killer_slot] = i;
+			fragstats_last_event_index[killer_slot] = i;
 		if (victim_slot >= 0 && victim_slot < MAX_CLIENTS)
-			fragstats_last_event_idx[victim_slot] = i;
+			fragstats_last_event_index[victim_slot] = i;
 		goto stamped_suppression;
 	}
 
@@ -990,6 +980,21 @@ void Hub_DemoEvent_OnFragStatsKill(int killer_slot, int victim_slot, int wid)
 		hub_demo_events[hub_demo_event_count - 1].frag_type =
 		    (unsigned int)wid;
 
+	// Record the new event's index against both slots so the later
+	// STAT_HEALTH=0 transition for the victim (and any frag-delta on
+	// the killer) can patch it in place instead of pushing a duplicate.
+	// Without this, multi-POV MVDs - where every player's STAT_HEALTH
+	// is observed, not just the recording client's - double-emit every
+	// frag whose obit text arrives before the STAT_HEALTH update.
+	if (hub_demo_event_count > 0)
+	{
+		int new_index = hub_demo_event_count - 1;
+		if (killer_slot >= 0 && killer_slot < MAX_CLIENTS)
+			fragstats_last_event_index[killer_slot] = new_index;
+		if (victim_slot >= 0 && victim_slot < MAX_CLIENTS)
+			fragstats_last_event_index[victim_slot] = new_index;
+	}
+
 	// Mark the event as pending if one side is missing. The next
 	// matching svc_updatefrags delta on a teammate of the known side
 	// (handled in Hub_DemoEventInternal_MergePendingFragEvent) will
@@ -1000,7 +1005,7 @@ void Hub_DemoEvent_OnFragStatsKill(int killer_slot, int victim_slot, int wid)
 	qboolean has_known_slot = (killer_slot >= 0) || (victim_slot >= 0);
 	if (is_partial && has_known_slot && hub_demo_event_count > 0)
 	{
-		pending_event_idx  = hub_demo_event_count - 1;
+		pending_event_index  = hub_demo_event_count - 1;
 		pending_known_slot = (killer_uid > 0) ? killer_slot : victim_slot;
 		pending_known_role = (killer_uid > 0) ? 1 : 0;
 		pending_time_ms    = Hub_DemoEvent_TimeMs();
@@ -1008,7 +1013,7 @@ void Hub_DemoEvent_OnFragStatsKill(int killer_slot, int victim_slot, int wid)
 	else
 	{
 		// Both sides resolved; no further merging needed.
-		pending_event_idx = -1;
+		pending_event_index = -1;
 	}
 
 stamped_suppression:

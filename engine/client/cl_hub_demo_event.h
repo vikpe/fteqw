@@ -160,22 +160,17 @@ typedef struct {
 	                          // player died with the weapon and the
 	                          // backpack landed). false if the span ended
 	                          // any other way (intermission / scan end).
-	int          frag_count;  // Kills the holder made while this span
-	                          // was open. Attribution: when a death is
-	                          // emitted with a killer, the killer's
-	                          // currently-open spans for every weapon
-	                          // bit set in their STAT_ITEMS at death
-	                          // time get +1. Powerup spans count too;
-	                          // self-frags don't.
-	int          rl_kills;    // Of frag_count, kills where the killer
-	                          // held RL but not LG at the moment of
-	                          // the kill. Mutually exclusive with
-	                          // lg_kills / rlg_kills.
-	int          lg_kills;    // Killer held LG but not RL.
-	int          rlg_kills;   // Killer held both RL and LG.
-	                          // frag_count - rl_kills - lg_kills -
-	                          // rlg_kills = "other" kills (axe, SG,
-	                          // GL, etc.; not tracked).
+	int          frag_count;  // Kills the holder made during this span.
+	                          // For every HDE_KIND_DEATH event whose
+	                          // killer_user_id matches user_id and whose
+	                          // time_ms falls in [start_ms, end_ms],
+	                          // bump frag_count by 1. No weapon filter -
+	                          // the span existing is the proof the holder
+	                          // had the item, and self-frags (killer_user_id
+	                          // == 0) skip naturally. A single death can
+	                          // tally on multiple of a player's open spans
+	                          // (e.g. RL + Quad held together both count
+	                          // it); that's the intended semantic.
 } hub_demo_span_t;
 
 // Last-completed scan results. Empty until demo_events_scan is run.

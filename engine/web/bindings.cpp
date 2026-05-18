@@ -920,9 +920,6 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			sp.set("items",       (double)hub_demo_spans[i].items);
 			sp.set("was_dropped", (bool)hub_demo_spans[i].was_dropped);
 			sp.set("frag_count",  hub_demo_spans[i].frag_count);
-			sp.set("rl_kills",    hub_demo_spans[i].rl_kills);
-			sp.set("lg_kills",    hub_demo_spans[i].lg_kills);
-			sp.set("rlg_kills",   hub_demo_spans[i].rlg_kills);
 			spans.set(i, sp);
 		}
 
