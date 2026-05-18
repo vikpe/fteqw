@@ -26,6 +26,15 @@ void() CSQC_WorldLoaded =
 {
     XrayInit();
 
+    // Minimap can't render meaningfully for NetQuake (no shared overlay
+    // schema, no team strings to color by). Force it off at world load so
+    // the cvar reflects reality - status/help commands and the web app's
+    // UI both see the actual state, and the per-frame draw paths stay on
+    // their existing OFF early-outs.
+    if (Participants_IsNetquake()) {
+        cvar_set("minimap_mode", "0");
+    }
+
     match_start_time = -1;
     PowcamReset();
     ItemTimerResetAll(match_start_time);
