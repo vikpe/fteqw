@@ -366,7 +366,11 @@ float(float evtype, float scanx, float chary, float devid) PlayerInfoInputEvent 
         // flips autotrackmode to TM_USER on every explicit pick, so
         // manual control survives until the user issues `autotrack`
         // again.
-        localcmd(sprintf("track_userid %s\n", userid));
+        //
+        // Prefix with pN+1 to route to the row's seat. The single-arg
+        // form of track_userid honors CL_TargettedSplit via the engine's
+        // p1/p2/... split modifier (cl_input.c:CL_Split_f).
+        localcmd(sprintf("p%d track_userid %s\n", pi_hits[i].seat + 1, userid));
         return 1;
     }
     return 0;
@@ -670,12 +674,12 @@ string(string raw) PI_FormatLocation =
 
 void(vector view_size, __out pi_layout_t L) PI_LayoutFor =
 {
-    // Raw user scale, matching ezhud's hud_*_scale convention. The
-    // viewport dimension intentionally isn't an input - sizing should
-    // be predictable from the cvar alone, identical to every ezhud
-    // element. Defaults to 1 when unset or negative.
+    // User scale, matching ezhud's hud_*_scale convention. Defaults to
+    // 1 when unset or negative. Multiplied by HubSeatScale so the widget
+    // shrinks the same way ezhud does in splitscreen / minimap-split.
     float scale = autocvar_playerinfo_scale;
     if (scale <= 0) scale = 1;
+    scale *= HubSeatScale(view_size);
     L.scale = scale;
 
     float font_px = floor(PI_FONT_PX * scale);
