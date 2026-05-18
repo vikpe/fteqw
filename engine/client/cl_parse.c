@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "cl_ignore.h"
 #include "shader.h"
 #include "fs.h"
+#include "cl_hub.h"
 #include "cl_hub_demo_events.h"
 
 void CL_GetNumberedEntityInfo (int num, float *org, float *ang);
@@ -1247,6 +1248,7 @@ static void Model_CheckDownloads (void)
 
 		CL_CheckOrEnqueDownloadFile(s, s, ((i==1)?DLLF_REQUIRED:0)|DLLF_ALLOWWEB);	//world is required to be loaded.
 		CL_CheckModelResources(s);
+		if (i == 1) Hub_RequestMapLoc(s);
 	}
 
 #ifdef HAVE_LEGACY

@@ -140,6 +140,35 @@ void Hub_CheckServerInfo(void)
 	Q_strncpyz(hub_prev_status, status, sizeof(hub_prev_status));
 }
 
+// Best-effort GET of the matching .loc from cl_download_mapsrc when the
+// world BSP is being precached. The standard CL_CheckOrEnqueDownloadFile
+// path can't be used here because sv.state is set on +map (listen
+// server) and short-circuits with "no downloading if we're the one
+// we'd be downloading from"; HTTP_CL_Get sidesteps that, same pattern
+// SV_Map_DownloadStart (sv_ccmds.c) uses for its own BSP fetch.
+//
+// Silent on every failure path (NULL callback, no UI feedback, no
+// fallback) - a missing .loc is fine, location names just stay empty.
+// CL_CheckDLFile skips the GET when the .loc is already in the FS
+// (id1 paks loaded at boot, prior-session cache, custom map pk3 that
+// happens to be registered before this hook fires).
+void Hub_RequestMapLoc(const char *bsp_filename)
+{
+	extern cvar_t cl_download_mapsrc;
+	char loc_base[MAX_QPATH];
+	char loc_path[MAX_QPATH];
+	size_t len;
+	if (!bsp_filename || !*cl_download_mapsrc.string) return;
+	if (strncmp(bsp_filename, "maps/", 5)) return;
+	len = strlen(bsp_filename);
+	if (len < 4 || strcmp(bsp_filename + len - 4, ".bsp")) return;
+	COM_FileBase(bsp_filename, loc_base, sizeof(loc_base));
+	Q_snprintfz(loc_path, sizeof(loc_path), "locs/%s.loc", loc_base);
+	if (CL_CheckDLFile(loc_path)) return;
+	HTTP_CL_Get(va("%s%s.loc", cl_download_mapsrc.string, loc_base),
+	            loc_path, NULL);
+}
+
 void Hub_HostFrame(double frametime)
 {
     // Same scope as Hub_CheckServerInfo: only ticks for demo / qtv.

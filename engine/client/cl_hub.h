@@ -17,4 +17,11 @@ extern double   hub_match_elapsed_ms;
 void Hub_CheckServerInfo(void);        // end of CL_CheckServerInfo
 void Hub_HostFrame(double frametime);  // each Host_Frame tick
 
+// Best-effort fetch of the matching `.loc` file from cl_download_mapsrc
+// at world-BSP precache time. `bsp_filename` is the BSP path the engine
+// is about to load (e.g. "maps/dm6.bsp"); a non-matching shape (wrong
+// folder / extension / empty cvar / file already in FS) is a silent
+// no-op. Called from cl_parse.c's Model_CheckDownloads.
+void Hub_RequestMapLoc(const char *bsp_filename);
+
 #endif
