@@ -5,7 +5,9 @@
 #include "quakedef.h"
 #include "fragstats.h"
 #include "../client/cl_hub_participants.h"
-#include "../client/cl_hub_demo_events.h"
+#include "../client/cl_hub_demo.h"
+#include "../client/cl_hub_demo_event.h"
+#include "../client/cl_hub_mvd_event.h"
 
 using namespace emscripten;
 
@@ -417,22 +419,66 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			extern int hub_demo_timelimit_ms;
 			extern int hub_demo_countdown_ms;
 			extern int hub_demo_total_ms;
+			extern int hub_demo_match_end_ms;
 			if (hub_demo_total_ms <= 0)
 				return emscripten::val::null();
 			// Split the post-match remainder into overtime + intermission.
-			// timelimit and overtimes are always multiples of 60s; the
-			// intermission is the leftover (typically a few seconds).
-			int post_match_ms   = hub_demo_total_ms - hub_demo_countdown_ms - hub_demo_timelimit_ms;
-			if (post_match_ms < 0) post_match_ms = 0;
-			int overtime_ms     = (post_match_ms / 60000) * 60000;
-			int intermission_ms = post_match_ms - overtime_ms;
+			// NQ provides an observed match-end timestamp (sniffed from
+			// the "The match is over" print) so the intermission tail is
+			// known precisely; the leftover before it is overtime. QW/MVD
+			// has no equivalent, so we fall back to the timelimit-based
+			// math (overtimes are always multiples of 60s; intermission
+			// is the sub-minute remainder).
+			int overtime_ms;
+			int intermission_ms;
+			if (hub_demo_match_end_ms > 0)
+			{
+				int overtime_raw = hub_demo_match_end_ms - hub_demo_countdown_ms - hub_demo_timelimit_ms;
+				if (overtime_raw < 0) overtime_raw = 0;
+				overtime_ms     = overtime_raw;
+				intermission_ms = hub_demo_total_ms - hub_demo_match_end_ms;
+				if (intermission_ms < 0) intermission_ms = 0;
+			}
+			else
+			{
+				int post_match_ms = hub_demo_total_ms - hub_demo_countdown_ms - hub_demo_timelimit_ms;
+				if (post_match_ms < 0) post_match_ms = 0;
+				overtime_ms     = (post_match_ms / 60000) * 60000;
+				intermission_ms = post_match_ms - overtime_ms;
+			}
+			// Format tag for the web side. Mirrors cls.demoplayback
+			// (DPB_*) so consumers can adapt the UI per-format. A
+			// QWD->MVD wrap still reports "mvd" here; check is_single_pov
+			// to tell it apart from a real multi-POV MVD.
+			const char *format = "?";
+			switch (cls.demoplayback)
+			{
+			case client_static_t::DPB_QUAKEWORLD: format = "qwd"; break;
+			case client_static_t::DPB_MVD:        format = "mvd"; break;
+			case client_static_t::DPB_NETQUAKE:   format = "nq";  break;
+			default: break;
+			}
+
+			// POV user id: -1 when the userid isn't resolvable yet
+			// (early prespawn) OR the demo is genuinely multi-POV.
+			// is_single_pov is the canonical "is this a single-POV
+			// demo?" signal - independent of userid resolution timing
+			// so it stays stable from the moment the timeline scan
+			// completes. Both resolved in cl_hub_demo.c so engine /
+			// CSQC / web all see the same answer.
+			int pov_user_id   = Hub_GetDemoPovUserId();
+			bool is_single_pov = Hub_IsSinglePovDemo() != 0;
+
 			emscripten::val result = emscripten::val::object();
+			result.set("format",          std::string(format));
 			result.set("elapsed_ms",      elapsed_ms);
 			result.set("total_ms",        hub_demo_total_ms);
 			result.set("timelimit_ms",    hub_demo_timelimit_ms);
 			result.set("countdown_ms",    hub_demo_countdown_ms);
 			result.set("overtime_ms",     overtime_ms);
 			result.set("intermission_ms", intermission_ms);
+			result.set("pov_user_id",     pov_user_id);
+			result.set("is_single_pov",   is_single_pov);
 			return result;
 		})
 		.function("getItemTimer", +[](client_state_t& self) -> client_state_t::itemtimer_s* {
@@ -515,6 +561,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			result.set("map", std::string(host_mapname.string));
 			result.set("deathmatch", (int) self.deathmatch);
 			result.set("teamplay", (int) self.teamplay);
+			result.set("is_netquake", cls.protocol == client_static_t::CP_NETQUAKE);
 			return result;
 		}, allow_raw_pointers());
 
@@ -770,7 +817,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	// Two nested rAF calls: the first commits the DOM state, the second
 	// guarantees the browser has painted before the blocking call.
 	function("getDemoEvents", +[]() -> emscripten::val {
-		Hub_DemoEvents_Scan();
+		Hub_DemoEvent_Scan();
 
 		// TP_LocationName early-returns "someplace" unless cls.state is
 		// ca_active. The scan's CL_PlayDemoStream restart leaves cls.state
@@ -806,7 +853,15 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			origin.set("y", hub_demo_events[i].origin[1]);
 			origin.set("z", hub_demo_events[i].origin[2]);
 			ev.set("origin", origin);
-			const char *loc = TP_LocationName(hub_demo_events[i].origin);
+			// Skip TP_LocationName when the event has no positional
+			// data (origin is the zero vector) - otherwise the lookup
+			// would resolve to whatever zone contains the map origin
+			// (e.g. "ra-tunnel" on dm6) and consumers would see a
+			// nonsense location. HDE_KIND_FRAG events (svc_print
+			// derived, no playerstate info) are the typical case.
+			const float *org = hub_demo_events[i].origin;
+			bool has_origin = (org[0] != 0 || org[1] != 0 || org[2] != 0);
+			const char *loc = has_origin ? TP_LocationName(org) : "";
 			ev.set("location", std::string(loc ? loc : ""));
 			events.set(i, ev);
 		}
@@ -819,6 +874,30 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			p.set("team",      std::string(hub_demo_players[i].team));
 			p.set("is_active", (bool)hub_demo_players[i].is_active);
 			players.set(i, p);
+		}
+
+		// Weapon dictionary built from fragstats.weapontotals[]. Lets
+		// consumers resolve `event.frag_type` (the wid stashed by the
+		// fragstats hook) into a readable codename / fullname / abrev
+		// without duplicating the lookup table client-side. Populated
+		// by Stats_LoadFragFile from the active gamedir's fragfile.dat,
+		// so the entries reflect whatever weapons the .dat declared
+		// (id1 / KTX / CRMod / etc.). Indices are stable for a session.
+		emscripten::val weapons = emscripten::val::array();
+		{
+			extern fragstats_t fragstats;
+			int n_weap = 0;
+			for (int i = 0; i < MAX_WEAPONS; i++) {
+				if (!fragstats.weapontotals[i].codename) continue;
+				emscripten::val w = emscripten::val::object();
+				w.set("id",       i);
+				w.set("codename", std::string(fragstats.weapontotals[i].codename));
+				if (fragstats.weapontotals[i].fullname)
+					w.set("fullname", std::string(fragstats.weapontotals[i].fullname));
+				if (fragstats.weapontotals[i].abrev)
+					w.set("abrev",    std::string(fragstats.weapontotals[i].abrev));
+				weapons.set(n_weap++, w);
+			}
 		}
 
 		emscripten::val spans = emscripten::val::array();
@@ -840,6 +919,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		result.set("events",  events);
 		result.set("players", players);
 		result.set("spans",   spans);
+		result.set("weapons", weapons);
 
 		cls.state = saved_state;
 		return result;
@@ -847,13 +927,13 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 
 	// Returns the embedded ktxstats JSON string, or null if the demo
 	// carries no mvdhidden_demoinfo payload (most non-KTX MVDs and
-	// live games). Uses Hub_DemoStats_Scan, which walks the demo file
+	// live games). Uses Hub_MvdEvent_StatsScan, which walks the demo file
 	// directly and only parses hidden-message frame bodies (seeking
 	// past everything else). Cheap enough to run synchronously - tens
 	// of ms instead of the ~1s a full event scan costs. A prior full
 	// events scan also counts as a cache hit.
 	function("getKtxStats", +[]() -> emscripten::val {
-		Hub_DemoStats_Scan();
+		Hub_MvdEvent_StatsScan();
 		if (!hub_ktxstats_json) return emscripten::val::null();
 		return emscripten::val(std::string(hub_ktxstats_json));
 	});
@@ -1261,8 +1341,15 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		if (new_secs < 0) new_secs = 0;
 		float current_secs = elapsed_ms / 1000.0f;
 		if (fabsf((float) new_secs - current_secs) < 1.0f) return;
+		// Hub_GetDemoElapsedMs reports demo-relative ms; the engine's
+		// `demo_jump` command takes the same unit as demtime, which is
+		// absolute level time for NQ. Shift the demo-relative request
+		// back into that frame so NQ seeks land in the right place.
+		// QW/MVD have start_offset = 0, so this is a no-op there.
+		extern int hub_demo_start_offset_ms;
+		int abs_secs = new_secs + (hub_demo_start_offset_ms + 500) / 1000;
 		char cmd[64];
-		snprintf(cmd, sizeof(cmd), "demo_jump %d\n", new_secs);
+		snprintf(cmd, sizeof(cmd), "demo_jump %d\n", abs_secs);
 		Cbuf_AddText(cmd, RESTRICT_LOCAL);
 	});
 
@@ -1289,8 +1376,6 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		hub_participants_t parts;
 		Hub_BuildParticipants(&parts);
 
-		const char *mode = InfoBuf_ValueForKey(&cl.serverinfo, "mode");
-
 		auto join_player_names = [&](const char *prefix) -> std::string {
 			std::string out = prefix;
 			for (int i = 0; i < parts.player_count; i++) {
@@ -1299,6 +1384,28 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			}
 			return out;
 		};
+
+		// NQ has no QW-style serverinfo - "mode" is always empty, so we
+		// can't disambiguate tot / race / 1on1 from a tag. Fall through
+		// directly to the team/player-count heuristics, same fallbacks
+		// the QW path uses for unknown modes.
+		if (cls.protocol == client_static_t::CP_NETQUAKE) {
+			if (parts.team_count >= 2) {
+				return std::string(parts.teams[0].team_unicode) + " vs " + std::string(parts.teams[1].team_unicode);
+			}
+			if (parts.player_count == 2) {
+				return std::string(parts.players[0].name_unicode) + " vs " + std::string(parts.players[1].name_unicode);
+			}
+			if (parts.player_count == 1) {
+				return std::string(parts.players[0].name_unicode);
+			}
+			if (parts.player_count == 0) return std::string();
+			char buf[32];
+			snprintf(buf, sizeof(buf), "%d players", parts.player_count);
+			return std::string(buf);
+		}
+
+		const char *mode = InfoBuf_ValueForKey(&cl.serverinfo, "mode");
 
 		if (!strcasecmp(mode, "tot")) {
 			if (parts.player_count == 0) return std::string();

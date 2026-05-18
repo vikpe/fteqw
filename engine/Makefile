@@ -744,11 +744,14 @@ CLIENT_OBJS = \
 	cl_main.o	\
 	cl_parse.o	\
 	cl_hub.o	\
+	cl_hub_demo.o	\
 	cl_hub_participants.o	\
 	cl_hub_demo_timeline.o	\
 	cl_hub_demo_timeline_qw.o	\
 	cl_hub_demo_timeline_nq.o	\
-	cl_hub_demo_events.o	\
+	cl_hub_demo_event.o	\
+	cl_hub_mvd_event.o	\
+	cl_hub_dem_event.o	\
 	cl_pred.o	\
 	cl_tent.o	\
 	cl_cam.o	\

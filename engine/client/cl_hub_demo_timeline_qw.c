@@ -130,6 +130,22 @@ void Hub_DemoTimeline_ScanQw(vfsfile_t *f, qboolean is_mvd)
 	qboolean seen_status        = false;
 	qboolean in_countdown       = false;
 	qboolean countdown_resolved = false;
+	// Multi-POV detection (MVD only). OR every player slot that
+	// appears as a routing target in dem_single (slot = cmd >> 3),
+	// dem_stats (same), or dem_multiple (bitmask of slots, except
+	// the mvdhidden sentinel mask==0). After the loop, popcount > 1
+	// means the demo carries data for >1 player - i.e. a real
+	// multi-POV MVD, not a QWD->MVD wrap. cmd >> 3 fits in 5 bits
+	// so 32 is enough.
+	uint32_t pov_slots_seen = 0;
+	// dem_multiple records with seqmask == 0 carry mvdhidden_* extension
+	// payloads (cl_demo.c routes them through CLEZ_ParseHiddenDemoMessage):
+	// ktxstats JSON, mvdhidden_dmgdone attribution, paused durations, etc.
+	// Only server-side MVD recorders (mvdsv / ktx) emit these; a QWD->MVD
+	// wrap can't synthesise them since the source QWD doesn't carry the
+	// data. Their presence is a definitive "real MVD" signal even when
+	// pov_slots_seen happens to be sparse.
+	qboolean mvd_has_hidden = false;
 
 	for (;;)
 	{
@@ -169,17 +185,32 @@ void Hub_DemoTimeline_ScanQw(vfsfile_t *f, qboolean is_mvd)
 			if (VFS_READ(f, &seqmask, sizeof(seqmask)) != (int)sizeof(seqmask)) goto done;
 			if (VFS_READ(f, &len, sizeof(len)) != (int)sizeof(len)) goto done;
 			body_len = LittleLong(len);
+			if (is_mvd)
+			{
+				uint32_t mask = (uint32_t)LittleLong(seqmask);
+				if (mask) pov_slots_seen |= mask;
+				else      mvd_has_hidden = true;
+			}
 			break;
 		}
 
 		case QW_DEM_READ:
-		case QW_DEM_SINGLE:
-		case QW_DEM_STATS:
 		case QW_DEM_ALL:
 		{
 			int len;
 			if (VFS_READ(f, &len, sizeof(len)) != (int)sizeof(len)) goto done;
 			body_len = LittleLong(len);
+			break;
+		}
+
+		case QW_DEM_SINGLE:
+		case QW_DEM_STATS:
+		{
+			int len;
+			if (VFS_READ(f, &len, sizeof(len)) != (int)sizeof(len)) goto done;
+			body_len = LittleLong(len);
+			if (is_mvd)
+				pov_slots_seen |= 1u << ((cmd >> 3) & 31);
 			break;
 		}
 
@@ -243,6 +274,68 @@ void Hub_DemoTimeline_ScanQw(vfsfile_t *f, qboolean is_mvd)
 
 done:
 	hub_demo_total_ms = (int)floor(demtime * 1000);
+
+	if (is_mvd)
+	{
+		// Resolution priority:
+		//   1. mvd_has_hidden  -> real MVD recording. Leave -1.
+		//   2. popcount > 1    -> per-slot routing for several clients
+		//                         (e.g. an older real MVD without hidden
+		//                         messages). Leave -1.
+		//   3. popcount == 1   -> QWD->MVD wrap whose wrapper put the
+		//                         recording client's data in dem_single.
+		//                         Take that bit as the slot.
+		//   4. popcount == 0   -> QWD->MVD wrap whose wrapper sent
+		//                         everything as dem_all. The scan can't
+		//                         pinpoint the slot, so use the
+		//                         POV_SLOT_FROM_PLAYERVIEW sentinel and
+		//                         let Hub_GetDemoPovUserId fall back to
+		//                         playerview[0].playernum at query time.
+		// Slot 31 (0x80000000) is treated as the top of the QW slot
+		// range in protocol (MAX_CLIENTS == 32), but vanishingly rare
+		// in practice - real servers run with maxclients well below 32,
+		// so a real player in slot 31 is the exception. QWD->MVD wrap
+		// tools have been observed using bit 31 in dem_multiple seqmasks
+		// as a "from the recording client" sentinel rather than a real
+		// routing target. Strip it before counting so wraps that use
+		// this convention don't get flagged as multi-POV; the masked
+		// vs unmasked values are both reported in the debug line so
+		// genuine slot-31 demos can be spotted.
+		uint32_t slot_mask = pov_slots_seen & ~0x80000000u;
+		int  bits           = 0;
+		int  first_bit_slot = 0;
+		for (int b = 0; b < 31; b++) {
+			if (slot_mask & (1u << b)) {
+				if (bits == 0) first_bit_slot = b;
+				bits++;
+			}
+		}
+		const char *reason;
+		if (mvd_has_hidden || bits > 1)
+		{
+			hub_demo_pov_slot = -1;
+			reason = mvd_has_hidden
+			       ? "multi-POV (mvdhidden_* messages present)"
+			       : "multi-POV (per-slot routing for >1 client)";
+		}
+		else if (bits == 1)
+		{
+			hub_demo_pov_slot = first_bit_slot;
+			reason = "single-POV (one dem_single/dem_multiple slot)";
+		}
+		else
+		{
+			hub_demo_pov_slot = HUB_DEMO_POV_SLOT_FROM_PLAYERVIEW;
+			reason = "single-POV (no per-slot routing, no mvdhidden; "
+			         "slot deferred to playerview)";
+		}
+		Con_Printf("[demo-timeline] mvd pov-detect: pov_slots_seen=0x%08x "
+		           "(after masking off bit 31 = 0x%08x) bits=%d "
+		           "mvd_has_hidden=%d -> hub_demo_pov_slot=%d  // %s\n",
+		           (unsigned int)pov_slots_seen, (unsigned int)slot_mask,
+		           bits, mvd_has_hidden ? 1 : 0,
+		           hub_demo_pov_slot, reason);
+	}
 
 	if (status[0])
 		Con_Printf("[demo-timeline] initial status=\"%s\"%s\n",

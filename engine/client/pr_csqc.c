@@ -35,6 +35,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "shader.h"
 
 #include "pr_common.h"
+#include "cl_hub_participants.h"
 
 extern usercmd_t cl_pendingcmd[MAX_SPLITS];
 extern cvar_t sv_demo_write_csqc;
@@ -4550,6 +4551,14 @@ static const char *PF_cs_getplayerkey_internal (unsigned int pnum, const char *k
 		}
 		else
 			sprintf(ret, "'%g %g %g'", ((col&0xff0000)>>16)/255.0, ((col&0x00ff00)>>8)/255.0, ((col&0x0000ff)>>0)/255.0);
+	}
+	else if (!strcmp(keyname, "bottomcolor_name"))
+	{
+		// English name for the player's pants-color palette slot.
+		// Canonical source for NetQuake team naming (no team userinfo
+		// string on the wire); QC participants.qc reads this via
+		// getplayerkeyvalue instead of duplicating the lookup table.
+		return Hub_NQColorName((int)cl.players[pnum].dbottomcolor);
 	}
 #ifdef HAVE_LEGACY
 	else if (csqc_isdarkplaces && !strcmp(keyname, "colors"))	//checks to see if a player has locally been set to ignored (for text chat)

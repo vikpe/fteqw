@@ -5,13 +5,12 @@
 #include "sbar.h"
 
 // Forward declarations so the file reads top-down.
-static void gather_players(hub_participants_t *out);
-static int  should_build_teams(const hub_participants_t *p);
-static void compute_team_groups(hub_participants_t *p);
-static void encode_conchar_to_unicode(conchar_t *src, char *out, int outsize);
-static int  hub_is_netquake_demo(void);
-static int  compare_player_by_name_ascii(const void *a, const void *b);
-static int  compare_team_by_team_ascii(const void *a, const void *b);
+static void        gather_players(hub_participants_t *out);
+static int         should_build_teams(const hub_participants_t *p);
+static void        compute_team_groups(hub_participants_t *p);
+static void        encode_conchar_to_unicode(conchar_t *src, char *out, int outsize);
+static int         compare_player_by_name_ascii(const void *a, const void *b);
+static int         compare_team_by_team_ascii(const void *a, const void *b);
 
 // ----- entry point ----------------------------------------------------------
 
@@ -33,7 +32,7 @@ void Hub_BuildParticipants(hub_participants_t *out)
 // decodes name/team into the output, and sorts by name_ascii.
 static void gather_players(hub_participants_t *out)
 {
-	int is_netquake_demo = hub_is_netquake_demo();
+	int is_netquake_demo = Hub_IsNetquakeDemo();
 	int i;
 	out->player_count = 0;
 	for (i = 0; i < cl.allocated_client_slots && out->player_count < HUB_PARTICIPANT_MAX; i++) {
@@ -51,7 +50,19 @@ static void gather_players(hub_participants_t *out)
 		e->is_bot = (p->userid == 0) ? 1 : 0;
 
 		Q_strncpyz(e->name_bytestr, p->name, sizeof(e->name_bytestr));
-		Q_strncpyz(e->team_bytestr, p->team, sizeof(e->team_bytestr));
+		// NetQuake demos have no team userinfo string; the engine
+		// stuffs the numeric bottom_color+1 in there (cl_parse.c
+		// svc_updatecolors), which is useless for display. Override
+		// with the palette color name so downstream consumers
+		// (bindings.cpp:getTitle, the team-group display) get human-
+		// readable team names that match participants.qc's
+		// NQ_ColorName output.
+		if (is_netquake_demo)
+			Q_strncpyz(e->team_bytestr,
+			           Hub_NQColorName(p->rbottomcolor),
+			           sizeof(e->team_bytestr));
+		else
+			Q_strncpyz(e->team_bytestr, p->team, sizeof(e->team_bytestr));
 		Hub_QuakeStringToUnicode(p->name, e->name_unicode, sizeof(e->name_unicode));
 		Hub_QuakeStringToAscii(p->name, e->name_ascii, sizeof(e->name_ascii));
 
@@ -87,45 +98,30 @@ static void gather_players(hub_participants_t *out)
 }
 
 // 2-team detection: >2 active players AND exactly 2 distinct teams.
-// NetQuake demos key on bottom_color (the team userinfo field isn't
-// broadcast); other protocols key on the raw team string.
+// NetQuake demos already had their team_bytestr overridden with the
+// palette color name in gather_players, so partitioning by
+// team_bytestr works the same way for both protocols.
 static int should_build_teams(const hub_participants_t *p)
 {
-	int i;
+	int i, j;
 	if (p->player_count <= 2)
 		return 0;
-	if (hub_is_netquake_demo()) {
-		int seen[17] = {0};
-		int distinct_count = 0;
-		for (i = 0; i < p->player_count; i++) {
-			int bot = p->players[i].bottom_color;
-			if (bot < 0 || bot > 16)
-				continue;
-			if (!seen[bot]) {
-				seen[bot] = 1;
-				distinct_count++;
+	int distinct_count = 0;
+	for (i = 0; i < p->player_count; i++) {
+		int is_first = 1;
+		for (j = 0; j < i; j++) {
+			if (!strcmp(p->players[i].team_bytestr, p->players[j].team_bytestr)) {
+				is_first = 0;
+				break;
 			}
 		}
-		return distinct_count == 2;
-	} else {
-		int distinct_count = 0;
-		int j;
-		for (i = 0; i < p->player_count; i++) {
-			int is_first = 1;
-			for (j = 0; j < i; j++) {
-				if (!strcmp(p->players[i].team_bytestr, p->players[j].team_bytestr)) {
-					is_first = 0;
-					break;
-				}
-			}
-			if (is_first) {
-				distinct_count++;
-				if (distinct_count > 2)
-					return 0;
-			}
+		if (is_first) {
+			distinct_count++;
+			if (distinct_count > 2)
+				return 0;
 		}
-		return distinct_count == 2;
 	}
+	return distinct_count == 2;
 }
 
 // Groups players by team string, sums frags, sorts by team_ascii.
@@ -226,10 +222,37 @@ static void encode_conchar_to_unicode(conchar_t *src, char *out, int outsize)
 	*p = '\0';
 }
 
-static int hub_is_netquake_demo(void)
+int Hub_IsNetquakeDemo(void)
 {
 	char *m = Cmd_GetMacroValue("demoplayback");
 	return (m && !strcmp(m, "demplayback")) ? 1 : 0;
+}
+
+// Palette index -> color name. Exposed via cl_hub_participants.h so
+// pr_csqc.c can wire it to a getplayerkeyvalue key ("bottomcolor_name"),
+// letting participants.qc read the engine's canonical mapping instead
+// of duplicating the table. Out-of-range returns "" so unknown slots
+// get grouped together (rather than silently partitioning by
+// stringified palette index).
+const char *Hub_NQColorName(int palette_index)
+{
+	switch (palette_index) {
+	case 0:  return "white";
+	case 1:  return "brown";
+	case 2:  return "light blue";
+	case 3:  return "green";
+	case 4:  return "red";
+	case 5:  return "olive";
+	case 6:  return "orange";
+	case 7:  return "pink";
+	case 8:  return "purple";
+	case 9:  return "magenta";
+	case 10: return "cyan";
+	case 11: return "tan";
+	case 12: return "yellow";
+	case 13: return "blue";
+	}
+	return "";
 }
 
 // ----- qsort comparators ----------------------------------------------------

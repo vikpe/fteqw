@@ -55,6 +55,20 @@ typedef struct {
 
 void Hub_BuildParticipants(hub_participants_t *out);
 
+// True when the current session is a NetQuake-protocol demo. Used by
+// HUD widgets that need to substitute NQ-specific signals for QW-only
+// serverinfo fields (e.g. cl.teamplay, status string).
+int Hub_IsNetquakeDemo(void);
+
+// Palette index (0..13) -> color name string ("red", "blue", ...).
+// Returns "" for out-of-range indices. NetQuake demos identify teams by
+// the player's bottom-color palette slot rather than a team userinfo
+// string; this is the canonical mapping used by both the C-side
+// hub_participants builder and the QC participants.qc consumer (via
+// the "bottomcolor_name" getplayerkeyvalue key wired in pr_csqc.c).
+// Pointer is to static storage; do not free, do not modify.
+const char *Hub_NQColorName(int palette_index);
+
 // Convert a raw quake-encoded string (color codes, 2nd-charset bytes)
 // into a unicode string serialised as UTF-8. First-charset special
 // glyphs (0x00..0x1F) and their 2nd-charset gold duplicates are mapped

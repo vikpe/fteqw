@@ -40,16 +40,26 @@ void Hub_ResetMatchState(void)
 	hub_prev_status[0]       = 0;
 }
 
+// NQ demos drive demtime from cl.gametime, which is absolute level time -
+// it carries hub_demo_start_offset_ms of bias when recording began
+// mid-level. QW/MVD already zero demtime at demo start, so for those the
+// start_offset is 0 and the subtraction is a no-op.
+static double Hub_GetDemoTimeRelativeMs(double t_seconds)
+{
+	double ms = t_seconds * 1000.0 - (double)hub_demo_start_offset_ms;
+	return ms < 0 ? 0 : ms;
+}
+
 int Hub_GetDemoElapsedMs(void)
 {
 	extern float demtime;
 	if (cls.demoplayback == DPB_NONE)
 		return -1;
 	if (cls.demoseeking == DEMOSEEK_TIME)
-		return (int)floor(cls.demoseektime * 1000);
+		return (int)floor(Hub_GetDemoTimeRelativeMs(cls.demoseektime));
 	if (demtime < 0)
 		return 0;
-	return (int)floor(demtime * 1000);
+	return (int)floor(Hub_GetDemoTimeRelativeMs(demtime));
 }
 
 int Hub_GetMatchElapsedMs(void)
@@ -112,7 +122,7 @@ void Hub_CheckServerInfo(void)
 		if (cls.lastdemoname[0] && !strcmp(hub_prev_status, "normal"))
 		{
 			extern float demtime;
-			double captured_ms = demtime * 1000.0 - hub_demo_countdown_ms;
+			double captured_ms = Hub_GetDemoTimeRelativeMs(demtime) - hub_demo_countdown_ms;
 			double max_ms      = hub_demo_timelimit_ms + hub_overtime_ms;
 			captured_ms = floor(captured_ms / 1000.0 + 0.5) * 1000.0;
 			hub_match_elapsed_ms = (captured_ms > max_ms) ? max_ms : captured_ms;
@@ -183,8 +193,34 @@ void Hub_HostFrame(double frametime)
 		// STANDBY/COUNTDOWN don't update so the clock stays -1
 		// pre-match and freezes during intermission.
 		extern float demtime;
-		if (cl.matchstate == MATCH_INPROGRESS && demtime >= 0)
-			hub_match_elapsed_ms = demtime * 1000.0 - hub_demo_countdown_ms;
+		if (cls.protocol == CP_NETQUAKE)
+		{
+			// NQ has no serverinfo "status" string, so cl.matchstate
+			// never reaches MATCH_INPROGRESS. Drive the clock from
+			// the scan anchors instead: -1 pre-match (clock hidden),
+			// elapsed during the match, frozen at match-end during
+			// the post-match tail. Skip when the scan produced no
+			// countdown anchor (e.g. unseekable / unsupported demo).
+			if (demtime < 0 || hub_demo_countdown_ms <= 0)
+			{
+				hub_match_elapsed_ms = -1;
+			}
+			else
+			{
+				double rel_ms = Hub_GetDemoTimeRelativeMs(demtime);
+				if (rel_ms < hub_demo_countdown_ms)
+					hub_match_elapsed_ms = -1;
+				else if (hub_demo_match_end_ms > 0 &&
+				         rel_ms >= hub_demo_match_end_ms)
+					hub_match_elapsed_ms = hub_demo_match_end_ms - hub_demo_countdown_ms;
+				else
+					hub_match_elapsed_ms = rel_ms - hub_demo_countdown_ms;
+			}
+		}
+		else if (cl.matchstate == MATCH_INPROGRESS && demtime >= 0)
+		{
+			hub_match_elapsed_ms = Hub_GetDemoTimeRelativeMs(demtime) - hub_demo_countdown_ms;
+		}
 	}
 	else
 	{
