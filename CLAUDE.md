@@ -2,6 +2,13 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Project notes
+
+Long-form analysis and reference notes live in `.claude/notes/`. See
+`.claude/notes/README.md` for the index. Read the relevant note before
+working on the topic it covers; they're committed to the repo so they
+travel between machines.
+
 ## General coding standards
 
 - Never read or reference code in `.bak` directories — treat it as if it doesn't exist.
