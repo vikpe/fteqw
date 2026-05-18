@@ -45,8 +45,11 @@
 #define PI_TEAM_GAP_PX     3   // extra space above each team header (except the first)
 
 // Web app overlays a demo time slider along the bottom of the FTE viewport
-// during demo playback; reserve extra vertical margin so the widget clears it.
-#define DEMO_TIMESLIDER_HEIGHT_PX 32
+// during demo playback; reserve extra vertical margin so the widget clears
+// it. Value = slider rendered height (28px) + BASE_BOTTOM_MARGIN_PX in
+// DemoTimeSlider.tsx (4px, mb-1 / 1 tailwind unit). Keep in sync if
+// either changes.
+#define DEMO_TIMESLIDER_HEIGHT_PX 36
 
 // User cvars (registered automatically via autocvar_ prefix).
 // playerinfo 0/1                   - master enable
@@ -86,10 +89,15 @@ float  PI_LoadedFontSlot;
 #define PI_LOC_NAME_SIZE   5   // inner chars between the location brackets
 #define PI_PLAYER_NAME_MAX 10  // visible-char cap on player names (markup-stripped)
 
-// Team header frag-box. Fixed at 6 char-widths wide with the score centered
-// horizontally; vertical padding is half a char on each side. Split top/bottom
-// colors with rounded outer corners (mirrors overlay's score-box style).
-#define PI_TEAM_BOX_CHARS         6
+// Team header frag-box. Geometry mirrors ezhud's hud_score_bar2 defaults
+// so the standalone score bar and the team-grouped player info line up
+// visually: frag_padding 4 4 (inner space around the score text), 3-digit
+// minimum content width (so 1- and 2-digit scores share the same box
+// size as 3-digit ones), 1px rounded corners. Top/bottom halves carry
+// the team's shirt/pants colors.
+#define PI_TEAM_BOX_FRAG_PAD_X    4
+#define PI_TEAM_BOX_FRAG_PAD_Y    4
+#define PI_TEAM_BOX_MIN_CHARS     3
 #define PI_TEAM_BOX_RADIUS_PX     1
 
 // Layout cache produced by PI_LayoutFor and consumed by the draw functions.
@@ -97,9 +105,10 @@ typedef struct {
     float  scale;
     vector font_size;
     float  row_height;          // player row outer height (= font_size.y + 2*player_pad.y)
-    float  team_box_width;      // fixed: 6 * font_size.x (centered text)
-    float  team_box_height;     // font_size.y + team_box_padding_y*2 (== 2 * font_size.y)
-    float  team_box_padding_y;  // half a char-height per side
+    float  team_box_min_w;      // floor for the team frag-box width (min-chars * char_w + pad_x*2)
+    float  team_box_height;     // font_size.y + team_box_pad_y*2
+    float  team_box_pad_x;      // ezhud hud_score_bar2 frag_padding.x * scale
+    float  team_box_pad_y;      // ezhud hud_score_bar2 frag_padding.y * scale
     float  team_box_radius;
     vector player_pad;          // per-row inner padding (x = horizontal, y = vertical)
     float  team_gap;
@@ -133,7 +142,8 @@ void(vector view_size, __out pi_layout_t L)                                     
 void()                                                                                                     PI_SortPlayersByName;
 void()                                                                                                     PI_SortTeamsByName;
 string(string raw)                                                                                         PI_FormatLocation;
-void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float match_active, participant_t player) PI_DrawPlayerRow;
+float(pi_layout_t L, float score)                                                                          PI_TeamBoxWidth;
+void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float match_active, float is_single_pov, participant_t player) PI_DrawPlayerRow;
 void(pi_layout_t L, vector right_top, participant_t team)                                                                              PI_DrawTeamHeader;
 float()                                                                                                    PI_FontSlot;
 
@@ -179,9 +189,10 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
     }
 
     // Teamplay groups when teamplay is on AND every team has a non-empty
-    // name. Otherwise fall back to a flat player list.
-    float teamplay_on = serverkeyfloat("teamplay") > 0;
-    float has_groups = teamplay_on;
+    // name. Otherwise fall back to a flat player list. Participants_Gather
+    // resolved the protocol-specific teamplay detection (QW serverkey vs
+    // NQ "exactly 2 pants colors") into Participants_IsTeamplay.
+    float has_groups = Participants_IsTeamplay;
     if (has_groups) {
         for (int j = 0; j < Participants_TeamCount; j++) {
             if (Participants_Teams[j].name == "") {
@@ -223,6 +234,15 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
     float anchor_right = view_min.x + view_size.x - margin_x;
     float anchor_top   = view_min.y + view_size.y - margin_y - total_height;
 
+    // Single-POV demos (QWD, NQ .dem, single-slot MVD wraps) only carry
+    // STAT_ITEMS / STAT_HEALTH / STAT_ARMOR and origin updates for the
+    // one recording client. Trying to draw the live-stats block (location,
+    // armor, health, weapon) for any other player would print zeroed /
+    // stale values, so collapse the row to name + frags in that case.
+    // Engine-resolved by Hub_IsSinglePovDemo, exposed via pr_clcmd.c's
+    // serverkey switch.
+    float is_single_pov = serverkeyfloat("demo_is_single_pov") > 0;
+
     // Row content width: widest of (player row content) and (team header
     // content). Powerups extend leftward outside the column block but
     // are included so the hit rect / highlight wraps them too. Used by the
@@ -234,21 +254,29 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
         if (truncated_width > L.name_w) truncated_width = L.name_w;
         if (truncated_width > max_name_width) max_name_width = truncated_width;
     }
-    // A player can carry at most 3 powerups at once (Q/P/R). Each glyph is
-    // one char-width, no margin between them; col_gap separates the
-    // rightmost glyph from the name.
-    float powerups_width = 3 * stringwidth("Q", 0, L.font_size) + L.col_gap;
-    float content_width  = powerups_width
-                         + max_name_width
-                         + L.col_gap * 3   + L.location_w
-                         + L.col_gap       + L.armor_w
-                         + L.col_gap * 1.5 + L.health_w
-                         + L.col_gap       + L.weapon_w
-                         + L.col_gap       + L.frags_w;
+    float content_width;
+    if (is_single_pov) {
+        // Slim row: name | frags. No powerups, location, armor, health
+        // or weapon column - we don't have the stats to populate them.
+        content_width = max_name_width + L.col_gap + L.frags_w;
+    } else {
+        // A player can carry at most 3 powerups at once (Q/P/R). Each
+        // glyph is one char-width, no margin between them; col_gap
+        // separates the rightmost glyph from the name.
+        float powerups_width = 3 * stringwidth("Q", 0, L.font_size) + L.col_gap;
+        content_width = powerups_width
+                      + max_name_width
+                      + L.col_gap * 3   + L.location_w
+                      + L.col_gap       + L.armor_w
+                      + L.col_gap * 1.5 + L.health_w
+                      + L.col_gap       + L.weapon_w
+                      + L.col_gap       + L.frags_w;
+    }
     if (has_groups) {
         for (int g = 0; g < Participants_TeamCount; g++) {
             float team_name_width = stringwidth(Participants_Teams[g].name, 1, L.font_size);
-            float team_row_width  = team_name_width + L.col_gap + L.team_box_width;
+            float team_box_width  = PI_TeamBoxWidth(L, Participants_Teams[g].score);
+            float team_row_width  = team_name_width + L.col_gap + team_box_width;
             if (team_row_width > content_width) content_width = team_row_width;
         }
     }
@@ -293,13 +321,13 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
             cursor.y += L.team_box_height;
             for (int i = 0; i < Participants_PlayerCount; i++) {
                 if (Participants_Players[i].team != Participants_Teams[g].name) continue;
-                PI_DrawPlayerRow(L, cursor, content_width, seat, tracked_slot, match_active, Participants_Players[i]);
+                PI_DrawPlayerRow(L, cursor, content_width, seat, tracked_slot, match_active, is_single_pov, Participants_Players[i]);
                 cursor.y += L.row_height;
             }
         }
     } else {
         for (int i = 0; i < Participants_PlayerCount; i++) {
-            PI_DrawPlayerRow(L, cursor, content_width, seat, tracked_slot, match_active, Participants_Players[i]);
+            PI_DrawPlayerRow(L, cursor, content_width, seat, tracked_slot, match_active, is_single_pov, Participants_Players[i]);
             cursor.y += L.row_height;
         }
     }
@@ -308,13 +336,20 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
 };
 
 // Click dispatch. Walks the per-frame hit table for a row under the cursor,
-// emits "trackN <userid>" for the seat that drew the row, and locks autotrack
+// emits "track_userid <userid>" for the clicked player, and locks autotrack
 // to user-mode so it doesn't reclaim the camera. Routed from main.qc's
 // CSQC_InputEvent chain. Returns 1 (consume) on hit, 0 (passthrough) on miss.
 float(float evtype, float scanx, float chary, float devid) PlayerInfoInputEvent =
 {
     if (!autocvar_playerinfo) return 0;
     if (evtype != IE_KEYDOWN || scanx != K_MOUSE1) return 0;
+
+    // Single-POV demos (QWD, NQ .dem, single-slot MVD wraps) lock the
+    // view to the recording client; there's nothing meaningful to track.
+    // Silently consume the click so downstream input handlers don't
+    // react either. Engine-resolved by Hub_IsSinglePovDemo, exposed via
+    // pr_clcmd.c's serverkey switch.
+    if (serverkeyfloat("demo_is_single_pov") > 0) return 1;
 
     vector cursor_pos = getmousepos();
     for (int i = 0; i < pi_hit_count; i++) {
@@ -325,12 +360,13 @@ float(float evtype, float scanx, float chary, float devid) PlayerInfoInputEvent 
         // the infobuf and return empty.
         string userid = getplayerkeyvalue(pi_hits[i].slot, "userid");
         if (userid == "") return 1;
-        // Engine-side: any track/trackN command call falls through to
-        // Cam_TrackPlayer (cl_cam.c), which now flips autotrackmode to
-        // TM_USER on every explicit track. No need to set the cvar from
-        // here - manual control survives until the user issues `autotrack`
-        // (or reloads with cl_autotrack still set to a non-user mode).
-        localcmd(sprintf("track%d %s\n", pi_hits[i].seat + 1, userid));
+        // track_userid (cl_cam.c:Cam_TrackUserid_f) takes a numeric
+        // userid only - no nick fallback, no "#sortidx" branch - so a
+        // player with a digit-shaped nick can't be misresolved. It also
+        // flips autotrackmode to TM_USER on every explicit pick, so
+        // manual control survives until the user issues `autotrack`
+        // again.
+        localcmd(sprintf("track_userid %s\n", userid));
         return 1;
     }
     return 0;
@@ -379,7 +415,7 @@ void() PI_SortTeamsByName =
 // horizontally and L.row_height vertically; content draws inset by player_pad.
 // Stats are skipped when match_active is 0. Tracked-row highlight + the hit
 // rect for click dispatch both span the full outer block.
-void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float match_active, participant_t player) PI_DrawPlayerRow =
+void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float match_active, float is_single_pov, participant_t player) PI_DrawPlayerRow =
 {
     vector font = L.font_size;
 
@@ -415,22 +451,30 @@ void(pi_layout_t L, vector right_top, float content_width, float seat, float tra
     }
 
     // Walk right -> left, each column anchored to its right edge.
-    // Layout: [powerups] | name | location | armor | health | weapon | frags
-    // Powerups have no dedicated column; they hug the left edge of the
-    // rendered name (see name_x below).
+    // Full layout: [powerups] | name | location | armor | health | weapon | frags.
+    // Single-POV layout (no per-non-POV-player stats): name | frags only.
     float frags_right    = content_right_x;
-    float weapon_right   = frags_right    - L.frags_w    - L.col_gap;
-    float health_right   = weapon_right   - L.weapon_w   - L.col_gap;
-    // armor | slash | 0.5 col_gap | health: slash sits flush against
-    // armor's right edge (no margin), then a half col_gap before the
-    // health column. The slash itself is one char wide, so total armor-
-    // to-health distance is 1.5 * col_gap.
-    float armor_right    = health_right   - L.health_w   - L.col_gap * 1.5;
-    float location_right = armor_right    - L.armor_w    - L.col_gap;
-    // Two extra char-widths between location and name on top of the
-    // regular col_gap, so the bracketed location string has clear
-    // breathing room from the name text.
-    float name_right     = location_right - L.location_w - L.col_gap * 3;
+    float name_right;
+    float weapon_right   = 0;
+    float health_right   = 0;
+    float armor_right    = 0;
+    float location_right = 0;
+    if (is_single_pov) {
+        name_right = frags_right - L.frags_w - L.col_gap;
+    } else {
+        weapon_right   = frags_right    - L.frags_w    - L.col_gap;
+        health_right   = weapon_right   - L.weapon_w   - L.col_gap;
+        // armor | slash | 0.5 col_gap | health: slash sits flush
+        // against armor's right edge (no margin), then a half col_gap
+        // before the health column. The slash itself is one char wide,
+        // so total armor-to-health distance is 1.5 * col_gap.
+        armor_right    = health_right   - L.health_w   - L.col_gap * 1.5;
+        location_right = armor_right    - L.armor_w    - L.col_gap;
+        // Two extra char-widths between location and name on top of the
+        // regular col_gap, so the bracketed location string has clear
+        // breathing room from the name text.
+        name_right     = location_right - L.location_w - L.col_gap * 3;
+    }
 
     // Name truncated to PI_PLAYER_NAME_MAX visible chars (markup preserved).
     // Width computed up front so the powerup block can sit next to it.
@@ -444,8 +488,10 @@ void(pi_layout_t L, vector right_top, float content_width, float seat, float tra
     float  frags_text_width = stringwidth(frags_text, 0, font);
     drawstring([frags_right - frags_text_width, content_y, 0], frags_text, font, '1 1 1', 1, 0);
 
-    // Live stats: location, health/armor, best weapon.
-    if (match_active) {
+    // Live stats: location, health/armor, best weapon. Single-POV demos
+    // only have these for the recording client, so the whole block is
+    // skipped (matches the collapsed name-only column layout above).
+    if (match_active && !is_single_pov) {
         vector origin = getentity(player.slot + 1, GE_ORIGIN);
         if (origin != '0 0 0') {
             string location_name = getlocationname(origin);
@@ -569,18 +615,18 @@ void(pi_layout_t L, vector right_top, participant_t team) PI_DrawTeamHeader =
     vector font        = L.font_size;
     float  box_height  = L.team_box_height;
     float  half_height = box_height * 0.5;
-    float  box_width   = L.team_box_width;
+    float  box_width   = PI_TeamBoxWidth(L, team.score);
     float  box_x       = right_top.x - box_width;
     vector half_size   = [box_width, half_height, 0];
 
     HubDrawRoundedRect([box_x, right_top.y, 0],               half_size, L.team_box_radius, RR_TOP,    team.top_color,    1);
     HubDrawRoundedRect([box_x, right_top.y + half_height, 0], half_size, L.team_box_radius, RR_BOTTOM, team.bottom_color, 1);
 
-    // Score text centered horizontally + vertically in the fixed-width box.
+    // Score text centered horizontally + vertically inside the box.
     string score_text  = ftos(team.score);
     float  score_width = stringwidth(score_text, 0, font);
     float  score_x     = box_x + (box_width - score_width) * 0.5;
-    float  score_y     = right_top.y + L.team_box_padding_y;
+    float  score_y     = right_top.y + L.team_box_pad_y;
     drawstring([score_x, score_y, 0], score_text, font, '1 1 1', 1, 0);
 
     // Team name placed to the left of the box, vertically centered
@@ -589,6 +635,15 @@ void(pi_layout_t L, vector right_top, participant_t team) PI_DrawTeamHeader =
     float name_x     = box_x - L.col_gap - name_width;
     float name_y     = right_top.y + (box_height - font.y) * 0.5;
     drawstring([name_x, name_y, 0], team.name, font, '1 1 1', 1, 0);
+};
+
+// Box width sized like ezhud's hud_score_bar2 frag swatches: max of
+// (score text width + frag_padding.x * 2) and the 3-digit minimum.
+float(pi_layout_t L, float score) PI_TeamBoxWidth =
+{
+    float score_w   = stringwidth(ftos(score), 0, L.font_size);
+    float content_w = score_w + L.team_box_pad_x * 2;
+    return content_w > L.team_box_min_w ? content_w : L.team_box_min_w;
 };
 
 // ----- location format ------------------------------------------------------
@@ -641,10 +696,12 @@ void(vector view_size, __out pi_layout_t L) PI_LayoutFor =
     L.weapon_w    = ceil(PI_WEAPON_W_PX * scale);
     L.frags_w     = PI_FRAGS_CHARS * stringwidth("0", 0, L.font_size);
 
-    L.team_box_padding_y = ceil(font_px * 0.5);
-    L.team_box_radius    = ceil(PI_TEAM_BOX_RADIUS_PX * scale);
-    L.team_box_width     = PI_TEAM_BOX_CHARS * stringwidth("0", 0, L.font_size);
-    L.team_box_height    = font_px + L.team_box_padding_y * 2;
+    L.team_box_pad_x  = ceil(PI_TEAM_BOX_FRAG_PAD_X * scale);
+    L.team_box_pad_y  = ceil(PI_TEAM_BOX_FRAG_PAD_Y * scale);
+    L.team_box_radius = ceil(PI_TEAM_BOX_RADIUS_PX  * scale);
+    L.team_box_height = font_px + L.team_box_pad_y * 2;
+    L.team_box_min_w  = PI_TEAM_BOX_MIN_CHARS * stringwidth("0", 0, L.font_size)
+                      + L.team_box_pad_x * 2;
 };
 
 // Resolves the active drawfont slot. Empty cvar -> FONT_DEFAULT (engine's

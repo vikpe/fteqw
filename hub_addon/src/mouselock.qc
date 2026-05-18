@@ -33,7 +33,7 @@
 // Web app overlays a demo time slider along the bottom of the FTE viewport
 // during demo playback; reserve extra vertical margin so the button clears
 // it. Mirrors DEMO_TIMESLIDER_HEIGHT_PX in player_info.qc.
-#define DEMO_TIMESLIDER_HEIGHT_PX 32
+#define DEMO_TIMESLIDER_HEIGHT_PX 36
 
 // Cvars.
 // mouselock                 0/1   - master enable
@@ -110,6 +110,13 @@ void(float seat, vector view_min, vector view_size) MouseLockDraw =
     if (!autocvar_canvas_hover) return;
     if (view_size.x <= 0 || view_size.y <= 0) return;
     if (seat < 0 || seat >= MOUSELOCK_MAX_SEATS) return;
+    // Single-POV demos (QWD, NQ .dem, single-slot MVD wraps) lock the
+    // view to the recording client - there's no spectator camera to
+    // aim, so the capture-mouse button has nothing to do. Resolved
+    // engine-side in cl_hub_demo.c::Hub_IsSinglePovDemo, exposed via
+    // pr_clcmd.c's serverkey switch ("demo_is_single_pov" alongside
+    // "constate", "pausestate", "protocol", etc).
+    if (serverkeyfloat("demo_is_single_pov") > 0) return;
 
     vector cursor = getmousepos();
 

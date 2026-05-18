@@ -40,19 +40,50 @@ float Participants_PlayerCount;
 var participant_t Participants_Teams[PARTICIPANT_MAX];
 float Participants_TeamCount;
 
+// True when the match should be displayed as teamplay.
+// QW: mirrors the "teamplay" serverkey.
+// NQ: no teamplay serverkey exists, so we infer it from the bottom-color
+//     partition - exactly 2 distinct pants colors among active players is
+//     treated as teamplay (same convention the .dem parser uses for
+//     "NonM" mode detection).
+float Participants_IsTeamplay;
+
+// True for any NetQuake-family protocol (vanilla NQ, Fitz666, DarkPlaces
+// NQ). Stateless - safe to call without a prior Participants_Gather().
+float() Participants_IsNetquake =
+{
+    string protocol = serverkey("protocol");
+    return (strstrofs(protocol, "NetQuake", 0) == 0) || protocol == "Fitz666";
+};
+
 void() Participants_Gather =
 {
+    // NetQuake has no *spectator userinfo flag; spectators are signalled
+    // by frags == -99 instead. NetQuake also has no team userinfo string -
+    // teammates are identified by sharing the same pants (bottom) color,
+    // so derive `team` from "bottomcolor" there.
+    float is_netquake = Participants_IsNetquake();
+
     // Pass 1: active non-spectator players.
     Participants_PlayerCount = 0;
     for (int i = 0; i < maxclients && Participants_PlayerCount < PARTICIPANT_MAX; i++) {
         string name = getplayerkeyvalue(i, "name");
         if (name == "") continue;
         if (stof(getplayerkeyvalue(i, "*spectator")) > 0) continue;
-        string team = getplayerkeyvalue(i, "team");
+        float frags = stof(getplayerkeyvalue(i, "frags"));
+        if (is_netquake && frags == -99) continue;
+        // NQ has no team userinfo string; team identity is the
+        // pants-color palette slot. Read the engine-canonical name via
+        // the "bottomcolor_name" getplayerkeyvalue key wired in
+        // pr_csqc.c -> Hub_NQColorName, so this stays in sync with the
+        // C-side hub_participants used by the web bindings.
+        string team = is_netquake
+                    ? getplayerkeyvalue(i, "bottomcolor_name")
+                    : getplayerkeyvalue(i, "team");
         Participants_Players[Participants_PlayerCount].slot         = i;
         Participants_Players[Participants_PlayerCount].name         = name;
         Participants_Players[Participants_PlayerCount].name_ascii   = strdecolorize(name);
-        Participants_Players[Participants_PlayerCount].score        = stof(getplayerkeyvalue(i, "frags"));
+        Participants_Players[Participants_PlayerCount].score        = frags;
         Participants_Players[Participants_PlayerCount].top_color    = stov(getplayerkeyvalue(i, "topcolor_rgb"));
         Participants_Players[Participants_PlayerCount].bottom_color = stov(getplayerkeyvalue(i, "bottomcolor_rgb"));
         Participants_Players[Participants_PlayerCount].team         = team;
@@ -81,4 +112,13 @@ void() Participants_Gather =
             Participants_Teams[existing].score += Participants_Players[i].score;
         }
     }
+
+    // NQ teamplay detection: exactly 2 distinct pants-color teams AND
+    // more than 2 players. A duel between two players with mismatched
+    // pants colors trivially produces 2 "teams" of 1 player each, but
+    // it's not a team game. The C-side hub_participants.c applies the
+    // same player-count gate (see should_build_teams).
+    Participants_IsTeamplay = is_netquake
+                            ? (Participants_TeamCount == 2 && Participants_PlayerCount > 2)
+                            : (serverkeyfloat("teamplay") > 0);
 };
