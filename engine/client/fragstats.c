@@ -1,6 +1,7 @@
 
 #include "quakedef.h"
 #include "fragstats.h"
+#include "cl_hub_demo_event.h"
 
 #ifdef QUAKEHUD
 
@@ -365,6 +366,88 @@ void Stats_Evaluate(fragfilemsgtypes_t mt, int wid, int p1, int p2)
 {
 	qboolean u1;
 	qboolean u2;
+
+	// Hub demo-event extraction: translate fragstats' parsed obituary
+	// into a (killer_slot, victim_slot) pair before this function
+	// mutates p1/p2 (the swap below and the -1 fallback). -1 stays -1
+	// to signal "unknown" per the design rule. Non-kill events
+	// (flag/rune) are skipped here - they'd need separate HDE_KIND_*
+	// values.
+	{
+		int hde_killer = -1;
+		int hde_victim = -1;
+		switch (mt)
+		{
+		case ff_frags:                              // p1=killer, p2=victim
+		case ff_tkills:
+			hde_killer = p1; hde_victim = p2; break;
+		case ff_fragedby:                           // p1=victim, p2=killer
+		case ff_tkilledby:
+			hde_victim = p1; hde_killer = p2; break;
+		case ff_suicide:
+		case ff_death:                              // world damage
+		                                            // (lava/fall/drown/
+		                                            // slime/squish/trap):
+		                                            // semantically a self-
+		                                            // kill - no other player
+		                                            // involved and id1 NQ
+		                                            // scoring decrements
+		                                            // only the dying
+		                                            // player's frags. UI
+		                                            // renders as "X
+		                                            // suicided".
+			hde_victim = p1; hde_killer = p1; break;
+		case ff_tkdeath:                            // killed by an
+		                                            // unknown teammate -
+		                                            // killer side stays
+		                                            // -1 (it really IS
+		                                            // unknown, not the
+		                                            // player themselves).
+			hde_victim = p1; break;
+		case ff_bonusfrag:                          // X scored, victim unknown
+		case ff_tkbonus:
+			hde_killer = p1; break;
+		default:
+			break;
+		}
+		if (hde_killer >= 0 || hde_victim >= 0)
+			Hub_DemoEvent_OnFragStatsKill(hde_killer, hde_victim, wid);
+	}
+
+	// Flag + rune events. Same hook surface as kill events; emits new
+	// HDE_KIND_FLAG_*/RUNE_PICKUP entries with the actor's userid +
+	// origin from playerstate. Hidden behind p1 >= 0 because
+	// Stats_ParsePrintLine falls back to cls_lastto on name-extract
+	// failure (good for stat counters, bad for our positional events).
+	if (p1 >= 0)
+	{
+		switch (mt)
+		{
+		case ff_flagtouch:
+			Hub_DemoEvent_OnFragStatsFlag(p1, HDE_KIND_FLAG_TOUCH);
+			break;
+		case ff_flagcaps:
+			Hub_DemoEvent_OnFragStatsFlag(p1, HDE_KIND_FLAG_CAPTURE);
+			break;
+		case ff_flagdrops:
+			Hub_DemoEvent_OnFragStatsFlag(p1, HDE_KIND_FLAG_DROP);
+			break;
+		case ff_rune_res:
+			Hub_DemoEvent_OnFragStatsRune(p1, IT_SIGIL1);
+			break;
+		case ff_rune_str:
+			Hub_DemoEvent_OnFragStatsRune(p1, IT_SIGIL2);
+			break;
+		case ff_rune_hst:
+			Hub_DemoEvent_OnFragStatsRune(p1, IT_SIGIL3);
+			break;
+		case ff_rune_reg:
+			Hub_DemoEvent_OnFragStatsRune(p1, IT_SIGIL4);
+			break;
+		default:
+			break;
+		}
+	}
 
 	if (mt == ff_frags || mt == ff_tkills)
 	{
