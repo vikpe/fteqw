@@ -400,6 +400,52 @@ void(float vwidth, float vheight) MinimapRender =
             if (p == 0) {
                 if (shape == "disc") {
                     MinimapDrawRing(hs, size, color, 1.0, 1);
+                } else if (shape == "spawn") {
+                    // Disc to anchor the position, plus an arrow at the
+                    // spawn yaw so the player can see which way they
+                    // will face when they spawn here. Emitted by
+                    // bindings.cpp highlightEntityIndex for any
+                    // info_player_* classname. Local names suffixed _sp
+                    // to dodge fteqcc Q207 (function-scoped vars; the
+                    // teleporter-arrow path above already used the
+                    // unsuffixed names).
+                    MinimapDrawRing(hs, size, color, 1.0, 1);
+
+                    float yaw_rad_sp = angle * (M_PI / 180);
+                    float wx_sp = cos(yaw_rad_sp);
+                    float wy_sp = sin(yaw_rad_sp);
+                    vector wxd_sp = minimap_view_wx_delta;
+                    vector wyd_sp = minimap_view_wy_delta;
+                    float arx_sp = wx_sp * wxd_sp.x + wy_sp * wyd_sp.x;
+                    float ary_sp = wx_sp * wxd_sp.y + wy_sp * wyd_sp.y;
+                    float arlen_sp = sqrt(arx_sp * arx_sp + ary_sp * ary_sp);
+                    if (arlen_sp > 0.001) {
+                        float aux_sp = arx_sp / arlen_sp;
+                        float auy_sp = ary_sp / arlen_sp;
+                        // Arrowhead sized + centered to match the
+                        // teleporter-destination arrow above exactly
+                        // (arrow_len 9, arrow_half 3.75, centered on
+                        // hs). Fits inside the default size=10 ring
+                        // the entity-list highlight uses.
+                        float arrow_len_sp  = 9;
+                        float arrow_half_sp = 3.75;
+                        float tip_x_sp  = hs.x + aux_sp * (arrow_len_sp * 0.5);
+                        float tip_y_sp  = hs.y + auy_sp * (arrow_len_sp * 0.5);
+                        float base_x_sp = tip_x_sp - aux_sp * arrow_len_sp;
+                        float base_y_sp = tip_y_sp - auy_sp * arrow_len_sp;
+                        float bperp_x_sp = -auy_sp * arrow_half_sp;
+                        float bperp_y_sp =  aux_sp * arrow_half_sp;
+                        R_BeginPolygon("minimap_fill_v3", 0, 1);
+                        R_PolygonVertex([tip_x_sp, tip_y_sp, 0],
+                                        '0 0 0', color, 0.95);
+                        R_PolygonVertex([base_x_sp + bperp_x_sp,
+                                         base_y_sp + bperp_y_sp, 0],
+                                        '0 0 0', color, 0.95);
+                        R_PolygonVertex([base_x_sp - bperp_x_sp,
+                                         base_y_sp - bperp_y_sp, 0],
+                                        '0 0 0', color, 0.95);
+                        R_EndPolygon();
+                    }
                 } else {
                     MinimapDrawDisc(hs, size, color, 1.0, 1.0);
                 }
