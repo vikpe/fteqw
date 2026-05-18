@@ -27,6 +27,8 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "winquake.h"
+#include "cl_hub_demo.h"
+#include "cl_hub_demo_timeline.h"
 
 #define	PM_SPECTATORMAXSPEED	500
 #define	PM_STOPSPEED	100
@@ -562,6 +564,22 @@ void Cam_Unlock(playerview_t *pv)
 
 void Cam_Lock(playerview_t *pv, int playernum)
 {
+	// Single-POV MVD wraps (e.g. QWD->MVD with one recording client)
+	// carry stats / origin only for that one slot. Any lock targeting
+	// a different slot - autotrack, demo-stuffcmd `ptrack`, manual
+	// `track <nick>`, etc. - would produce an empty camera (no stats,
+	// frozen origin). Force the lock back onto the recording slot at
+	// the lowest level so every path is covered. Only fires when the
+	// timeline scan resolved a concrete slot (hub_demo_pov_slot >= 0);
+	// the FROM_PLAYERVIEW sentinel (-2) is treated as "engine already
+	// picked the slot" and left alone, and multi-POV MVDs / non-demo
+	// playback fall through unchanged.
+	if (cls.demoplayback == DPB_MVD && hub_demo_pov_slot >= 0
+	    && playernum != hub_demo_pov_slot)
+	{
+		playernum = hub_demo_pov_slot;
+	}
+
 	pv->cam_lastviewtime = -1000;	//allow the wallcam to re-snap as soon as it can
 
 	CL_SendSeatClientCommand(true, pv-cl.playerview, "ptrack %i", playernum);
@@ -1356,6 +1374,19 @@ static void Cam_TrackPlayerByUserid(int seat, char *plrarg)
 		           plrarg);
 		return;
 	}
+
+	// Single-POV demo override: only the recording client has stats /
+	// origin / item data in the file, so trying to track any other
+	// player produces an empty camera. Force the lock onto the POV's
+	// userid no matter what the caller asked for. Multi-POV MVDs fall
+	// through with the original userid since every slot is valid
+	// there.
+	{
+		int pov_uid = Hub_GetDemoPovUserId();
+		if (Hub_IsSinglePovDemo() && pov_uid > 0 && userid != pov_uid)
+			userid = pov_uid;
+	}
+
 	for (slot = 0; slot < cl.allocated_client_slots; slot++) {
 		player_info_t *s = &cl.players[slot];
 		if (s->name[0] && !s->spectator && s->userid == userid)
