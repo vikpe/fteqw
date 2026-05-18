@@ -30,11 +30,6 @@
 
 #define MOUSELOCK_MAX_SEATS 4
 
-// Web app overlays a demo time slider along the bottom of the FTE viewport
-// during demo playback; reserve extra vertical margin so the button clears
-// it. Mirrors DEMO_TIMESLIDER_HEIGHT_PX in player_info.qc.
-#define DEMO_TIMESLIDER_HEIGHT_PX 36
-
 // Cvars.
 // mouselock                 0/1   - master enable
 // mouselock_font_size       px    - label font height; the button auto-fits
@@ -42,12 +37,17 @@
 // mouselock_padding         "X Y" - inner padding inside the button (px on
 //                                   each side; Y adds vertical breathing room
 //                                   above/below the label)
-// mouselock_margin          "X Y" - inset from the seat's bottom-left corner
 // mouselock_radius          px    - corner radius for the rounded fill
 // mouselock_idle_color      "R G B A" (RGB 0..255, A 0..1) - non-hover fill
 // mouselock_hover_color     "R G B A" - fill while cursor is over the button
 // mouselock_text_color      "R G B A" - label color
 // mouselock_label           string - text inside the button
+//
+// Visibility: the button is rendered (and clickable) only when the cursor
+// sits inside a centered ML_HITBOX_FRACTION-of-the-seat hitbox; outside
+// that zone it stays hidden so the view isn't permanently obscured. The
+// button itself is centered in the seat viewport.
+#define ML_HITBOX_FRACTION 0.25
 var float  autocvar_mouselock              = 1;
 // Web-app-driven flag (set via Module.setCanvasHover in bindings.cpp). When
 // the cursor isn't over the FTE canvas the embedding page flips this to 0
@@ -63,7 +63,6 @@ var float  autocvar_canvas_hover           = 1;
 var float  autocvar_canvas_focus           = 1;
 var float  autocvar_mouselock_font_size    = 10;
 var vector autocvar_mouselock_padding      = '5 5 0';
-var vector autocvar_mouselock_margin       = '16 16 0';
 var float  autocvar_mouselock_radius       = 3;
 var string autocvar_mouselock_idle_color   = "30 80 160 0.9";
 var string autocvar_mouselock_hover_color  = "15 45 110 0.95";
@@ -85,7 +84,7 @@ var float mouselock_is_active = 0;
 
 // Forward declarations (top-down ordering).
 void(string spec, __out vector rgb, __out float alpha) ML_ParseColor;
-void(vector view_min, vector view_size, string label,
+void(vector view_min, vector view_size, string label, float seat_scale,
      __out vector pos, __out vector size, __out vector font_size) ML_ButtonRect;
 float(vector pos, vector size, vector cursor) ML_PointInRect;
 
@@ -118,13 +117,27 @@ void(float seat, vector view_min, vector view_size) MouseLockDraw =
     // "constate", "pausestate", "protocol", etc).
     if (serverkeyfloat("demo_is_single_pov") > 0) return;
 
-    vector cursor = getmousepos();
+    // Only show when the cursor sits inside the centered hitbox
+    // (ML_HITBOX_FRACTION of the seat's viewport in each axis). Outside
+    // that zone the button stays hidden and unclickable - the click
+    // dispatcher walks the recorded hit rects, so a non-drawn seat
+    // can't catch a click.
+    vector cursor   = getmousepos();
+    vector hitbox_size = view_size * ML_HITBOX_FRACTION;
+    vector hitbox_pos  = [view_min.x + (view_size.x - hitbox_size.x) * 0.5,
+                          view_min.y + (view_size.y - hitbox_size.y) * 0.5, 0];
+    if (cursor.x < hitbox_pos.x || cursor.x >= hitbox_pos.x + hitbox_size.x) return;
+    if (cursor.y < hitbox_pos.y || cursor.y >= hitbox_pos.y + hitbox_size.y) return;
 
     string label = autocvar_mouselock_label;
     if (label == "") return;
 
+    // Splitscreen / minimap-split shrinks the per-seat rect; shrink the
+    // button geometry the same way ezhud elements do (see HubSeatScale).
+    float seat_scale = HubSeatScale(view_size);
+
     vector button_pos, button_size, font_size;
-    ML_ButtonRect(view_min, view_size, label, button_pos, button_size, font_size);
+    ML_ButtonRect(view_min, view_size, label, seat_scale, button_pos, button_size, font_size);
 
     mouselock_hits[(int)seat].pos      = button_pos;
     mouselock_hits[(int)seat].size     = button_size;
@@ -137,7 +150,7 @@ void(float seat, vector view_min, vector view_size) MouseLockDraw =
     ML_ParseColor(is_hover ? autocvar_mouselock_hover_color
                            : autocvar_mouselock_idle_color,
                   fill_rgb, fill_alpha);
-    float radius = autocvar_mouselock_radius;
+    float radius = autocvar_mouselock_radius * seat_scale;
     if (radius < 0) radius = 0;
     HubDrawRoundedRect(button_pos, button_size, radius, RR_ALL, fill_rgb, fill_alpha);
 
@@ -227,19 +240,22 @@ float(float evtype, float scanx, float chary, float devid) MouseLockInputEvent =
 
 // ----- helpers --------------------------------------------------------------
 
-// Button geometry: anchored to the seat viewport's bottom-left corner with
-// the configured margin. Inner size = label width + 2 * pad_x by font +
-// 2 * pad_y, so the hit zone (and hover fill) grows around the text on all
-// four sides instead of hugging it tight.
-void(vector view_min, vector view_size, string label,
+// Button geometry: centered inside the seat's viewport. Inner size =
+// label width + 2 * pad_x by font + 2 * pad_y, so the hit zone (and
+// hover fill) grows around the text on all four sides instead of
+// hugging it tight. seat_scale is the HubSeatScale factor for the
+// current view; multiplied into every design-pixel dimension so the
+// button shrinks proportionally in splitscreen.
+void(vector view_min, vector view_size, string label, float seat_scale,
      __out vector pos, __out vector size, __out vector font_size) ML_ButtonRect =
 {
     float font_px = autocvar_mouselock_font_size;
     if (font_px < 6) font_px = 6;
+    font_px *= seat_scale;
     font_size = [font_px, font_px, 0];
 
-    float pad_x = autocvar_mouselock_padding.x;
-    float pad_y = autocvar_mouselock_padding.y;
+    float pad_x = autocvar_mouselock_padding.x * seat_scale;
+    float pad_y = autocvar_mouselock_padding.y * seat_scale;
     if (pad_x < 0) pad_x = 0;
     if (pad_y < 0) pad_y = 0;
 
@@ -248,16 +264,8 @@ void(vector view_min, vector view_size, string label,
     float height = font_px + pad_y * 2;
     size = [width, height, 0];
 
-    float margin_x = autocvar_mouselock_margin.x;
-    float margin_y = autocvar_mouselock_margin.y;
-    // Clear the demo time slider when the web app overlays one along the
-    // bottom of the canvas during demo playback (same rule as
-    // player_info.qc's bottom-anchored widget).
-    if (isdemo()) {
-        margin_y += DEMO_TIMESLIDER_HEIGHT_PX;
-    }
-    pos = [view_min.x + margin_x,
-           view_min.y + view_size.y - margin_y - height, 0];
+    pos = [view_min.x + (view_size.x - width)  * 0.5,
+           view_min.y + (view_size.y - height) * 0.5, 0];
 };
 
 float(vector pos, vector size, vector cursor) ML_PointInRect =
