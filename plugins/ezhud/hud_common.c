@@ -2218,22 +2218,38 @@ void SCR_HUD_DrawQuad(hud_t *hud)
 void SCR_HUD_DrawSigil(hud_t *hud, int num, float scale, int style)
 {
     int     x, y;
+    extern int Hub_IsCtfMode(void);
 
     scale = max(scale, 0.01);
+
+    // KTX deathmatch repurposes IT_SIGIL1..4 as a 5-minute-block
+    // timelimit indicator (one bit clears every 5 minutes of match
+    // time), so the bits are always set at match start in non-CTF
+    // modes and the HUD would otherwise draw them as fake sigils/
+    // runes. Only render the slot when the server is actually
+    // running a CTF / rune mod - detected via the "rune/" sound
+    // precache prefix, which works on legacy demos that don't
+    // carry serverinfo "mode" or "*gamedir".
+    if (!Hub_IsCtfMode())
+        return;
+
+    // Within CTF: hide the slot entirely when the bit isn't set
+    // rather than reserving an empty box - the bit is the per-rune
+    // pickup signal.
+    if (!(HUD_Stats(STAT_ITEMS) & (1<<(28+num))))
+        return;
 
     switch (style)
     {
     case 1:     // sigil number
         if (!HUD_PrepareDraw(hud, 8*scale, 8*scale, &x, &y))
             return;
-        if (HUD_Stats(STAT_ITEMS) & (1<<(28+num)))
-            Draw_SCharacter(x, y, num + '0', scale);
+        Draw_SCharacter(x, y, num + '0', scale);
         break;
     default:    // classic - picture
         if (!HUD_PrepareDraw(hud, 8*scale, 16*scale, &x, &y))
             return;
-        if (HUD_Stats(STAT_ITEMS) & (1<<(28+num)))
-            Draw_SPic(x, y, sb_sigil[num], scale);
+        Draw_SPic(x, y, sb_sigil[num], scale);
         break;
     }
 }
@@ -6712,8 +6728,14 @@ static int score_bar_pick_sides(score_bar_side_t out[2])
 
 	// Teamplay: use the gathered team grouping when 1 or 2 distinct
 	// non-empty teams exist; otherwise fall through to the per-player case.
+	// QW reads the "teamplay" serverinfo flag; NQ has no such flag, so we
+	// infer teamplay from the pants-color partition (exactly 2 distinct
+	// bottom colors), matching the rule used by participants.qc and the
+	// .dem parser for NQ team-mode detection.
 	int count = 0;
-	if (cl.teamplay > 0 && (parts.team_count == 1 || parts.team_count == 2))
+	int is_netquake = Hub_IsNetquakeDemo();
+	int teamplay_on = is_netquake ? (parts.team_count == 2) : (cl.teamplay > 0);
+	if (teamplay_on && (parts.team_count == 1 || parts.team_count == 2))
 	{
 		int has_empty = 0;
 		int i;
