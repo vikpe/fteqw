@@ -24,7 +24,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "shader.h"
 #include "fs.h"
 #include "cl_hub.h"
-#include "cl_hub_demo_events.h"
+#include "cl_hub_demo_event.h"
+#include "cl_hub_mvd_event.h"
+#include "cl_hub_dem_event.h"
 
 void CL_GetNumberedEntityInfo (int num, float *org, float *ang);
 void CLDP_ParseDarkPlaces5Entities(void);
@@ -5768,7 +5770,15 @@ static void CL_ProcessUserInfo (int slot, player_info_t *player)
 	int ospec = player->spectator;
 
 	if (cls.protocol == CP_NETQUAKE)
-		player->userid = slot;
+		player->userid = slot + 1; // match svc_updatename's convention
+		                            // (slot+1 so 0 stays the "invalid"
+		                            // sentinel); otherwise svc_updatecolors
+		                            // -> CL_ProcessUserInfo for slot 0
+		                            // would clobber svc_updatename's
+		                            // slot+1 with 0 and downstream code
+		                            // (Hub_DemoEvent_RegisterPlayer's
+		                            // uid <= 0 guard, etc.) would drop
+		                            // the player.
 	Q_strncpyz (player->name, InfoBuf_ValueForKey (&player->userinfo, "name"), sizeof(player->name));
 	Q_strncpyz (player->team, InfoBuf_ValueForKey (&player->userinfo, "team"), sizeof(player->team));
 
@@ -6135,7 +6145,7 @@ static void CL_SetStatNumeric (int pnum, unsigned int stat, int ivalue, float fv
 		int old_ivalue = cl.players[cls_lastto].stats[stat];
 		cl.players[cls_lastto].stats[stat]=ivalue;
 		cl.players[cls_lastto].statsf[stat]=fvalue;
-		Hub_DemoEvents_OnStatUpdate(cls_lastto, stat, old_ivalue, ivalue);
+		Hub_DemoEvent_OnStatUpdate(cls_lastto, stat, old_ivalue, ivalue);
 
 		// QTube: Also update teaminfo, but avoid overwriting flags and runes
 		if (stat == STAT_ITEMS) {
@@ -6152,11 +6162,25 @@ static void CL_SetStatNumeric (int pnum, unsigned int stat, int ivalue, float fv
 	else
 	{
 		unsigned int pl = cl.playerview[pnum].playernum;
+		int old_ivalue = (pl < MAX_CLIENTS) ? cl.players[pl].stats[stat] : 0;
 		if (pl < MAX_CLIENTS)
 		{
 			cl.players[pl].stats[stat]=ivalue;
 			cl.players[pl].statsf[stat]=fvalue;
 		}
+
+		// POV stats sink. MVD broadcasts per-player stats via
+		// dem_stats and hooks the events extractor above; QWD/NQ
+		// only carry the recording client's stats and route through
+		// this branch. Fire the same hook so pickups / deaths /
+		// weapon-spans get captured for the POV slot during a scan.
+		// The hook self-gates on is_recording so it no-ops during
+		// normal playback and live games.
+		if (pl < MAX_CLIENTS &&
+		    (cls.demoplayback == DPB_NETQUAKE ||
+		     cls.demoplayback == DPB_QUAKEWORLD))
+			Hub_DemoEvent_OnStatUpdate((int)pl, stat,
+			                           old_ivalue, ivalue);
 
 		if (cl_shownet.value == 3)
 			Con_Printf("\t%i(%i): %i=%g\n", pnum, pl, stat, fvalue);
@@ -6979,7 +7003,7 @@ static void CL_ParseKtxBackpackRemove(void) {
 	if (Cmd_Argc() >= 2)
 	{
 		int player_slot = atoi(Cmd_Argv(1)) - 1;
-		Hub_DemoEvents_OnKtxBackpackPickup(player_slot, entnum);
+		Hub_DemoEvent_OnKtxBackpackPickup(player_slot, entnum);
 	}
 
 	current = cl.itemtimers;
@@ -7048,7 +7072,7 @@ static void CL_ParseKtxBackpackDrop(void)
 	// markers appear in the analytics timeline. Skipped silently when
 	// absent (some older KTX builds omit the arg).
 	//
-	// NULL origin tells Hub_DemoEvents_OnKtxDrop / events_push to fall
+	// NULL origin tells Hub_DemoEvent_OnKtxDrop / events_push to fall
 	// back to the dropper's most recent playerstate origin (their body
 	// position at the moment of death). The previous cl_baselines lookup
 	// returned stale data - baselines for runtime-spawned backpacks are
@@ -7057,7 +7081,7 @@ static void CL_ParseKtxBackpackDrop(void)
 	if (Cmd_Argc() >= 3)
 	{
 		int player_slot = atoi(Cmd_Argv(2)) - 1;
-		Hub_DemoEvents_OnKtxDrop(player_slot, items, NULL, entnum);
+		Hub_DemoEvent_OnKtxDrop(player_slot, items, NULL, entnum);
 	}
 }
 
@@ -7180,15 +7204,6 @@ static void CL_ParseKtxItemTimer(void)
 	timer->rgb[1] = ((rgb>> 8)&0xff)/255.0;
 	timer->rgb[2] = ((rgb)    &0xff)/255.0;
 
-	// "//ktx took" carries a 3rd arg (player slot); "//ktx timer" doesn't.
-	// We only want to emit pickup events for the took variant. KTX sends
-	// playernum as a 1-based entnum (matches mvdhidden_dmgdone); convert
-	// to a 0-based cl.players[] slot before forwarding.
-	if (Cmd_Argc() >= 3)
-	{
-		int player_slot = atoi(Cmd_Argv(2)) - 1;
-		Hub_DemoEvents_OnKtxTook(player_slot, mdl, ent->skinnum, org);
-	}
 }
 
 static void CL_ParseItemTimer(void)
@@ -7834,7 +7849,7 @@ void CLEZ_ParseHiddenDemoMessage(void)
 				// consumes the payload itself when scanning so it can
 				// build up the full string; otherwise it skips.
 				unsigned int is_more = MSG_ReadUInt16();
-				Hub_DemoEvents_OnDemoInfo(size - 2, is_more);
+				Hub_MvdEvent_OnDemoInfo(size - 2, is_more);
 			}
 			break;
 		case 0x0007://mvdhidden_dmgdone
@@ -7855,7 +7870,7 @@ void CLEZ_ParseHiddenDemoMessage(void)
 				// player slots. typeandflags here has had the splash
 				// bit (0x8000) stripped already - it's the raw
 				// server-side dtype/MOD enum. No-op outside scan.
-				Hub_DemoEvents_OnDamage((int)attacker - 1, (int)targ - 1,
+				Hub_MvdEvent_OnDamage((int)attacker - 1, (int)targ - 1,
 				                        typeandflags);
 
 				//let csqc handle it consistently with other ktx quirks.
@@ -8222,7 +8237,18 @@ void CLQW_ParseServerMessage (void)
 			u = MSG_ReadPlayer();
 			if (u >= MAX_CLIENTS)
 				Host_EndGame ("CL_ParseServerMessage: svc_updatefrags > MAX_SCOREBOARD");
-			cl.players[u].frags = MSG_ReadShort ();
+			{
+				int old_frags = cl.players[u].frags;
+				cl.players[u].frags = MSG_ReadShort ();
+				// QW broadcasts svc_updatefrags to all clients (rides
+				// on dem_all in MVD, plain stream in QWD), so positive
+				// deltas attribute kills to the scorer and negative
+				// deltas attribute self-frags - the only path through
+				// which POV's own kills surface in single-POV demos
+				// without obit-text parsing.
+				Hub_DemEvent_OnFragUpdate((int)u, old_frags,
+				                          cl.players[u].frags);
+			}
 			break;
 
 		case svc_updateping:
@@ -9997,7 +10023,9 @@ void CLNQ_ParseServerMessage (void)
 				MSG_ReadShort();
 			else
 			{
+				int old_frags = cl.players[u].frags;
 				cl.players[u].frags = MSG_ReadShort();
+				Hub_DemEvent_OnFragUpdate(u, old_frags, cl.players[u].frags);
 				CLNQ_CheckPlayerIsSpectator(u);
 			}
 			break;
