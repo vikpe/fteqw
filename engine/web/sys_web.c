@@ -8,9 +8,10 @@ qboolean isDedicated;
 quakeparms_t	parms;
 
 // Toggle for forwarding engine console output to the browser's console.log.
-// Flip via JS bindings (setWebLogEnabled) when you want to silence the engine
-// (e.g. to keep the host page's console clean during demo playback).
-qboolean web_log_enabled = true;
+// Off by default to keep the host page's console clean; flip via JS
+// bindings (Module.setWebLogEnabled(true)) when you want to see engine
+// prints (e.g. while debugging from the host page).
+qboolean web_log_enabled = false;
 
 void Sys_Error (const char *error, ...)
 {
