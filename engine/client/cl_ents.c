@@ -23,6 +23,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "particles.h"
 #include "shader.h"
 #include "glquake.h"
+#include "cl_hub_demo_event.h"
 
 extern	cvar_t	cl_predict_players;
 extern	cvar_t	cl_predict_players_frac;
@@ -5196,6 +5197,7 @@ void CLQW_ParsePlayerinfo (void)
 				}
 			}
 		}
+		Hub_DemoEvent_OnPlayerinfo(num);
 		return;
 	}
 
@@ -5456,6 +5458,8 @@ guess_pm_type:
 	}
 	else
 		VectorCopy (state->origin, state->predorigin);
+
+	Hub_DemoEvent_OnPlayerinfo(num);
 }
 
 /*

@@ -1,48 +1,103 @@
 // SPDX-License-Identifier: 0BSD
 
 #include "quakedef.h"
-#include "cl_hub_demo_event.h"
-#include "cl_hub_demo_event_internal.h"
-#include "cl_hub_mvd_event.h"
+#include "cl_hub_ktxstats.h"
+#include "cl_hub_demo_event.h"   // Hub_DemoEvent_IsRecording
 
-// Cache key for the lightweight stats scan. A full events scan writes
-// to last_scanned_demo in cl_hub_demo_event.c and also captures stats
-// (via Hub_MvdEvent_OnDemoInfo during playback), so the full-scan cache
-// shadows this one. A prior stats-only scan writes only here, leaving
-// the full-scan cache empty so a later full scan still runs.
+// Final reassembled JSON. NULL until a complete payload has been
+// observed. Z_Malloc'd; this module owns the buffer.
+char *hub_ktxstats_json = NULL;
+
+// Growable byte accumulator for the JSON. The wire format chunks the
+// payload across one or more mvdhidden_demoinfo messages (is_more is
+// nonzero on every chunk except the last). We append into ktxstats_buf
+// and only publish to hub_ktxstats_json when the final chunk arrives.
+static char  *ktxstats_buf      = NULL;
+static int    ktxstats_buf_len  = 0;
+static int    ktxstats_buf_cap  = 0;
+static double ktxstats_t_start  = 0; // Sys_DoubleTime when first chunk
+                                      // landed in the accumulator;
+                                      // diffed against completion for
+                                      // a debug print of grab time.
+
+// Cache key for Hub_KtxStats_Scan. Filled with cls.lastdemoname after
+// a successful scan; a re-entry on the same demo short-circuits.
 static char last_scanned_demo_stats[MAX_OSPATH] = "";
 
-void Hub_MvdEvent_OnDamage(int attacker_slot, int targ_slot,
-                           unsigned int dmg_type)
+void Hub_KtxStats_Reset(void)
 {
-	Hub_DemoEventInternal_StashDamage(attacker_slot, targ_slot, dmg_type);
+	if (hub_ktxstats_json)
+	{
+		Z_Free(hub_ktxstats_json);
+		hub_ktxstats_json = NULL;
+	}
+	ktxstats_buf_len = 0;
 }
 
-void Hub_MvdEvent_OnDemoInfo(int payload_len, unsigned int is_more)
+// Append a chunk of payload bytes to the accumulator. On the final
+// chunk (is_more == 0), publish the assembled string to
+// hub_ktxstats_json and log a one-line grab-time notice tagged with
+// the caller-supplied source label ("demo-events" vs "demo-stats" so
+// the log distinguishes playback capture from standalone scan).
+static void ktxstats_append(const void *bytes, int len,
+                            unsigned int is_more, const char *log_tag)
 {
-	// Outside a scan: just consume the bytes so the parser stays
-	// aligned. We don't keep the json across normal playback.
+	if (len <= 0)
+	{
+		if (!is_more) ktxstats_buf_len = 0;
+		return;
+	}
+
+	if (ktxstats_buf_len == 0)
+		ktxstats_t_start = Sys_DoubleTime();
+
+	int needed = ktxstats_buf_len + len + 1;
+	if (needed > ktxstats_buf_cap)
+	{
+		int new_cap = ktxstats_buf_cap ? ktxstats_buf_cap : 4096;
+		while (new_cap < needed) new_cap *= 2;
+		ktxstats_buf     = BZ_Realloc(ktxstats_buf, new_cap);
+		ktxstats_buf_cap = new_cap;
+	}
+	memcpy(ktxstats_buf + ktxstats_buf_len, bytes, len);
+	ktxstats_buf_len += len;
+
+	if (!is_more)
+	{
+		ktxstats_buf[ktxstats_buf_len] = 0;
+		if (hub_ktxstats_json) Z_Free(hub_ktxstats_json);
+		hub_ktxstats_json = Z_Malloc(ktxstats_buf_len + 1);
+		memcpy(hub_ktxstats_json, ktxstats_buf, ktxstats_buf_len + 1);
+		double grab_ms = (Sys_DoubleTime() - ktxstats_t_start) * 1000.0;
+		Con_Printf("[%s] ktxstats: %d bytes in %.1f ms\n",
+		           log_tag, ktxstats_buf_len, grab_ms);
+		ktxstats_buf_len = 0;
+	}
+}
+
+void Hub_KtxStats_OnDemoInfo(int payload_len, unsigned int is_more)
+{
+	// Outside an event-subsystem recording window we don't capture
+	// the JSON across normal playback - the bytes get consumed only
+	// so the demo parser stays aligned with the wire. The standalone
+	// scanner (Hub_KtxStats_Scan) sets its own capture window by
+	// driving the accumulator directly, not via this hook.
 	if (!Hub_DemoEvent_IsRecording() || payload_len <= 0)
 	{
 		if (payload_len > 0) MSG_ReadSkip(payload_len);
 		return;
 	}
 
-	// Copy the chunk out of the wire buffer and into the shared
-	// accumulator. Final chunk publication happens inside the helper.
 	void *tmp = Z_Malloc(payload_len);
 	MSG_ReadData(tmp, payload_len);
-	Hub_DemoEventInternal_AppendKtxStats(tmp, payload_len, is_more,
-	                                     "demo-events");
+	ktxstats_append(tmp, payload_len, is_more, "demo-events");
 	Z_Free(tmp);
 }
 
 // Standalone stats scanner. Walks the demo file directly, skipping the
 // body of every non-hidden frame with VFS_SEEK and only parsing
 // mvdhidden_demoinfo blocks within hidden-message frames. Early-exits
-// the moment the final ktxstats chunk lands, so demos that emit stats
-// near the end still pay the seek cost but demos that emit them
-// mid-match return almost immediately.
+// the moment the final ktxstats chunk lands.
 //
 // Frame layout (MVD, post-header):
 //   1 byte  msec delta
@@ -56,7 +111,7 @@ void Hub_MvdEvent_OnDemoInfo(int payload_len, unsigned int is_more)
 //   4 bytes  size (-1 sentinel for "end of hidden block")
 //   2 bytes  cmd UInt16
 //   `size` bytes  payload (for 0x0003 demoinfo: 2 bytes is_more + chunk)
-int Hub_MvdEvent_StatsScan(void)
+int Hub_KtxStats_Scan(void)
 {
 	if (!cls.demoplayback)                              return -1;
 	if (cls.demoplayback != DPB_MVD)                    return -1;
@@ -64,9 +119,8 @@ int Hub_MvdEvent_StatsScan(void)
 	if (!cls.demoinfile)                                return -1;
 	if (cls.demoinfile->seekstyle == SS_UNSEEKABLE)     return -1;
 
-	// Cache hit on either path covers stats - a prior full scan already
-	// captured ktxstats via the playback hook; a prior stats-only scan
-	// is the obvious case.
+	// Same-demo cache: a prior scan that landed the JSON skips the
+	// file walk entirely.
 	if (hub_ktxstats_json && last_scanned_demo_stats[0]
 	    && !strcmp(last_scanned_demo_stats, cls.lastdemoname))
 		return 0;
@@ -80,9 +134,9 @@ int Hub_MvdEvent_StatsScan(void)
 
 	VFS_SEEK(f, 0);
 
-	// Clear any prior ktxstats from playback so a freshly-loaded demo
-	// without stats reports correctly (NULL hub_ktxstats_json).
-	Hub_DemoEventInternal_ResetKtxStatsBuf();
+	// Clear any prior ktxstats so a freshly-loaded demo without stats
+	// reports correctly (NULL hub_ktxstats_json).
+	Hub_KtxStats_Reset();
 
 	while (!done)
 	{
@@ -170,9 +224,8 @@ int Hub_MvdEvent_StatsScan(void)
 				int payload_len = size - 2;
 				if (payload_len > 0)
 				{
-					Hub_DemoEventInternal_AppendKtxStats(
-					    body + pos + 2, payload_len, is_more,
-					    "demo-stats");
+					ktxstats_append(body + pos + 2, payload_len,
+					                is_more, "demo-stats");
 					if (!is_more)
 					{
 						done = true;

@@ -7,8 +7,7 @@
 #include "../client/cl_hub_cam.h"
 #include "../client/cl_hub_participants.h"
 #include "../client/cl_hub_demo.h"
-#include "../client/cl_hub_demo_event.h"
-#include "../client/cl_hub_mvd_event.h"
+#include "../client/cl_hub_ktxstats.h"
 
 using namespace emscripten;
 
@@ -828,72 +827,17 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	// Two nested rAF calls: the first commits the DOM state, the second
 	// guarantees the browser has painted before the blocking call.
 	function("getDemoEvents", +[]() -> emscripten::val {
-		Hub_DemoEvent_Scan();
-
-		// TP_LocationName early-returns "someplace" unless cls.state is
-		// ca_active. The scan's CL_PlayDemoStream restart leaves cls.state
-		// at ca_demostart; it won't flip back to ca_active until the next
-		// Host_Frame's CL_MakeActive (cl_main.c:7355-7358). Force the
-		// flag locally so we can resolve names now.
-		cactive_t saved_state = cls.state;
-		cls.state = ca_active;
-
-		// Force-load the .loc file for the current map even if the
-		// scan's demo restart cleared loc_numentries and no Surf_NewMap
-		// has fired since. Without this every event renders "someplace"
-		// because TP_LocationName has no zones to match origins against.
-		TP_ReloadCurrentLocs();
-
-		// Two parallel arrays in one response object: events carry the
-		// victim/killer user ids only, and `players` is the userid->name
-		// table for display lookup. Drops the per-event name dup (was up
-		// to 256 bytes per event); ~16 entries in players vs ~200 events.
-		emscripten::val events = emscripten::val::array();
-		for (int i = 0; i < hub_demo_event_count; i++) {
-			emscripten::val ev = emscripten::val::object();
-			ev.set("time_ms",        hub_demo_events[i].time_ms);
-			ev.set("kind",           (int)hub_demo_events[i].kind);
-			ev.set("items",          (double)hub_demo_events[i].items);
-			ev.set("victim_user_id", hub_demo_events[i].victim_user_id);
-			ev.set("killer_user_id", hub_demo_events[i].killer_user_id);
-			ev.set("victim_items",   (double)hub_demo_events[i].victim_items);
-			ev.set("killer_items",   (double)hub_demo_events[i].killer_items);
-			ev.set("frag_type",      (double)hub_demo_events[i].frag_type);
-			emscripten::val origin = emscripten::val::object();
-			origin.set("x", hub_demo_events[i].origin[0]);
-			origin.set("y", hub_demo_events[i].origin[1]);
-			origin.set("z", hub_demo_events[i].origin[2]);
-			ev.set("origin", origin);
-			// Skip TP_LocationName when the event has no positional
-			// data (origin is the zero vector) - otherwise the lookup
-			// would resolve to whatever zone contains the map origin
-			// (e.g. "ra-tunnel" on dm6) and consumers would see a
-			// nonsense location. HDE_KIND_FRAG events (svc_print
-			// derived, no playerstate info) are the typical case.
-			const float *org = hub_demo_events[i].origin;
-			bool has_origin = (org[0] != 0 || org[1] != 0 || org[2] != 0);
-			const char *loc = has_origin ? TP_LocationName(org) : "";
-			ev.set("location", std::string(loc ? loc : ""));
-			events.set(i, ev);
-		}
-
+		// Hub demo-event subsystem is being rewritten from scratch
+		// (see .claude/notes/demo_event_redesign.md). Until the new
+		// observe-then-reconcile pipeline lands, getDemoEvents returns
+		// empty events / players / spans so the web consumer's
+		// response shape is unchanged but no stale event data is
+		// surfaced. `weapons` stays populated since it comes from
+		// fragstats, not from the event subsystem.
+		emscripten::val events  = emscripten::val::array();
 		emscripten::val players = emscripten::val::array();
-		for (int i = 0; i < hub_demo_player_count; i++) {
-			emscripten::val p = emscripten::val::object();
-			p.set("userid",    hub_demo_players[i].userid);
-			p.set("name",      std::string(hub_demo_players[i].name));
-			p.set("team",      std::string(hub_demo_players[i].team));
-			p.set("is_active", (bool)hub_demo_players[i].is_active);
-			players.set(i, p);
-		}
+		emscripten::val spans   = emscripten::val::array();
 
-		// Weapon dictionary built from fragstats.weapontotals[]. Lets
-		// consumers resolve `event.frag_type` (the wid stashed by the
-		// fragstats hook) into a readable codename / fullname / abrev
-		// without duplicating the lookup table client-side. Populated
-		// by Stats_LoadFragFile from the active gamedir's fragfile.dat,
-		// so the entries reflect whatever weapons the .dat declared
-		// (id1 / KTX / CRMod / etc.). Indices are stable for a session.
 		emscripten::val weapons = emscripten::val::array();
 		{
 			extern fragstats_t fragstats;
@@ -911,37 +855,22 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			}
 		}
 
-		emscripten::val spans = emscripten::val::array();
-		for (int i = 0; i < hub_demo_span_count; i++) {
-			emscripten::val sp = emscripten::val::object();
-			sp.set("start_ms",    hub_demo_spans[i].start_ms);
-			sp.set("end_ms",      hub_demo_spans[i].end_ms);
-			sp.set("user_id",     hub_demo_spans[i].user_id);
-			sp.set("items",       (double)hub_demo_spans[i].items);
-			sp.set("was_dropped", (bool)hub_demo_spans[i].was_dropped);
-			sp.set("frag_count",  hub_demo_spans[i].frag_count);
-			spans.set(i, sp);
-		}
-
 		emscripten::val result = emscripten::val::object();
 		result.set("events",  events);
 		result.set("players", players);
 		result.set("spans",   spans);
 		result.set("weapons", weapons);
-
-		cls.state = saved_state;
 		return result;
 	});
 
 	// Returns the embedded ktxstats JSON string, or null if the demo
 	// carries no mvdhidden_demoinfo payload (most non-KTX MVDs and
-	// live games). Uses Hub_MvdEvent_StatsScan, which walks the demo file
-	// directly and only parses hidden-message frame bodies (seeking
-	// past everything else). Cheap enough to run synchronously - tens
-	// of ms instead of the ~1s a full event scan costs. A prior full
-	// events scan also counts as a cache hit.
+	// live games). Hub_KtxStats_Scan walks the demo file directly and
+	// only parses hidden-message frame bodies (seeking past everything
+	// else). Cheap enough to run synchronously - tens of ms instead of
+	// the ~1s a full event scan would cost.
 	function("getKtxStats", +[]() -> emscripten::val {
-		Hub_MvdEvent_StatsScan();
+		Hub_KtxStats_Scan();
 		if (!hub_ktxstats_json) return emscripten::val::null();
 		return emscripten::val(std::string(hub_ktxstats_json));
 	});

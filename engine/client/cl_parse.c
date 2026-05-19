@@ -25,8 +25,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "fs.h"
 #include "cl_hub.h"
 #include "cl_hub_demo_event.h"
-#include "cl_hub_mvd_event.h"
-#include "cl_hub_dem_event.h"
+#include "cl_hub_ktxstats.h"
 
 void CL_GetNumberedEntityInfo (int num, float *org, float *ang);
 void CLDP_ParseDarkPlaces5Entities(void);
@@ -7849,7 +7848,7 @@ void CLEZ_ParseHiddenDemoMessage(void)
 				// consumes the payload itself when scanning so it can
 				// build up the full string; otherwise it skips.
 				unsigned int is_more = MSG_ReadUInt16();
-				Hub_MvdEvent_OnDemoInfo(size - 2, is_more);
+				Hub_KtxStats_OnDemoInfo(size - 2, is_more);
 			}
 			break;
 		case 0x0007://mvdhidden_dmgdone
@@ -7863,15 +7862,6 @@ void CLEZ_ParseHiddenDemoMessage(void)
 				unsigned short isteamdamage = (attacker==targ) || (cl.teamplay && attacker-1<countof(cl.players)&&targ-1<countof(cl.players)&&!strcmp(cl.players[attacker].team, cl.players[targ].team));
 
 				typeandflags &= ~0x8000;
-
-				// Record last-attacker per victim for the demo-events
-				// scan's kill attribution. attacker/targ are 1-based
-				// entnums per the wire protocol; convert to 0-based
-				// player slots. typeandflags here has had the splash
-				// bit (0x8000) stripped already - it's the raw
-				// server-side dtype/MOD enum. No-op outside scan.
-				Hub_MvdEvent_OnDamage((int)attacker - 1, (int)targ - 1,
-				                        typeandflags);
 
 				//let csqc handle it consistently with other ktx quirks.
 				for (cmd = 0; cmd < cl.splitclients; cmd++)
@@ -8237,18 +8227,7 @@ void CLQW_ParseServerMessage (void)
 			u = MSG_ReadPlayer();
 			if (u >= MAX_CLIENTS)
 				Host_EndGame ("CL_ParseServerMessage: svc_updatefrags > MAX_SCOREBOARD");
-			{
-				int old_frags = cl.players[u].frags;
-				cl.players[u].frags = MSG_ReadShort ();
-				// QW broadcasts svc_updatefrags to all clients (rides
-				// on dem_all in MVD, plain stream in QWD), so positive
-				// deltas attribute kills to the scorer and negative
-				// deltas attribute self-frags - the only path through
-				// which POV's own kills surface in single-POV demos
-				// without obit-text parsing.
-				Hub_DemEvent_OnFragUpdate((int)u, old_frags,
-				                          cl.players[u].frags);
-			}
+			cl.players[u].frags = MSG_ReadShort ();
 			break;
 
 		case svc_updateping:
@@ -10023,9 +10002,7 @@ void CLNQ_ParseServerMessage (void)
 				MSG_ReadShort();
 			else
 			{
-				int old_frags = cl.players[u].frags;
 				cl.players[u].frags = MSG_ReadShort();
-				Hub_DemEvent_OnFragUpdate(u, old_frags, cl.players[u].frags);
 				CLNQ_CheckPlayerIsSpectator(u);
 			}
 			break;
