@@ -3373,7 +3373,7 @@ void CL_QTVPlay_f (void)
 	password = Cmd_Argv(2);
 
 #ifdef FTE_TARGET_WEB
-	// Web app calls `qtvplay <host>` with a bare hostname; the
+	// HUB: Web app calls `qtvplay <host>` with a bare hostname; the
 	// hub's public QTV proxy expects a tcp:<host>@wss://<proxy>
 	// URL. Wrap here so the JS bridge stays "verb + bare host".
 	// Pass-through when the arg already has a stream/scheme marker.
