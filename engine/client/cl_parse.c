@@ -5768,16 +5768,13 @@ static void CL_ProcessUserInfo (int slot, player_info_t *player)
 	char *col;
 	int ospec = player->spectator;
 
+	// HUB: match svc_updatename's slot+1 userid convention so 0
+	// stays the "invalid" sentinel; otherwise svc_updatecolors ->
+	// CL_ProcessUserInfo for slot 0 clobbers svc_updatename's
+	// slot+1 with 0 and downstream code (Hub_DemoEvent_RegisterPlayer's
+	// uid <= 0 guard, etc.) drops the player.
 	if (cls.protocol == CP_NETQUAKE)
-		player->userid = slot + 1; // match svc_updatename's convention
-		                            // (slot+1 so 0 stays the "invalid"
-		                            // sentinel); otherwise svc_updatecolors
-		                            // -> CL_ProcessUserInfo for slot 0
-		                            // would clobber svc_updatename's
-		                            // slot+1 with 0 and downstream code
-		                            // (Hub_DemoEvent_RegisterPlayer's
-		                            // uid <= 0 guard, etc.) would drop
-		                            // the player.
+		player->userid = slot + 1;
 	Q_strncpyz (player->name, InfoBuf_ValueForKey (&player->userinfo, "name"), sizeof(player->name));
 	Q_strncpyz (player->team, InfoBuf_ValueForKey (&player->userinfo, "team"), sizeof(player->team));
 
@@ -6144,6 +6141,8 @@ static void CL_SetStatNumeric (int pnum, unsigned int stat, int ivalue, float fv
 		int old_ivalue = cl.players[cls_lastto].stats[stat];
 		cl.players[cls_lastto].stats[stat]=ivalue;
 		cl.players[cls_lastto].statsf[stat]=fvalue;
+		// HUB: feed the per-player MVD stat broadcast into the
+		// demo-event extractor's STAT_HEALTH / STAT_ITEMS shadow.
 		Hub_DemoEvent_OnStatUpdate(cls_lastto, stat, old_ivalue, ivalue);
 
 		// QTube: Also update teaminfo, but avoid overwriting flags and runes
@@ -6168,7 +6167,7 @@ static void CL_SetStatNumeric (int pnum, unsigned int stat, int ivalue, float fv
 			cl.players[pl].statsf[stat]=fvalue;
 		}
 
-		// POV stats sink. MVD broadcasts per-player stats via
+		// HUB: POV stats sink. MVD broadcasts per-player stats via
 		// dem_stats and hooks the events extractor above; QWD/NQ
 		// only carry the recording client's stats and route through
 		// this branch. Fire the same hook so pickups / deaths /
@@ -6995,10 +6994,10 @@ static void CL_ParseKtxBackpackRemove(void) {
 
 	entnum = strtoul(Cmd_Argv(0), NULL, 0);
 
-	// //ktx bp <entnum> <player entnum> = picked up; //ktx expire
-	// <entnum> = timed out / removed. Only the picked-up variant
-	// gets forwarded to the demo-events scan, distinguishable by
-	// the presence of the player-entnum arg.
+	// HUB: //ktx bp <entnum> <player entnum> = picked up; //ktx
+	// expire <entnum> = timed out / removed. Only the picked-up
+	// variant gets forwarded to the demo-events scan,
+	// distinguishable by the presence of the player-entnum arg.
 	if (Cmd_Argc() >= 2)
 	{
 		int player_slot = atoi(Cmd_Argv(1)) - 1;
@@ -7066,17 +7065,19 @@ static void CL_ParseKtxBackpackDrop(void)
 	timer->rgb[1] = ((rgb>> 8)&0xff)/255.0f;
 	timer->rgb[2] = ((rgb)    &0xff)/255.0f;
 
-	// The 3rd arg is the dropper's 1-based entnum (matches the took
-	// playernum format). Forward to the events scan so weapon-drop
-	// markers appear in the analytics timeline. Skipped silently when
-	// absent (some older KTX builds omit the arg).
+	// HUB: 3rd arg is the dropper's 1-based entnum (matches the
+	// took playernum format). Forward to the events scan so
+	// weapon-drop markers appear in the analytics timeline.
+	// Skipped silently when absent (some older KTX builds omit
+	// the arg).
 	//
-	// NULL origin tells Hub_DemoEvent_OnKtxDrop / events_push to fall
-	// back to the dropper's most recent playerstate origin (their body
-	// position at the moment of death). The previous cl_baselines lookup
-	// returned stale data - baselines for runtime-spawned backpacks are
-	// either zero (never written) or leftover state from a prior entity
-	// that occupied the same entnum slot.
+	// NULL origin tells Hub_DemoEvent_OnKtxDrop / events_push to
+	// fall back to the dropper's most recent playerstate origin
+	// (their body position at the moment of death). The previous
+	// cl_baselines lookup returned stale data - baselines for
+	// runtime-spawned backpacks are either zero (never written)
+	// or leftover state from a prior entity that occupied the
+	// same entnum slot.
 	if (Cmd_Argc() >= 3)
 	{
 		int player_slot = atoi(Cmd_Argv(2)) - 1;
@@ -7842,11 +7843,12 @@ void CLEZ_ParseHiddenDemoMessage(void)
 
 		case 0x0003://mvdhidden_demoinfo
 			{
-				// `size` is the byte count after the cmd UInt16. The
-				// 2 bytes of 'more' come next, then size-2 bytes of
-				// payload (the ktxstats JSON chunk). Hub_DemoEvents
-				// consumes the payload itself when scanning so it can
-				// build up the full string; otherwise it skips.
+				// HUB: `size` is the byte count after the cmd
+				// UInt16. The 2 bytes of 'more' come next, then
+				// size-2 bytes of payload (the ktxstats JSON chunk).
+				// Hub_KtxStats consumes the payload itself when
+				// scanning so it can build up the full string;
+				// otherwise it skips.
 				unsigned int is_more = MSG_ReadUInt16();
 				Hub_KtxStats_OnDemoInfo(size - 2, is_more);
 			}
@@ -7863,10 +7865,11 @@ void CLEZ_ParseHiddenDemoMessage(void)
 
 				typeandflags &= ~0x8000;
 
-				// Feed phase-1 damage buffer for the Hub event scanner.
-				// usernum is 1-based on the wire; convert to 0-based slot.
-				// typeandflags has the splash bit already stripped above —
-				// what remains is the KTX dtype enum.
+				// HUB: feed phase-1 damage buffer for the
+				// demo-event scanner. usernum is 1-based on the
+				// wire; convert to 0-based slot. typeandflags has
+				// the splash bit already stripped above; what
+				// remains is the KTX dtype enum.
 				Hub_DemoEvent_OnDamage((int)attacker - 1, (int)targ - 1,
 				                       (int)dmg, (int)typeandflags,
 				                       isteamdamage ? true : false,
@@ -8042,12 +8045,22 @@ void CLQW_ParseServerMessage (void)
 			{
 				s = MSG_ReadString();
 				Con_Printf(CON_WARNING"svc_disconnect: %s\n", s);
+				// HUB: QTV map change re-issue. The upstream sends
+				// svc_disconnect and stops feeding the stream.
+				// lastdemoname is empty for qtv sources (cls.h note);
+				// last_qtv_stream carries the source we connected to.
+				if (!cls.lastdemoname[0] && cls.last_qtv_stream[0])
+				{
+					Con_Printf("reconnecting to qtv: %s\n", cls.last_qtv_stream);
+					Cbuf_AddText(va("qtvplay \"%s\"\n", cls.last_qtv_stream), RESTRICT_LOCAL);
+				}
 			}
 			else if (cls.demoplayback)
 			{
-				// Freeze at the disconnect message instead of tearing
-				// the demo down. Same rationale as the EOF-pause in
-				// CL_GetDemoMessage: don't cross the boundary.
+				// HUB: don't cross the boundary - freeze at the
+				// disconnect message instead of tearing the demo
+				// down. Same rationale as the EOF-pause in
+				// CL_GetDemoMessage.
 				extern cvar_t cl_demospeed;
 				Cvar_Set(&cl_demospeed, "0");
 				return;
@@ -8561,7 +8574,7 @@ void CLQW_ParseServerMessage (void)
 		packetusage_pending[cmd] += MSG_GetReadCount()-cmdstart;
 	}
 
-	// End-of-frame hook for the Hub demo-event scanner. Snapshots
+	// HUB: end-of-frame hook for the demo-event scanner. Snapshots
 	// origins for deaths / killers observed during this packet now
 	// that all per-player playerinfos have landed in cl.inframes.
 	// No-op outside an active scan. Fires for QWD too (single-POV
@@ -9788,9 +9801,10 @@ void CLNQ_ParseServerMessage (void)
 		case svc_disconnect:
 			if (cls.demoplayback)
 			{
-				// Freeze at the disconnect message instead of tearing
-				// the demo down. Same rationale as the EOF-pause in
-				// CL_GetDemoMessage: don't cross the boundary.
+				// HUB: don't cross the boundary - freeze at the
+				// disconnect message instead of tearing the demo
+				// down. Same rationale as the EOF-pause in
+				// CL_GetDemoMessage.
 				extern cvar_t cl_demospeed;
 				Cvar_Set(&cl_demospeed, "0");
 				return;
@@ -10431,8 +10445,9 @@ void CLNQ_ParseServerMessage (void)
 		packetusage_pending[cmd] += MSG_GetReadCount()-cmdstart;
 	}
 
-	// End-of-frame hook for the Hub demo-event scanner. Mirrors the
-	// MVD site (~line 8565). No-op outside an active scan.
+	// HUB: end-of-frame hook for the demo-event scanner (NQ side).
+	// Mirrors the MVD site in CLQW_ParseServerMessage. No-op
+	// outside an active scan.
 	if (cls.demoplayback == DPB_NETQUAKE)
 		Hub_DemoEvent_OnFrameEnd();
 }

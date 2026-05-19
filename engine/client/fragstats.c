@@ -362,11 +362,12 @@ static void Stats_SetRune(int pnum, int rune)
 	Stats_SyncRuneView(pnum);
 }
 
-// Map a fragfile WEAPON_CLASS codename to its IT_* bit. Used to
-// populate hub demo event killer.weapon_id with the weapon that did
-// the damage (per the obit pattern), independent of STAT_ACTIVEWEAPON
-// which lags the obit by 0-N frames after auto-switches. Returns 0
-// for world-damage codenames (DROWN/LAVA/...) and unknowns.
+// HUB: map a fragfile WEAPON_CLASS codename to its IT_* bit. Used
+// to populate hub_demo_death_t.killer.weapon_id with the weapon
+// that did the damage (per the obit pattern), independent of
+// STAT_ACTIVEWEAPON which lags the obit by 0-N frames after auto-
+// switches. Returns 0 for world-damage codenames (DROWN/LAVA/...)
+// and unknowns.
 static unsigned int Stats_CodenameToItemBit(const char *codename)
 {
 	if (!codename) return 0;
@@ -392,12 +393,12 @@ void Stats_Evaluate(fragfilemsgtypes_t mt, int wid, int p1, int p2,
 	qboolean u1;
 	qboolean u2;
 
-	// Hub demo-event extraction: translate fragstats' parsed obituary
-	// into a (killer_slot, victim_slot) pair before this function
-	// mutates p1/p2 (the swap below and the -1 fallback). -1 stays -1
-	// to signal "unknown" per the design rule. Non-kill events
-	// (flag/rune) are skipped here - they'd need separate HDE_KIND_*
-	// values.
+	// HUB: demo-event extraction. Translate fragstats' parsed
+	// obituary into a (killer_slot, victim_slot) pair before this
+	// function mutates p1/p2 (the swap below and the -1 fallback).
+	// -1 stays -1 to signal "unknown" per the design rule. Non-kill
+	// events (flag/rune) are skipped here - they'd need separate
+	// HDE_KIND_* values.
 	{
 		int hde_killer = -1;
 		int hde_victim = -1;
@@ -471,11 +472,12 @@ void Stats_Evaluate(fragfilemsgtypes_t mt, int wid, int p1, int p2,
 		}
 	}
 
-	// Flag + rune events. Same hook surface as kill events; emits new
-	// HDE_KIND_FLAG_*/RUNE_PICKUP entries with the actor's userid +
-	// origin from playerstate. Hidden behind p1 >= 0 because
-	// Stats_ParsePrintLine falls back to cls_lastto on name-extract
-	// failure (good for stat counters, bad for our positional events).
+	// HUB: flag + rune events. Same hook surface as kill events;
+	// emits new HDE_KIND_FLAG_* / RUNE_PICKUP entries with the
+	// actor's userid + origin from playerstate. Hidden behind
+	// p1 >= 0 because Stats_ParsePrintLine falls back to
+	// cls_lastto on name-extract failure (good for stat counters,
+	// bad for our positional events).
 	if (p1 >= 0)
 	{
 		switch (mt)
@@ -960,9 +962,10 @@ static void Stats_LoadFragFile(char *name)
 			{
 				int wid;
 
-				// codename + fullname required; abrev + image optional.
-				// MegaTF lines in stock fragfile.dat omit the image and
-				// some omit the abrev — accept both forms silently.
+				// HUB: codename + fullname required; abrev +
+				// image optional. MegaTF lines in stock
+				// fragfile.dat omit the image and some omit the
+				// abrev - accept both forms silently.
 				if (Cmd_Argc() < 4)
 				{
 					Con_Printf("fragfile: line %d: #define WEAPON_CLASS expects at least 2 args\n", line_number);
@@ -1157,13 +1160,14 @@ qboolean Stats_ParsePrintLine(const char *line)
 	int p1;
 	int p2;
 	const char *m2;
-	// Stats_ExtractName advances `line` past the first player name, so
-	// save the original so the hub demo-event extractor can stash the
-	// raw obit verbatim for debugging.
+	// HUB: Stats_ExtractName advances `line` past the first player
+	// name, so save the original for the demo-event extractor to
+	// stash the raw obit verbatim for debugging.
 	const char *original_line = line;
 
-	// Hub debug: stash every obit-channel print so the event reconciler
-	// can attach lines fragstats didn't recognise to the matching death.
+	// HUB: stash every obit-channel print so the event reconciler
+	// can attach lines fragstats didn't recognise to the matching
+	// death.
 	Hub_DemoEvent_OnPrint(original_line);
 
 	p1 = Stats_ExtractName(&line);

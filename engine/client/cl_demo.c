@@ -394,12 +394,12 @@ void CL_ProgressDemoTime(void)
 	else
 		demtime += host_frametime;
 
-	// Hard cap demtime at the demo's last known packet timestamp. Without
-	// this, `cl_demospeed 100` from a paused-at-EOF state would race past
-	// the end (cl_demospeed=0 is re-applied by the EOF handler but only
-	// AFTER this function advanced demtime in the same frame). The cap
-	// is no-op when the timeline hasn't been scanned yet
-	// (hub_demo_total_ms == 0).
+	// HUB: hard cap demtime at the demo's last known packet
+	// timestamp. Without this, `cl_demospeed 100` from a
+	// paused-at-EOF state would race past the end (cl_demospeed=0
+	// is re-applied by the EOF handler but only AFTER this
+	// function advanced demtime in the same frame). No-op when
+	// the timeline hasn't been scanned yet (hub_demo_total_ms==0).
 	if (cls.demoplayback && hub_demo_total_ms > 0)
 	{
 		double max_demtime =
@@ -591,16 +591,16 @@ qboolean CL_GetDemoMessage (void)
 
 	if (endofdemo)
 	{
+		// HUB: don't cross the boundary - freeze at the last frame
+		// instead of disconnecting and chaining to the next demo.
+		// Preserves cls.demoinfile so URL-loaded demos (which can't
+		// be re-opened by path) stay scrubbable backward and keeps
+		// the demo-event scanner's post-scan restore path simple.
+		// cl_demospeed=0 stops demtime advancement in
+		// CL_ProgressDemoTime; the timing gate below then blocks
+		// any further forward reads. Backward seeks still work.
 		extern cvar_t cl_demospeed;
 		endofdemo = false;
-		// Don't cross the boundary: freeze the demo at the last frame
-		// instead of disconnecting and chaining to the next demo. This
-		// preserves cls.demoinfile so URL-loaded demos (which can't be
-		// re-opened by path) stay scrubbable backward, and keeps the
-		// Hub event scanner's post-scan restore path simple. Setting
-		// cl_demospeed=0 stops demtime advancement in
-		// CL_ProgressDemoTime; the timing gate below then blocks any
-		// further forward reads. Backward seeks still work.
 		Cvar_Set(&cl_demospeed, "0");
 		return 0;
 	}
@@ -682,16 +682,17 @@ qboolean CL_GetDemoMessage (void)
 			}
 			else if (cls.demoseeking != DEMOSEEK_NOT)
 			{
-				// DEMOSEEK_INTERMISSION (or any other non-TIME seek mode):
-				// race ahead with no per-frame timing gate. The
-				// svc_intermission handler flips demoseeking back to
-				// DEMOSEEK_NOT, ending the race naturally. Required for
-				// Hub_DemoEvent_Scan on NQ demos.
+				// HUB: DEMOSEEK_INTERMISSION (or any other non-TIME
+				// seek mode) race-ahead. The svc_intermission handler
+				// flips demoseeking back to DEMOSEEK_NOT, ending the
+				// race naturally. Required for Hub_DemoEvent_Scan on
+				// NQ demos.
 				//
 				// Keep demtime in sync with cl.gametime so consumers
-				// (Hub_DemoEvent_TimeMs, anything else reading demtime)
-				// see real timestamps. Normally the timing-gate branch
-				// below does this; the race skips that branch.
+				// (Hub_DemoEvent_TimeMs, anything else reading
+				// demtime) see real timestamps. Normally the
+				// timing-gate branch below does this; the race skips
+				// that branch.
 				if (cl.gametime > 0)
 					demtime = cl.gametime;
 			}
@@ -993,13 +994,13 @@ readit:
 					//this is too problematic otherwise (apparently mvdsv doesn't use dem_multiple for team says any more).
 					if (1)
 						maxseat = 1;
-					// Demo-event scan needs every dem_single body parsed,
-					// not just ones aimed at a tracked player. qwdtools
-					// wraps QWD svc_print obits as dem_single targeted
-					// at the POV slot; without this bypass they'd be
-					// dropped on a freecam scan and Stats_ParsePrintLine
-					// would never see the obituary text for kill
-					// attribution.
+					// HUB: demo-event scan needs every dem_single body
+					// parsed, not just ones aimed at a tracked player.
+					// qwdtools wraps QWD svc_print obits as dem_single
+					// targeted at the POV slot; without this bypass
+					// they'd be dropped on a freecam scan and
+					// Stats_ParsePrintLine would never see the
+					// obituary text for kill attribution.
 					if (Hub_DemoEvent_IsRecording())
 					{
 						cl.defaultnetsplit = 0;
@@ -2490,10 +2491,11 @@ void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int 
 	cls.findtrack = (demotype == DPB_MVD);
 
 #ifdef NQPROT
-	// NQ demos start with an ASCII CD-track header line that must be
-	// consumed before packet parsing begins. Done here (not in
-	// CL_PlayDemoFile) so the rewind paths (CL_DemoJump_f backward
-	// seek, Hub_DemoEvent_Scan) get the same treatment as a fresh open.
+	// HUB: NQ demos start with an ASCII CD-track header line that
+	// must be consumed before packet parsing begins. Done here
+	// (not in CL_PlayDemoFile) so the rewind paths (CL_DemoJump_f
+	// backward seek, Hub_DemoEvent_Scan) get the same treatment
+	// as a fresh open.
 	if (demotype == DPB_NETQUAKE)
 	{
 		int  ft  = 0;
@@ -2516,11 +2518,12 @@ void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int 
 	cls.protocol = protocol;
 	cls.state = ca_demostart;
 
-	// NetQuake demos don't carry per-client viewstate the way QW/MVD does,
-	// so splitscreen has nothing meaningful to render in the extra seats.
-	// Force the cvar off at NQ demo start to mirror the CSQC-side disable
-	// of the minimap (hub_addon main.qc:CSQC_WorldLoaded). The user can
-	// re-enable manually mid-demo if they really want to.
+	// HUB: NetQuake demos don't carry per-client viewstate the way
+	// QW/MVD does, so splitscreen has nothing meaningful to render
+	// in the extra seats. Force the cvar off at NQ demo start to
+	// mirror the CSQC-side disable of the minimap (hub_addon
+	// main.qc:CSQC_WorldLoaded). The user can re-enable manually
+	// mid-demo if they really want to.
 	if (protocol == CP_NETQUAKE)
 		Cvar_ForceSet(&cl_splitscreen, "0");
 	net_message.packing = SZ_RAWBYTES;
@@ -2591,15 +2594,16 @@ void CL_PlayDemoFile(vfsfile_t *f, char *demoname, qboolean issyspath)
 
 #ifdef NQPROT
 	{
-		// Peek at the leading bytes to detect an NQ CD-track header
-		// (ASCII digits / space / '-' terminated by '\n'). If detected,
-		// rewind to start and hand off to CL_PlayDemoStream, which
-		// re-reads + consumes the header itself. Rewinding here (instead
-		// of leaving the file past the header as the old code did) lets
-		// CL_PlayDemoStream stay symmetric across all demo types - so
-		// the backward-seek path in CL_DemoJump_f and Hub_DemoEvent_Scan
-		// can VFS_SEEK(f,0) + CL_PlayDemoStream(NQ) and have the header
-		// consumed in the same place as the initial open.
+		// HUB: peek at the leading bytes to detect an NQ CD-track
+		// header (ASCII digits / space / '-' terminated by '\n').
+		// If detected, rewind to start and hand off to
+		// CL_PlayDemoStream, which re-reads + consumes the header
+		// itself. Rewinding here (instead of leaving the file past
+		// the header as the old code did) lets CL_PlayDemoStream
+		// stay symmetric across all demo types - so the
+		// backward-seek path in CL_DemoJump_f and Hub_DemoEvent_Scan
+		// can VFS_SEEK(f,0) + CL_PlayDemoStream(NQ) and have the
+		// header consumed in the same place as the initial open.
 		char     buf[24];
 		int      n = VFS_READ(f, buf, sizeof(buf) - 1);
 		qboolean is_nq = false;
@@ -3367,6 +3371,22 @@ void CL_QTVPlay_f (void)
 
 	streamid = Cmd_Argv(1);
 	password = Cmd_Argv(2);
+
+#ifdef FTE_TARGET_WEB
+	// Web app calls `qtvplay <host>` with a bare hostname; the
+	// hub's public QTV proxy expects a tcp:<host>@wss://<proxy>
+	// URL. Wrap here so the JS bridge stays "verb + bare host".
+	// Pass-through when the arg already has a stream/scheme marker.
+	#define HUB_QTV_PROXY "fteqtv.quake.world"
+	char wrapped_streamid[256];
+	if (!strchr(streamid, '@') && !strstr(streamid, "://"))
+	{
+		Q_snprintfz(wrapped_streamid, sizeof(wrapped_streamid),
+		            "tcp:%s@wss://" HUB_QTV_PROXY, streamid);
+		streamid = wrapped_streamid;
+	}
+#endif
+
 	host = strchrrev(streamid, '@');
 	if (host)
 		*host++ = 0;
