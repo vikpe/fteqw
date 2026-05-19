@@ -1125,6 +1125,10 @@ qboolean Stats_ParsePrintLine(const char *line)
 	// raw obit verbatim for debugging.
 	const char *original_line = line;
 
+	// Hub debug: stash every obit-channel print so the event reconciler
+	// can attach lines fragstats didn't recognise to the matching death.
+	Hub_DemoEvent_OnPrint(original_line);
+
 	p1 = Stats_ExtractName(&line);
 	if (p1<0)	//reject it.
 	{

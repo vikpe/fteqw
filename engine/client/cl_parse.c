@@ -7863,6 +7863,13 @@ void CLEZ_ParseHiddenDemoMessage(void)
 
 				typeandflags &= ~0x8000;
 
+				// Feed phase-1 damage buffer for the Hub event scanner.
+				// usernum is 1-based on the wire; convert to 0-based slot.
+				Hub_DemoEvent_OnDamage((int)attacker - 1, (int)targ - 1,
+				                       (int)dmg,
+				                       isteamdamage ? true : false,
+				                       issplash ? true : false);
+
 				//let csqc handle it consistently with other ktx quirks.
 				for (cmd = 0; cmd < cl.splitclients; cmd++)
 					if (CL_TryTrackNum(&cl.playerview[cmd]) == attacker)
@@ -8548,6 +8555,13 @@ void CLQW_ParseServerMessage (void)
 
 		packetusage_pending[cmd] += MSG_GetReadCount()-cmdstart;
 	}
+
+	// End-of-frame hook for the Hub demo-event scanner. Snapshots
+	// origins for deaths / killers observed during this packet now
+	// that all per-player playerinfos have landed in cl.inframes.
+	// No-op outside an active scan.
+	if (cls.demoplayback == DPB_MVD)
+		Hub_DemoEvent_OnFrameEnd();
 }
 
 #ifdef Q2CLIENT

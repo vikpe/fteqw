@@ -8,6 +8,7 @@
 #include "../client/cl_hub_participants.h"
 #include "../client/cl_hub_demo.h"
 #include "../client/cl_hub_ktxstats.h"
+#include "../client/cl_hub_demo_event.h"
 
 using namespace emscripten;
 
@@ -581,7 +582,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		.function("getName", +[](fragstats_t::wt_s& self) {
 			return std::string(self.fullname);
 		})
-		.function("getAbbrev", +[](fragstats_t::wt_s& self) {
+		.function("getAbbreviation", +[](fragstats_t::wt_s& self) {
 			return std::string(self.abrev);
 		})
 		.function("getImage", +[](fragstats_t::wt_s& self) {
@@ -827,16 +828,96 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	// Two nested rAF calls: the first commits the DOM state, the second
 	// guarantees the browser has painted before the blocking call.
 	function("getDemoEvents", +[]() -> emscripten::val {
-		// Hub demo-event subsystem is being rewritten from scratch
-		// (see .claude/notes/demo_event_redesign.md). Until the new
-		// observe-then-reconcile pipeline lands, getDemoEvents returns
-		// empty events / players / spans so the web consumer's
-		// response shape is unchanged but no stale event data is
-		// surfaced. `weapons` stays populated since it comes from
-		// fragstats, not from the event subsystem.
-		emscripten::val events  = emscripten::val::array();
+		Hub_DemoEvent_Scan();
+
+		// TP_LocationName early-returns "someplace" unless cls.state
+		// is ca_active. The scan's CL_PlayDemoStream restart leaves
+		// cls.state at ca_demostart; force the flag locally for the
+		// duration so origins resolve to .loc zones.
+		cactive_t saved_state = cls.state;
+		cls.state = ca_active;
+		TP_ReloadCurrentLocs();
+
+		auto resolve_loc = [](const float *o) -> std::string {
+			bool has_origin = (o[0] != 0 || o[1] != 0 || o[2] != 0);
+			if (!has_origin) return std::string();
+			const char *l = TP_LocationName(const_cast<float *>(o));
+			return (l && strcmp(l, "someplace")) ? std::string(l)
+			                                    : std::string();
+		};
+
+		auto vec3_to_val = [](const float *v) -> emscripten::val {
+			emscripten::val o = emscripten::val::object();
+			o.set("x", v[0]);
+			o.set("y", v[1]);
+			o.set("z", v[2]);
+			return o;
+		};
+
+		emscripten::val events = emscripten::val::array();
+		for (int i = 0; i < hub_demo_event_count; i++) {
+			hub_demo_event_t *source = &hub_demo_events[i];
+			emscripten::val ev = emscripten::val::object();
+			ev.set("kind", (int)source->kind);
+			switch (source->kind) {
+			case HDE_KIND_TOOK:
+				ev.set("time_ms",          source->u.took.time_ms);
+				ev.set("user_id",          source->u.took.user_id);
+				ev.set("items",            (double)source->u.took.items);
+				ev.set("backpack_user_id", source->u.took.backpack_user_id);
+				ev.set("origin",           vec3_to_val(source->u.took.origin));
+				ev.set("location",         resolve_loc(source->u.took.origin));
+				break;
+			case HDE_KIND_DEATH: {
+				auto death_user_to_val = [&](const hub_demo_death_user_t &u) {
+					emscripten::val o = emscripten::val::object();
+					o.set("user_id",   u.user_id);
+					o.set("weapon_id", (double)u.weapon_id);
+					o.set("items",     (double)u.items);
+					o.set("origin",    vec3_to_val(u.origin));
+					return o;
+				};
+				ev.set("time_ms", source->u.death.time_ms);
+				ev.set("message", std::string(source->u.death.message));
+				ev.set("victim",  death_user_to_val(source->u.death.victim));
+				ev.set("killer",  death_user_to_val(source->u.death.killer));
+				ev.set("location", resolve_loc(source->u.death.victim.origin));
+				break;
+			}
+			case HDE_KIND_MOD_EVENT:
+				ev.set("time_ms",  source->u.mod.time_ms);
+				ev.set("user_id",  source->u.mod.user_id);
+				ev.set("mod_kind", (int)source->u.mod.mod_kind);
+				ev.set("origin",   vec3_to_val(source->u.mod.origin));
+				ev.set("location", resolve_loc(source->u.mod.origin));
+				break;
+			default:
+				break;
+			}
+			events.set(i, ev);
+		}
+
 		emscripten::val players = emscripten::val::array();
-		emscripten::val spans   = emscripten::val::array();
+		for (int i = 0; i < hub_demo_player_count; i++) {
+			emscripten::val p = emscripten::val::object();
+			p.set("user_id",   hub_demo_players[i].user_id);
+			p.set("name",      std::string(hub_demo_players[i].name));
+			p.set("team",      std::string(hub_demo_players[i].team));
+			p.set("is_active", (bool)hub_demo_players[i].is_active);
+			players.set(i, p);
+		}
+
+		emscripten::val spans = emscripten::val::array();
+		for (int i = 0; i < hub_demo_span_count; i++) {
+			emscripten::val sp = emscripten::val::object();
+			sp.set("start_ms",    hub_demo_spans[i].start_ms);
+			sp.set("end_ms",      hub_demo_spans[i].end_ms);
+			sp.set("user_id",     hub_demo_spans[i].user_id);
+			sp.set("items",       (double)hub_demo_spans[i].items);
+			sp.set("was_dropped", (bool)hub_demo_spans[i].was_dropped);
+			sp.set("frag_count",  hub_demo_spans[i].frag_count);
+			spans.set(i, sp);
+		}
 
 		emscripten::val weapons = emscripten::val::array();
 		{
@@ -850,7 +931,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 				if (fragstats.weapontotals[i].fullname)
 					w.set("fullname", std::string(fragstats.weapontotals[i].fullname));
 				if (fragstats.weapontotals[i].abrev)
-					w.set("abrev",    std::string(fragstats.weapontotals[i].abrev));
+					w.set("abbreviation", std::string(fragstats.weapontotals[i].abrev));
 				weapons.set(n_weap++, w);
 			}
 		}
@@ -860,6 +941,8 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		result.set("players", players);
 		result.set("spans",   spans);
 		result.set("weapons", weapons);
+
+		cls.state = saved_state;
 		return result;
 	});
 

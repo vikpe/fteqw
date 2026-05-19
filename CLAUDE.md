@@ -11,11 +11,11 @@ travel between machines.
 
 ## General coding standards
 
-- Never read or reference code in `.bak` directories — treat it as if it doesn't exist.
 - Always match the style and conventions already present in the codebase.
 - Code must read from top to bottom: public API first, then private helpers/types.
 - Always prefix boolean variables and fields with a word that makes them explicitly boolean: `is_`, `has_`, `was_`, `should_`, `can_`, `with_`, etc. For example: `is_first` not `first`, `has_cache` not `cache`, `is_active` not `active`.
 - Variables holding counts, should be named x_count, example "user_count"
+- spell things out: index over idx, user_id over uid
 
 ## Output
 
