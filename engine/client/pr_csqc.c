@@ -8580,7 +8580,14 @@ void CSQC_WorldLoaded(void)
 
 	if (!csqcprogs)
 		return;
-	if (csqcmapentitydataloaded)
+	// HUB: re-run the per-map setup whenever the worldmodel actually
+	// changes (QTV stream switch reuses the same csaddon.dat, so
+	// CSQC_Shutdown is suppressed in cl_main.c/cl_parse.c - which
+	// leaves csqcmapentitydataloaded true from the previous map).
+	// Without this, csqc_world.worldmodel and the QC `mapname` global
+	// stay pinned to the old map, and traceline / setmodel calls in
+	// minimap_load.qc hit the previous BSP.
+	if (csqcmapentitydataloaded && csqc_world.worldmodel == cl.worldmodel)
 		return;
 
 	if (csqc_isdarkplaces)
@@ -8590,6 +8597,24 @@ void CSQC_WorldLoaded(void)
 
 	csqcmapentitydataloaded = true;
 	csqcmapentitydata = Mod_GetEntitiesString(csqc_world.worldmodel);
+
+	// HUB: refresh `mapname` for the QC side on every map load.
+	// Normally set inside the fresh-load branch of CSQC_Init
+	// (pr_csqc.c:8458), but that branch is skipped on the same-
+	// checksum reuse path - so without this update the QC would still
+	// read the previous map's name. Same fallback chain as CSQC_Init.
+	{
+		string_t *str = (string_t*)PR_FindGlobal(csqcprogs, "mapname", 0, NULL);
+		if (str)
+		{
+			char *s = InfoBuf_ValueForKey(&cl.serverinfo, "map");
+			if (!*s)
+				s = cl.model_name[1];
+			if (!s || !*s)
+				s = "unknown";
+			*str = PR_NewString(csqcprogs, s);
+		}
+	}
 
 	World_RBE_Start(&csqc_world);
 
