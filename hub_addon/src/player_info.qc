@@ -490,9 +490,11 @@ void(pi_layout_t L, vector right_top, float content_width, float seat, float tra
             float  armor = getplayerstat(player.slot, STAT_ARMOR, EV_FLOAT);
 
             // Armor: own column, omitted at 0. Tinted by armor type
-            // (GA green, YA yellow, RA red).
+            // (GA green, YA yellow, RA red). Capped at 999 so the value
+            // fits 3 digits, matching the health column.
             if (armor > 0) {
-                string armor_value = sprintf("%d", armor);
+                float  armor_display = (armor > 999) ? 999 : armor;
+                string armor_value = sprintf("%d", armor_display);
                 float  armor_width = stringwidth(armor_value, 0, font);
                 vector armor_color = '1 1 1';
                 if      (items & MM_IT_ARMOR3) armor_color = '1 0.3 0.3';
