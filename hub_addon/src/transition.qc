@@ -38,6 +38,7 @@ float()                               TransitionCmd;
 float(string name)                    TransitionParseStyle;
 float()                               TransitionDefaultEffect;
 float()                               TransitionPickEffect;
+void()                                TransitionFinish;
 float(float effect, float base_duration) TransitionEffectDuration;
 void(float vwidth, float vheight)     TransitionDrawOverlay;
 void(float vwidth, float vheight)     TransitionBlitCaptured;
@@ -509,15 +510,25 @@ void(float vwidth, float vheight) TransitionDrawOverlay =
 {
     float progress = TransitionProgress(cltime);
     if (progress >= 1) {
-        transition_is_active = 0;
-        cvar_set("con_stayhidden",  ftos(transition_prev_con_stayhidden));
-        cvar_set("con_notifylines", ftos(transition_prev_con_notifylines));
+        TransitionFinish();
         return;
     }
     if (progress < 0) progress = 0;
 
     TransitionDrawQuad(TransitionShaderName(transition_effect),
                        vwidth, vheight, progress);
+};
+
+void() TransitionFinish =
+{
+    transition_is_active      = 0;
+    transition_is_waiting     = 0;
+    transition_is_capturing   = 0;
+    transition_should_capture = 0;
+    setviewprop(VF_RT_DESTCOLOUR, "");
+    setviewprop(VF_RT_SOURCECOLOUR, "");
+    cvar_set("con_stayhidden",  ftos(transition_prev_con_stayhidden));
+    cvar_set("con_notifylines", ftos(transition_prev_con_notifylines));
 };
 
 float(float effect, float base_duration) TransitionEffectDuration =
