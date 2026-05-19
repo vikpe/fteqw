@@ -362,7 +362,8 @@ static void Stats_SetRune(int pnum, int rune)
 	Stats_SyncRuneView(pnum);
 }
 
-void Stats_Evaluate(fragfilemsgtypes_t mt, int wid, int p1, int p2)
+void Stats_Evaluate(fragfilemsgtypes_t mt, int wid, int p1, int p2,
+                    const char *obit_line)
 {
 	qboolean u1;
 	qboolean u2;
@@ -410,8 +411,35 @@ void Stats_Evaluate(fragfilemsgtypes_t mt, int wid, int p1, int p2)
 		default:
 			break;
 		}
-		if (hde_killer >= 0 || hde_victim >= 0)
-			Hub_DemoEvent_OnFragStatsKill(hde_killer, hde_victim, wid);
+
+		// Stats_ParsePrintLine overwrites p1 with cls_lastto when
+		// Stats_ExtractName couldn't match the first name (QTube
+		// dem_single rune fallback). For kill patterns that fallback
+		// lands as a real slot index in hde_killer/hde_victim despite
+		// no actual name match - treat slots whose cl.players entry
+		// has no userid as unextracted.
+		if (hde_killer >= 0 && hde_killer < MAX_CLIENTS &&
+		    cl.players[hde_killer].userid <= 0)
+			hde_killer = -1;
+		if (hde_victim >= 0 && hde_victim < MAX_CLIENTS &&
+		    cl.players[hde_victim].userid <= 0)
+			hde_victim = -1;
+
+		// Two-component patterns ("X killed Y", "X was killed by Y")
+		// expect both names in the obit. If extraction lost one side
+		// the event is unsound (the surviving side is either correct
+		// or - via cls_lastto - the wrong player). Drop instead of
+		// emitting an ambiguous one-sided event. One-component
+		// patterns (ff_tkdeath / ff_bonusfrag / ff_tkbonus / ff_death
+		// / ff_suicide) genuinely carry only one side and still
+		// fire when partial.
+		qboolean both_required = (mt == ff_frags     || mt == ff_tkills ||
+		                          mt == ff_fragedby  || mt == ff_tkilledby);
+		if (both_required && (hde_killer < 0 || hde_victim < 0))
+			; // skip - extraction failed
+		else if (hde_killer >= 0 || hde_victim >= 0)
+			Hub_DemoEvent_OnFragStatsKill(hde_killer, hde_victim, wid,
+			                              obit_line);
 	}
 
 	// Flag + rune events. Same hook surface as kill events; emits new
@@ -797,6 +825,8 @@ static void Stats_LoadFragFile(char *name)
 	char *end;
 	char *tk, *tz;
 	char oend;
+	int line_number = 0;
+	qboolean has_version = false;
 
 	Stats_Clear();
 
@@ -815,6 +845,7 @@ static void Stats_LoadFragFile(char *name)
 	oend = 1;
 	for (;oend;)
 	{
+		line_number++;
 		for (end = file; *end && *end != '\n'; end++)
 			;
 		oend = *end;
@@ -827,36 +858,92 @@ static void Stats_LoadFragFile(char *name)
 		tk = Cmd_Argv(0);
 		if (!stricmp(tk, "#fragfile"))
 		{
+			if (Cmd_Argc() < 3)
+			{
+				Con_Printf("fragfile: line %d: #fragfile expects 2 args\n", line_number);
+				continue;
+			}
 			tk = Cmd_Argv(1);
-				 if (!stricmp(tk, "version"))		{}
-			else if (!stricmp(tk, "gamedir"))		{}
-			else Con_Printf("Unrecognised #meta \"%s\"\n", tk);
+			if (!stricmp(tk, "version"))
+			{
+				has_version = true;
+			}
+			else if (!stricmp(tk, "gamedir"))
+			{
+				// Honor the gamedir directive: if the fragfile targets
+				// a specific gamedir and we're in a different one, the
+				// patterns can match the wrong print lines and produce
+				// misattributed events. "ANY" accepts every gamedir.
+				if (!has_version)
+				{
+					Con_Printf("fragfile: line %d: #fragfile gamedir before #fragfile version\n", line_number);
+					Stats_Clear();
+					return;
+				}
+				tk = Cmd_Argv(2);
+				if (stricmp(tk, "ANY") && stricmp(tk, FS_GetGamedir(true)))
+				{
+					Con_DPrintf("fragfile: %s targets gamedir \"%s\", current is \"%s\"; not loading\n",
+								filename, tk, FS_GetGamedir(true));
+					Stats_Clear();
+					return;
+				}
+			}
+			else
+			{
+				Con_Printf("fragfile: line %d: unrecognised #fragfile \"%s\"\n", line_number, tk);
+			}
+			continue;
 		}
-		else if (!stricmp(tk, "#meta"))
+
+		// Everything past this point requires a version handshake. A
+		// missing #fragfile version usually means the file was truncated
+		// or is in an unsupported format; emitting events from a
+		// partially-understood file is worse than emitting none.
+		if (!has_version)
 		{
+			Con_Printf("fragfile: line %d: %s before #fragfile version; aborting load\n",
+						line_number, tk);
+			Stats_Clear();
+			return;
+		}
+
+		if (!stricmp(tk, "#meta"))
+		{
+			if (Cmd_Argc() < 3)
+			{
+				Con_Printf("fragfile: line %d: #meta expects 2 args\n", line_number);
+				continue;
+			}
 			tk = Cmd_Argv(1);
 				 if (!stricmp(tk, "title"))			{}
 			else if (!stricmp(tk, "description"))	{}
 			else if (!stricmp(tk, "author"))		{}
 			else if (!stricmp(tk, "email"))			{}
 			else if (!stricmp(tk, "webpage"))		{}
-			else {Con_Printf("Unrecognised #meta \"%s\"\n", tk);continue;}
+			else {Con_Printf("fragfile: line %d: unrecognised #meta \"%s\"\n", line_number, tk);continue;}
 		}
 		else if (!stricmp(tk, "#define"))
 		{
 			tk = Cmd_Argv(1);
 			if (!stricmp(tk, "weapon_class") ||
-				!stricmp(tk, "wc"))	
+				!stricmp(tk, "wc"))
 			{
 				int wid;
+
+				if (Cmd_Argc() < 5)
+				{
+					Con_Printf("fragfile: line %d: #define WEAPON_CLASS expects at least 4 args\n", line_number);
+					continue;
+				}
 
 				tk = Cmd_Argv(2);
 
 				wid = Stats_FindWeapon(tk, true);
 				if (wid == -1)
-				{Con_Printf("Too many weapon definitions. The max is %i\n", MAX_WEAPONS);continue;}
+				{Con_Printf("fragfile: line %d: too many weapon definitions, max is %i\n", line_number, MAX_WEAPONS);continue;}
 				else if (wid < -1)
-				{Con_Printf("Weapon \"%s\" is already defined\n", tk);continue;}
+				{Con_Printf("fragfile: line %d: weapon \"%s\" is already defined\n", line_number, tk);continue;}
 				else
 				{
 					fragstats.weapontotals[wid].fullname = Z_Copy(Cmd_Argv(3));
@@ -868,6 +955,13 @@ static void Stats_LoadFragFile(char *name)
 					 !stricmp(tk, "obit"))
 			{
 				int fftype;
+
+				if (Cmd_Argc() < 5)
+				{
+					Con_Printf("fragfile: line %d: #define OBITUARY expects at least 4 args\n", line_number);
+					continue;
+				}
+
 				tk = Cmd_Argv(2);
 
 					 if (!stricmp(tk, "PLAYER_DEATH"))			{fftype = ff_death;}
@@ -879,7 +973,7 @@ static void Stats_LoadFragFile(char *name)
 				else if (!stricmp(tk, "X_FRAGGED_BY_Y"))		{fftype = ff_fragedby;}
 				else if (!stricmp(tk, "X_TEAMKILLS_Y"))			{fftype = ff_tkills;}
 				else if (!stricmp(tk, "X_TEAMKILLED_BY_Y"))		{fftype = ff_tkilledby;}
-				else {Con_Printf("Unrecognised obituary \"%s\"\n", tk);continue;}
+				else {Con_Printf("fragfile: line %d: unrecognised obituary \"%s\"\n", line_number, tk);continue;}
 
 				Stats_StatMessage(fftype, Stats_FindWeapon(Cmd_Argv(3), false), Cmd_Argv(4), Cmd_Argv(5));
 			}
@@ -887,6 +981,13 @@ static void Stats_LoadFragFile(char *name)
 					 !stricmp(tk, "flag_msg"))
 			{
 				int fftype;
+
+				if (Cmd_Argc() < 4)
+				{
+					Con_Printf("fragfile: line %d: #define FLAG_ALERT expects at least 3 args\n", line_number);
+					continue;
+				}
+
 				tk = Cmd_Argv(2);
 
 					 if (!stricmp(tk, "X_TOUCHES_FLAG"))		{fftype = ff_flagtouch;}
@@ -898,27 +999,34 @@ static void Stats_LoadFragFile(char *name)
 				else if (!stricmp(tk, "X_DROPS_FLAG"))			{fftype = ff_flagdrops;}
 				else if (!stricmp(tk, "X_FUMBLES_FLAG"))		{fftype = ff_flagdrops;}
 				else if (!stricmp(tk, "X_LOSES_FLAG"))			{fftype = ff_flagdrops;}
-				else {Con_DPrintf("Unrecognised flag alert \"%s\"\n", tk);continue;}
+				else {Con_DPrintf("fragfile: line %d: unrecognised flag alert \"%s\"\n", line_number, tk);continue;}
 
 				Stats_StatMessage(fftype, 0, Cmd_Argv(3), NULL);
 			}
 			else if (!stricmp(tk, "rune_msg"))
 			{
 				int runetype;
+
+				if (Cmd_Argc() < 4)
+				{
+					Con_Printf("fragfile: line %d: #define RUNE_MSG expects at least 3 args\n", line_number);
+					continue;
+				}
+
 				tk = Cmd_Argv(2);
 					 if (!stricmp(tk, "X_RUNE_RES"))		{runetype = ff_rune_res;}
 				else if (!stricmp(tk, "X_RUNE_STR"))		{runetype = ff_rune_str;}
 				else if (!stricmp(tk, "X_RUNE_HST"))		{runetype = ff_rune_hst;}
 				else if (!stricmp(tk, "X_RUNE_REG"))		{runetype = ff_rune_reg;}
-				else {Con_DPrintf("Unrecognised rune message \"%s\"\n", tk);continue;}
+				else {Con_DPrintf("fragfile: line %d: unrecognised rune message \"%s\"\n", line_number, tk);continue;}
 
 				Stats_StatMessage(runetype, 0, Cmd_Argv(3), NULL);
 			}
 			else
-			{Con_Printf("Unrecognised directive \"%s\"\n", tk);continue;}
+			{Con_Printf("fragfile: line %d: unrecognised #define \"%s\"\n", line_number, tk);continue;}
 		}
 		else
-		{Con_Printf("Unrecognised directive \"%s\"\n", tk);continue;}
+		{Con_Printf("fragfile: line %d: unrecognised directive \"%s\"\n", line_number, tk);continue;}
 	}
 }
 
@@ -957,24 +1065,37 @@ static int qm_stricmp(char *s1, char *s2)//not like strcmp at all...
 static int Stats_ExtractName(const char **line)
 {
 	int i;
-	int bm;
-	int ml = 0;
-	int l;
-	bm = -1;
+	int best_match = -1;
+	int best_match_length = 0;
+	int name_length;
+
 	for (i = 0; i < cl.allocated_client_slots; i++)
 	{
+		// Skip empty slots and spectators. Spectator names must not be
+		// matched as the killer or victim of an obituary even when a
+		// prefix happens to line up - that produced misattributed
+		// fragstats events.
+		if (!cl.players[i].name[0] || cl.players[i].spectator)
+			continue;
+
+		// QW caps server-side names at 31 chars; anything longer in
+		// cl.players[].name is pathological client-side state and must
+		// not be allowed to over-consume the line.
+		name_length = strlen(cl.players[i].name);
+		if (name_length > 31)
+			continue;
+
 		if (!qm_strcmp(cl.players[i].name, *line))
 		{
-			l = strlen(cl.players[i].name);
-			if (l > ml)
+			if (name_length > best_match_length)
 			{
-				bm = i;
-				ml = l;
+				best_match = i;
+				best_match_length = name_length;
 			}
 		}
 	}
-	*line += ml;
-	return bm;
+	*line += best_match_length;
+	return best_match;
 }
 
 qboolean Stats_ParsePickups(const char *line)
@@ -999,6 +1120,10 @@ qboolean Stats_ParsePrintLine(const char *line)
 	int p1;
 	int p2;
 	const char *m2;
+	// Stats_ExtractName advances `line` past the first player name, so
+	// save the original so the hub demo-event extractor can stash the
+	// raw obit verbatim for debugging.
+	const char *original_line = line;
 
 	p1 = Stats_ExtractName(&line);
 	if (p1<0)	//reject it.
@@ -1018,13 +1143,13 @@ qboolean Stats_ParsePrintLine(const char *line)
 				p2 = Stats_ExtractName(&m2);
 				if ((!ms->msgpart2 && *m2=='\n') || (ms->msgpart2 && !Q_strncmp(ms->msgpart2, m2, ms->l2)))
 				{
-					Stats_Evaluate(ms->type, ms->wid, p1, p2);
+					Stats_Evaluate(ms->type, ms->wid, p1, p2, original_line);
 					return true;	//done.
 				}
 			}
 			else
 			{	//one player
-				Stats_Evaluate(ms->type, ms->wid, p1, p1);
+				Stats_Evaluate(ms->type, ms->wid, p1, p1, original_line);
 				return true;	//done.
 			}
 		}
