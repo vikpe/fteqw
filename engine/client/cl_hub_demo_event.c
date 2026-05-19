@@ -53,19 +53,23 @@ static char     last_scanned_demo[MAX_OSPATH] = "";
 typedef struct {
 	int           time_ms;
 	char          death_message[HUB_DEMO_OBIT_BYTES];
-	qboolean      is_capture;                // CTF flag-capture obit;
-	                                         // reconcile emits as MOD_EVENT.
-	int           weapon_id;                 // fragstats wid
+	qboolean      is_capture;                       // CTF flag-capture obit;
+	                                                // reconcile emits as MOD_EVENT.
 
-	int           killer_slot;               // -1 = unknown; used at
-	                                         // end-of-frame to snapshot
-	                                         // killer_origin from cl.inframes
-	int           killer_user_id;            // -1 = unknown
-	unsigned int  killer_items_snapshot;     // cached_items[killer_slot] at emit
-	float         killer_origin_snapshot[3]; // captured at end-of-frame
+	int           killer_slot;                      // -1 = unknown; used at
+	                                                // end-of-frame to snapshot
+	                                                // killer_origin from cl.inframes
+	int           killer_user_id;                   // -1 = unknown
+	unsigned int  killer_items_snapshot;            // cached_items[killer_slot] at emit
+	unsigned int  killer_weapon_id;                // IT_* bit derived from
+	                                                // fragstats wid (= the weapon
+	                                                // that did the damage, not
+	                                                // STAT_ACTIVEWEAPON which lags
+	                                                // the obit by 0-N frames)
+	float         killer_origin_snapshot[3];        // captured at end-of-frame
 	qboolean      is_killer_origin_valid;
 
-	int           victim_user_id;            // -1 = unknown
+	int           victim_user_id;                   // -1 = unknown
 } raw_death_message_t;
 
 typedef struct {
@@ -73,6 +77,11 @@ typedef struct {
 	int          victim_slot;
 	int          victim_user_id;
 	unsigned int victim_items_cached;
+	unsigned int victim_active_weapon_cached; // STAT_ACTIVEWEAPON at the
+	                                          // moment of death — single
+	                                          // IT_* bit identifying the
+	                                          // selected weapon (= the
+	                                          // weapon the victim drops).
 	float        origin[3];                  // snapshotted at end-of-frame
 	qboolean     is_consumed;                // set during phase 2 when matched
 	qboolean     is_origin_pending;
@@ -104,8 +113,11 @@ typedef struct {
 	int      attacker_user_id;
 	int      target_user_id;
 	int      damage;
-	qboolean is_splash_damage;               // KTX dmgdone splash flag;
-	                                         // only set for explosives.
+	int      death_type_id;     // KTX dmgdone typeandflags with the splash
+	                            // bit stripped — death category
+	                            // (lava/drown/telefrag/...).
+	qboolean is_splash_damage;  // KTX dmgdone splash flag; only set for
+	                            // explosives.
 	qboolean is_team_damage;
 } raw_damage_t;
 
@@ -167,6 +179,11 @@ static qboolean      has_seen_health[MAX_CLIENTS];
 // STAT_ITEMS shadow updated unconditionally so phase 1 can fill
 // victim_items at the moment of death without re-walking the demo.
 static unsigned int  cached_items[MAX_CLIENTS];
+// STAT_ACTIVEWEAPON shadow. Single IT_* bit identifying the currently
+// selected weapon. Snapshotted onto raw_death_t at death so the
+// consumer can render "victim dropped X" without guessing from the
+// full items bitmask.
+static unsigned int  cached_active_weapon[MAX_CLIENTS];
 
 // Phase-1 participants set. Seeded by RegisterPlayer and by any hook
 // touching a slot. Finalized in phase 2 from cl.players[].
@@ -226,6 +243,14 @@ void Hub_DemoEvent_OnStatUpdate(int slot, unsigned int stat,
 {
 	if (!is_recording) return;
 	if (slot < 0 || slot >= MAX_CLIENTS) return;
+
+	if (stat == STAT_ACTIVEWEAPON)
+	{
+		// Tracked outside InMatchTime so the first death after warmup
+		// has a valid snapshot. Single IT_* bit.
+		cached_active_weapon[slot] = (unsigned int)new_ivalue;
+		return;
+	}
 
 	if (stat == STAT_ITEMS)
 	{
@@ -303,13 +328,14 @@ void Hub_DemoEvent_OnStatUpdate(int slot, unsigned int stat,
 	if (raw_death_count >= HDE_MAX_DEATHS) return;
 
 	raw_death_t *r = &raw_deaths[raw_death_count++];
-	r->time_ms             = Hub_DemoEvent_TimeMs();
-	r->victim_slot         = slot;
-	r->victim_user_id      = slot_to_user_id(slot);
-	r->victim_items_cached = cached_items[slot];
+	r->time_ms                     = Hub_DemoEvent_TimeMs();
+	r->victim_slot                 = slot;
+	r->victim_user_id              = slot_to_user_id(slot);
+	r->victim_items_cached         = cached_items[slot];
+	r->victim_active_weapon_cached = cached_active_weapon[slot];
 	VectorClear(r->origin);
-	r->is_origin_pending   = true;
-	r->is_consumed         = false;
+	r->is_origin_pending           = true;
+	r->is_consumed                 = false;
 	participants_add(slot);
 }
 
@@ -322,7 +348,8 @@ void Hub_DemoEvent_OnPlayerinfo(int slot)
 }
 
 void Hub_DemoEvent_OnFragStatsKill(int killer_slot, int victim_slot,
-                                   int weapon_id, const char *death_message)
+                                   unsigned int killer_weapon_id,
+                                   const char *death_message)
 {
 	if (!is_recording) return;
 	if (!Hub_DemoEvent_InMatchTime()) return;
@@ -332,19 +359,20 @@ void Hub_DemoEvent_OnFragStatsKill(int killer_slot, int victim_slot,
 	int victim_user_id = slot_to_user_id(victim_slot);
 	if (killer_user_id < 0 && victim_user_id < 0) return;
 
+	qboolean killer_slot_valid = (killer_slot >= 0 && killer_slot < MAX_CLIENTS);
+
 	raw_death_message_t *r = &raw_death_messages[raw_death_message_count++];
-	r->time_ms                = Hub_DemoEvent_TimeMs();
-	r->killer_user_id         = killer_user_id;
-	r->victim_user_id         = victim_user_id;
-	r->killer_slot            = killer_slot;
-	r->weapon_id              = weapon_id;
-	r->is_capture             = false;
-	r->death_message[0]       = 0;
+	r->time_ms               = Hub_DemoEvent_TimeMs();
+	r->killer_user_id        = killer_user_id;
+	r->victim_user_id        = victim_user_id;
+	r->killer_slot           = killer_slot;
+	r->is_capture            = false;
+	r->death_message[0]      = 0;
 	if (death_message) Q_strncpyz(r->death_message, death_message, sizeof(r->death_message));
 	VectorClear(r->killer_origin_snapshot);
 	r->is_killer_origin_valid = false;
-	r->killer_items_snapshot  = (killer_slot >= 0 && killer_slot < MAX_CLIENTS)
-	                                ? cached_items[killer_slot] : 0;
+	r->killer_items_snapshot  = killer_slot_valid ? cached_items[killer_slot] : 0;
+	r->killer_weapon_id      = killer_weapon_id;
 
 	if (killer_slot >= 0) participants_add(killer_slot);
 	if (victim_slot >= 0) participants_add(victim_slot);
@@ -370,16 +398,16 @@ void Hub_DemoEvent_OnFragStatsFlag(int player_slot,
 	// snapshotted directly here (no end-of-frame defer) because the
 	// actor is the victim_slot, not the killer_slot.
 	raw_death_message_t *r = &raw_death_messages[raw_death_message_count++];
-	r->time_ms                = Hub_DemoEvent_TimeMs();
-	r->killer_user_id         = -1;
-	r->victim_user_id         = user_id;
-	r->killer_slot            = -1;
-	r->weapon_id              = 0;
-	r->is_capture             = true;
-	r->death_message[0]       = 0;
+	r->time_ms                       = Hub_DemoEvent_TimeMs();
+	r->killer_user_id                = -1;
+	r->victim_user_id                = user_id;
+	r->killer_slot                   = -1;
+	r->is_capture                    = true;
+	r->death_message[0]              = 0;
 	copy_player_origin(player_slot, r->killer_origin_snapshot);
-	r->is_killer_origin_valid = true;
+	r->is_killer_origin_valid        = true;
 	r->killer_items_snapshot  = 0;
+	r->killer_weapon_id      = 0;
 	participants_add(player_slot);
 }
 
@@ -447,7 +475,8 @@ void Hub_DemoEvent_OnPrint(const char *line)
 }
 
 void Hub_DemoEvent_OnDamage(int attacker_slot, int target_slot,
-                            int damage, qboolean is_team_damage,
+                            int damage, int death_type_id,
+                            qboolean is_team_damage,
                             qboolean is_splash_damage)
 {
 	if (!is_recording) return;
@@ -462,6 +491,7 @@ void Hub_DemoEvent_OnDamage(int attacker_slot, int target_slot,
 	r->attacker_user_id = attacker_user_id;
 	r->target_user_id   = target_user_id;
 	r->damage           = damage;
+	r->death_type_id    = death_type_id;
 	r->is_team_damage   = is_team_damage;
 	r->is_splash_damage = is_splash_damage;
 }
@@ -632,14 +662,33 @@ static void push_death_event(int time_ms, int victim_user_id, int killer_user_id
 {
 	events_grow();
 	hub_demo_event_t *ev = &hub_demo_events[hub_demo_event_count++];
-	ev->kind                       = HDE_KIND_DEATH;
-	ev->u.death.time_ms            = time_ms;
-	ev->u.death.victim.user_id     = victim_user_id;
-	ev->u.death.victim.weapon_id   = victim_weapon_id;
-	ev->u.death.victim.items       = victim_items;
-	ev->u.death.killer.user_id     = killer_user_id;
-	ev->u.death.killer.weapon_id   = killer_weapon_id;
-	ev->u.death.killer.items       = killer_items;
+	ev->kind                     = HDE_KIND_DEATH;
+	ev->u.death.time_ms          = time_ms;
+	ev->u.death.death_type_id    = 0;
+	ev->u.death.victim.user_id   = victim_user_id;
+	ev->u.death.victim.weapon_id = victim_weapon_id;
+	ev->u.death.victim.items     = victim_items;
+	ev->u.death.killer.user_id   = killer_user_id;
+	ev->u.death.killer.weapon_id = killer_weapon_id;
+	ev->u.death.killer.items     = killer_items;
+
+	// death_type_id: KTX death_type_id from the most recent damage hit on this
+	// victim within HDE_DMG_WINDOW_MS. mvdhidden_dmgdone is KTX-only so
+	// this stays 0 on non-KTX MVDs and on demos with no damage stream.
+	if (victim_user_id > 0)
+	{
+		int best_delta_ms = HDE_DMG_WINDOW_MS + 1;
+		for (int i = 0; i < raw_damage_count; i++)
+		{
+			raw_damage_t *r = &raw_damages[i];
+			if (r->target_user_id != victim_user_id) continue;
+			int delta_ms = time_ms - r->time_ms;
+			if (delta_ms < 0 || delta_ms > HDE_DMG_WINDOW_MS) continue;
+			if (delta_ms >= best_delta_ms) continue;
+			best_delta_ms             = delta_ms;
+			ev->u.death.death_type_id = (unsigned int)r->death_type_id;
+		}
+	}
 	if (origin) { ev->u.death.victim.origin[0]=origin[0]; ev->u.death.victim.origin[1]=origin[1]; ev->u.death.victim.origin[2]=origin[2]; }
 	else        VectorClear(ev->u.death.victim.origin);
 	if (killer_origin) { ev->u.death.killer.origin[0]=killer_origin[0]; ev->u.death.killer.origin[1]=killer_origin[1]; ev->u.death.killer.origin[2]=killer_origin[2]; }
@@ -912,9 +961,13 @@ static void reconcile(int scan_end_ms)
 			raw_death_t *d = &raw_deaths[death_index];
 			d->is_consumed = true;
 			int killer_user_id = m->killer_user_id > 0 ? m->killer_user_id : 0;
+			// killer.weapon_id is the IT_* bit fragstats resolved from
+			// the obit pattern (ground truth — the weapon that did the
+			// damage). victim.weapon_id is a STAT_ACTIVEWEAPON snapshot
+			// at death (= the weapon the victim drops).
 			push_death_event(d->time_ms, d->victim_user_id, killer_user_id,
-			                 (unsigned int)m->weapon_id,
-			                 killer_user_id != 0 ? (unsigned int)m->weapon_id : 0,
+			                 d->victim_active_weapon_cached,
+			                 killer_user_id != 0 ? m->killer_weapon_id : 0,
 			                 d->victim_items_cached,
 			                 m->killer_items_snapshot,
 			                 d->origin,
@@ -924,13 +977,13 @@ static void reconcile(int scan_end_ms)
 		else
 		{
 			// Salvage unmatched death_message: no raw_death paired, so
-			// no victim positional data. Emit with whatever sides are
-			// known, leaving origin zero.
+			// no STAT_ACTIVEWEAPON snapshot for the victim. Emit with
+			// whatever sides are known; victim.weapon_id stays 0.
 			int killer_user_id = m->killer_user_id > 0 ? m->killer_user_id : 0;
 			int victim         = m->victim_user_id > 0 ? m->victim_user_id : -1;
 			push_death_event(m->time_ms, victim, killer_user_id,
-			                 (unsigned int)m->weapon_id,
-			                 killer_user_id != 0 ? (unsigned int)m->weapon_id : 0,
+			                 0,
+			                 killer_user_id != 0 ? m->killer_weapon_id : 0,
 			                 0,
 			                 m->killer_items_snapshot,
 			                 NULL,
@@ -950,12 +1003,13 @@ static void reconcile(int scan_end_ms)
 		if (d->is_consumed) continue;
 		int killer_user_id = damage_attribute(d->victim_user_id, d->time_ms);
 
-		// weapon_id / killer_items unavailable in the salvage path —
-		// we have no death_message snapshot to draw from, and reading
-		// cached_items[] at reconcile time would yield end-of-scan
-		// state, not state at the kill. Leave 0.
+		// killer_weapon_id / killer_items unavailable in the salvage
+		// path — we have no death_message snapshot. victim.active_weapon
+		// comes from STAT_ACTIVEWEAPON cached at the STAT_HEALTH→0
+		// instant.
 		push_death_event(d->time_ms, d->victim_user_id, killer_user_id,
-		                 0, 0, d->victim_items_cached, 0,
+		                 d->victim_active_weapon_cached, 0,
+		                 d->victim_items_cached, 0,
 		                 d->origin, NULL, NULL);
 	}
 
@@ -1020,8 +1074,9 @@ static void hde_reset(void)
 	participants_count = 0;
 	for (int i = 0; i < MAX_CLIENTS; i++)
 	{
-		has_seen_health[i] = false;
-		cached_items[i]    = 0;
+		has_seen_health[i]        = false;
+		cached_items[i]           = 0;
+		cached_active_weapon[i]   = 0;
 	}
 }
 

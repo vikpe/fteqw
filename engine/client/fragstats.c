@@ -362,6 +362,30 @@ static void Stats_SetRune(int pnum, int rune)
 	Stats_SyncRuneView(pnum);
 }
 
+// Map a fragfile WEAPON_CLASS codename to its IT_* bit. Used to
+// populate hub demo event killer.weapon_id with the weapon that did
+// the damage (per the obit pattern), independent of STAT_ACTIVEWEAPON
+// which lags the obit by 0-N frames after auto-switches. Returns 0
+// for world-damage codenames (DROWN/LAVA/...) and unknowns.
+static unsigned int Stats_CodenameToItemBit(const char *codename)
+{
+	if (!codename) return 0;
+	if (!stricmp(codename, "AXE"))             return IT_AXE;
+	if (!stricmp(codename, "SHOTGUN"))         return IT_SHOTGUN;
+	if (!stricmp(codename, "Q_SHOTGUN"))       return IT_SHOTGUN;
+	if (!stricmp(codename, "SUPER_SHOTGUN"))   return IT_SUPER_SHOTGUN;
+	if (!stricmp(codename, "Q_SUPER_SHOTGUN")) return IT_SUPER_SHOTGUN;
+	if (!stricmp(codename, "NAILGUN"))         return IT_NAILGUN;
+	if (!stricmp(codename, "SUPER_NAILGUN"))   return IT_SUPER_NAILGUN;
+	if (!stricmp(codename, "Q_SUPER_NAILGUN")) return IT_SUPER_NAILGUN;
+	if (!stricmp(codename, "GRENADE_LAUNCHER"))   return IT_GRENADE_LAUNCHER;
+	if (!stricmp(codename, "ROCKET_LAUNCHER"))    return IT_ROCKET_LAUNCHER;
+	if (!stricmp(codename, "Q_ROCKET_LAUNCHER"))  return IT_ROCKET_LAUNCHER;
+	if (!stricmp(codename, "LIGHTNING_GUN"))      return IT_LIGHTNING;
+	if (!stricmp(codename, "Q_LIGHTNING_GUN"))    return IT_LIGHTNING;
+	return 0;
+}
+
 void Stats_Evaluate(fragfilemsgtypes_t mt, int wid, int p1, int p2,
                     const char *obit_line)
 {
@@ -438,8 +462,13 @@ void Stats_Evaluate(fragfilemsgtypes_t mt, int wid, int p1, int p2,
 		if (both_required && (hde_killer < 0 || hde_victim < 0))
 			; // skip - extraction failed
 		else if (hde_killer >= 0 || hde_victim >= 0)
-			Hub_DemoEvent_OnFragStatsKill(hde_killer, hde_victim, wid,
-			                              obit_line);
+		{
+			unsigned int killer_weapon_id = Stats_CodenameToItemBit(
+			    (wid > 0 && wid < MAX_WEAPONS)
+			        ? fragstats.weapontotals[wid].codename : NULL);
+			Hub_DemoEvent_OnFragStatsKill(hde_killer, hde_victim,
+			                              killer_weapon_id, obit_line);
+		}
 	}
 
 	// Flag + rune events. Same hook surface as kill events; emits new

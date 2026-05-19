@@ -7865,8 +7865,10 @@ void CLEZ_ParseHiddenDemoMessage(void)
 
 				// Feed phase-1 damage buffer for the Hub event scanner.
 				// usernum is 1-based on the wire; convert to 0-based slot.
+				// typeandflags has the splash bit already stripped above —
+				// what remains is the KTX dtype enum.
 				Hub_DemoEvent_OnDamage((int)attacker - 1, (int)targ - 1,
-				                       (int)dmg,
+				                       (int)dmg, (int)typeandflags,
 				                       isteamdamage ? true : false,
 				                       issplash ? true : false);
 

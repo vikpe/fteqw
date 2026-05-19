@@ -49,11 +49,30 @@ typedef struct {
 	int          user_id;
 	unsigned int items;              // STAT_ITEMS at this side of the kill
 	float        origin[3];
-	unsigned int weapon_id;          // fragstats wid; 0 if unattributed
+	// Single IT_* bit identifying the relevant weapon. Same number
+	// space on both sides; only the source differs:
+	//   killer.weapon_id — IT_* bit derived from the fragstats obit
+	//                      pattern (e.g. "X chewed on Y's boomstick"
+	//                      → IT_SHOTGUN). Ground truth for the weapon
+	//                      that did the damage. 0 if unattributed.
+	//   victim.weapon_id — STAT_ACTIVEWEAPON snapshot at death =
+	//                      the weapon the victim drops as a backpack.
+	//                      0 if not observed.
+	unsigned int weapon_id;
 } hub_demo_death_user_t;
 
 typedef struct {
 	int                   time_ms;
+	// KTX mvdhidden_dmgdone death_type_id of the killing blow (lava/drown/
+	// telefrag/fall/stomp/...). 0 if not observed (non-KTX demos or
+	// NQ). Splash bit stripped before storage. Look up known values
+	// via consumer-side death_type_id maps; the engine just forwards the
+	// integer.
+	unsigned int          death_type_id;
+	// Raw fragstats obituary text. Kept for debug rendering — the
+	// engine-side IDs (death_type_id + weapon_id) are the canonical
+	// machine-readable signal. Empty when fragstats didn't classify
+	// the print.
 	char                  message[HUB_DEMO_OBIT_BYTES];
 	hub_demo_death_user_t victim;
 	hub_demo_death_user_t killer;     // user_id == victim for suicide;
@@ -115,7 +134,8 @@ void Hub_DemoEvent_OnStatUpdate(int slot, unsigned int stat,
                                 int old_ivalue, int new_ivalue);
 void Hub_DemoEvent_OnPlayerinfo(int slot);
 void Hub_DemoEvent_OnFragStatsKill(int killer_slot, int victim_slot,
-                                   int weapon_id, const char *death_message);
+                                   unsigned int killer_weapon_id,
+                                   const char *death_message);
 void Hub_DemoEvent_OnFragStatsFlag(int player_slot,
                                    hub_demo_event_kind_t kind);
 void Hub_DemoEvent_OnFragStatsRune(int player_slot, unsigned int rune_bit);
@@ -125,16 +145,18 @@ void Hub_DemoEvent_OnKtxBackpackPickup(int player_slot, unsigned int entnum);
 
 // Damage observation hook (MVD-only, mvdhidden_dmgdone). Used in
 // phase-2 reconciliation as a conservative tie-breaker for
-// unattributed deaths.
+// unattributed deaths and as the source of `death.death_type_id`.
+// `death_type_id` is the KTX dmgdone typeandflags field with the splash bit
+// already stripped.
 void Hub_DemoEvent_OnDamage(int attacker_slot, int target_slot,
-                            int damage, qboolean is_team_damage,
+                            int damage, int death_type_id,
+                            qboolean is_team_damage,
                             qboolean is_splash_damage);
 
 // Raw svc_print line observation. Called from Stats_ParsePrintLine
-// for every obit-channel print, regardless of whether fragstats
-// matched a pattern. Phase 2 attaches the nearest line to deaths
-// whose death_message is otherwise empty — lets the consumer side
-// see unmatched obits ("X mows down a teammate" etc.) for debugging.
+// for every obit-channel print. Phase 2 attaches the nearest line
+// to deaths whose message is otherwise empty so the debug overlay
+// can show what fragstats actually saw.
 void Hub_DemoEvent_OnPrint(const char *line);
 
 // Called once per MVD packet after CLQW_ParseServerMessage finishes.

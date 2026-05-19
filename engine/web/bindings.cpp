@@ -877,8 +877,9 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 					o.set("origin",    vec3_to_val(u.origin));
 					return o;
 				};
-				ev.set("time_ms", source->u.death.time_ms);
-				ev.set("message", std::string(source->u.death.message));
+				ev.set("time_ms",       source->u.death.time_ms);
+				ev.set("death_type_id", (double)source->u.death.death_type_id);
+				ev.set("message",       std::string(source->u.death.message));
 				ev.set("victim",  death_user_to_val(source->u.death.victim));
 				ev.set("killer",  death_user_to_val(source->u.death.killer));
 				ev.set("location", resolve_loc(source->u.death.victim.origin));
@@ -919,28 +920,10 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 			spans.set(i, sp);
 		}
 
-		emscripten::val weapons = emscripten::val::array();
-		{
-			extern fragstats_t fragstats;
-			int n_weap = 0;
-			for (int i = 0; i < MAX_WEAPONS; i++) {
-				if (!fragstats.weapontotals[i].codename) continue;
-				emscripten::val w = emscripten::val::object();
-				w.set("id",       i);
-				w.set("codename", std::string(fragstats.weapontotals[i].codename));
-				if (fragstats.weapontotals[i].fullname)
-					w.set("fullname", std::string(fragstats.weapontotals[i].fullname));
-				if (fragstats.weapontotals[i].abrev)
-					w.set("abbreviation", std::string(fragstats.weapontotals[i].abrev));
-				weapons.set(n_weap++, w);
-			}
-		}
-
 		emscripten::val result = emscripten::val::object();
 		result.set("events",  events);
 		result.set("players", players);
 		result.set("spans",   spans);
-		result.set("weapons", weapons);
 
 		cls.state = saved_state;
 		return result;
