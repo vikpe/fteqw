@@ -1342,6 +1342,14 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		if (elapsed_ms <= 0) return;
 		int new_secs = (int) floor(seconds);
 		if (new_secs < 0) new_secs = 0;
+		// Clamp to one second before the end so seeks can't land past
+		// the last packet and trigger the EOF/disconnect path.
+		extern int hub_demo_total_ms;
+		if (hub_demo_total_ms > 1000)
+		{
+			int max_secs = (hub_demo_total_ms - 1000) / 1000;
+			if (new_secs > max_secs) new_secs = max_secs;
+		}
 		float current_secs = elapsed_ms / 1000.0f;
 		if (fabsf((float) new_secs - current_secs) < 1.0f) return;
 		// Hub_GetDemoElapsedMs reports demo-relative ms; the engine's
