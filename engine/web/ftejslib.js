@@ -36,6 +36,24 @@ mergeInto(LibraryManager.library,
 		window.location = msg;
 	},
 
+	// Engine-ready signal. Called once from cl_main.c after the
+	// "Default Initialized" banner. Dispatches Module.onFteReady(Module)
+	// so the embedding page receives the fully-bound Module reference
+	// (with all bindings.cpp methods attached) without a separate
+	// window lookup. Also fires a "fte:ready" CustomEvent on window
+	// with the Module in detail.module for non-callback consumers.
+	// C side guards against multiple fires.
+	emscriptenfte_engine_ready : function()
+	{
+		try {
+			if (typeof Module["onFteReady"] === "function")
+				Module["onFteReady"](Module);
+		} catch (e) { console.error("onFteReady threw:", e); }
+		try {
+			window.dispatchEvent(new CustomEvent("fte:ready", { detail: { module: Module } }));
+		} catch (e) { console.error("fte:ready dispatch failed:", e); }
+	},
+
 //	emscriptenfte_handle_alloc__deps : ['$FTEH'],
 	emscriptenfte_handle_alloc : function(h)
 	{
@@ -653,7 +671,16 @@ mergeInto(LibraryManager.library,
 //				});
 //			});
 		}
-		var ctx = Browser.createContext(Module['canvas'], true, true, {});
+		// HUB: preserveDrawingBuffer lets Hub_CaptureBackbuffer
+		// (cl_hub_vidweb.c) sample the back buffer from cbuf-processing
+		// context - i.e. between frames - which is when CL_QTVPlay_f
+		// fires the transition capture. Without this the back buffer is
+		// undefined after each swap and the capture reads black.
+		// antialias:false because the MSAA framebuffer's resolve path
+		// shifts colors (brighter) when read by qglCopyTexImage2D, so
+		// the captured frame doesn't match what's on screen.
+		var ctx = Browser.createContext(Module['canvas'], true, true,
+			{preserveDrawingBuffer: true, antialias: false});
 		if (ctx == null)
 		{
 			var msg = "Unable to set up webgl context.\n\nPlease use a browser that supports it and has it enabled\nYour graphics drivers may also be blacklisted, so try updating those too. woo, might as well update your entire operating system while you're at it.\nIt'll be expensive, but hey, its YOUR money, not mine.\nYou can probably just disable the blacklist, but please don't moan at me when your computer blows up, seriously, make sure those drivers are not too buggy.\nI knew a guy once. True story. Boring, but true.\nYou're probably missing out on something right now. Don't you just hate it when that happens?\nMeh, its probably just tinkertoys, right?\n\nYou know, you could always try Internet Explorer, you never know, hell might have frozen over.\nDon't worry, I wasn't serious.\n\nTum te tum. Did you get it working yet?\nDude, fix it already.\n\nThis message was brought to you by Sleep Deprivation, sponsoring quake since I don't know when";
@@ -681,9 +708,25 @@ mergeInto(LibraryManager.library,
                                 width = rect.width;
                                 height = rect.height;
                         }
-                        Browser.setCanvasSize(width*scale, height*scale, false);
+                        // HUB: set the GL drawing buffer (canvas.width/height
+                        // attributes) directly and strip inline CSS dimensions
+                        // every frame. Browser.setCanvasSize() goes through
+                        // updateCanvasDimensions() which writes
+                        // canvas.style.width/height with !important on the
+                        // non-resizeCanvas path - that beats the embedding
+                        // page's CSS and inflates the rendered canvas to its
+                        // DPR-scaled native pixel size. By skipping setCanvasSize
+                        // we keep the layout box CSS-driven while still resizing
+                        // the framebuffer for high-DPI displays.
+                        let canvas = Module['canvas'];
+                        let bw = Math.round(width * scale);
+                        let bh = Math.round(height * scale);
+                        if (canvas.width !== bw) canvas.width = bw;
+                        if (canvas.height !== bh) canvas.height = bh;
+                        canvas.style.removeProperty("width");
+                        canvas.style.removeProperty("height");
                         if (FTEC.evcb.resize != 0)
-                                {{{makeDynCall('viif','FTEC.evcb.resize')}}}(width*scale, height*scale, 1);
+                                {{{makeDynCall('viif','FTEC.evcb.resize')}}}(bw, bh, 1);
 		};
 		window.onresize();
 
@@ -1527,6 +1570,38 @@ mergeInto(LibraryManager.library,
 	emscriptenfte_async_wget_data2 : function(url, ctx, onload, onerror, onprogress)
 	{
 		var _url = UTF8ToString(url);
+
+		// HUB: optional .loc map-overlay files 404 frequently (most
+		// maps ship without one). XMLHttpRequest 404s log as red
+		// console errors in Chrome/Firefox; fetch() does not. Route
+		// .loc URLs through fetch so missing overlays stay silent.
+		// fetch can't report onprogress, but .loc files are tiny so
+		// the loader doesn't need it.
+		if (_url.endsWith('.loc'))
+		{
+			fetch(_url).then(function(res) {
+				if (!res.ok) {
+					if (onerror) {{{makeDynCall('vii','onerror')}}}(ctx, res.status);
+					return;
+				}
+				return res.arrayBuffer().then(function(buf) {
+					if (!onload) return;
+					var ct = (res.headers.get("content-type") || "").split(";")[0].trim();
+					var blen = lengthBytesUTF8(ct) + 1;
+					var mimeptr = _malloc(blen);
+					stringToUTF8(ct, mimeptr, blen);
+					{{{makeDynCall('viii','onload')}}}(
+						ctx,
+						_emscriptenfte_buf_createfromarraybuf(buf),
+						mimeptr);
+					_free(mimeptr);
+				});
+			}).catch(function() {
+				if (onerror) {{{makeDynCall('vii','onerror')}}}(ctx, 0);
+			});
+			return;
+		}
+
 		var http = new XMLHttpRequest();
 		try
 		{

@@ -3363,6 +3363,22 @@ void CL_QTVPlay_f (void)
 		return;
 	}
 
+#ifdef FTE_TARGET_WEB
+	// HUB: snapshot the current backbuffer into the named RT the
+	// transition addon samples, then notify CSQC so it enters the
+	// hold-capture-then-melt state machine. Done up front so the
+	// capture is guaranteed to be the last live frame, independent
+	// of how qtvplay was invoked (Module.command, demo URL drop,
+	// manifest browser, server stuffcmd). The named texture is
+	// created with IF_NOPURGE so Image_Purge during the next
+	// CL_MakeActive doesn't free it before the melt runs.
+	extern void Hub_CaptureBackbuffer(const char *texname);
+	Hub_CaptureBackbuffer("hub_transition_src");
+#ifdef CSQC_DAT
+	CSQC_HubOnQtvCapture();
+#endif
+#endif
+
 	streamid = Cmd_Argv(1);
 	password = Cmd_Argv(2);
 

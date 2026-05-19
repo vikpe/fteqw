@@ -1522,6 +1522,8 @@ qboolean CSQC_Parse_Damage(int seat, float save, float take, vec3_t source);
 qboolean CSQC_Parse_SetAngles(int seat, vec3_t newangles, qboolean wasdelta);
 void	 CSQC_Input_Frame(int seat, usercmd_t *cmd);
 void	 CSQC_WorldLoaded(void);
+void	 CSQC_HubOnSpawn(void);			// HUB: cl_main.c CL_MakeActive
+void	 CSQC_HubOnQtvCapture(void);	// HUB: cl_demo.c CL_QTVPlay_f
 qboolean CSQC_ParseTempEntity(void);
 qboolean CSQC_ConsoleCommand(int seat, const char *cmd);
 qboolean CSQC_KeyPress(int key, int unicode, qboolean down, unsigned int devid);

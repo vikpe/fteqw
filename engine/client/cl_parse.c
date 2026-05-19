@@ -3599,7 +3599,14 @@ static void CLQW_ParseServerData (void)
 #endif
 
 #ifdef CSQC_DAT
-	CSQC_Shutdown();	//revive it when we get the serverinfo saying the checksum.
+	// HUB: defer to CSQC_Init's checksum check (pr_csqc.c:8210) instead
+	// of unconditionally shutting down here. When the new server uses
+	// the same csaddon.dat as the old one (common case for QTV stream
+	// switches inside the hub), CSQC_Init's early-return preserves the
+	// running VM, which lets the transition addon hold its capture +
+	// state across the disconnect/reconnect. If checksums differ,
+	// CSQC_Init still runs the shutdown itself.
+//	CSQC_Shutdown();
 #endif
 }
 

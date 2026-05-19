@@ -19,6 +19,7 @@ void(float apilevel, string enginename, float engineversion) CSQC_Init =
     registercommand("minimap_editor_remove", "Remove the currently highlighted cull volume (the closest one in range, shown brighter with a yellow accent border).");
     registercommand("minimap_editor_undo",   "Undo the last minimap_editor_add or minimap_editor_remove. Single level - no redo.");
     registercommand("minimap_editor_export",   "Write the current in-memory cull volumes to maps/<map>.cull. The only command that touches the file system.");
+    registercommand("transition", "Trigger a screen transition effect. Usage: transition <style> [duration_seconds]. Styles: melt, telefrag, crt_off, swirl, water_drop, pixelate.");
     MinimapRegisterDescriptions();
 };
 
@@ -46,6 +47,7 @@ void() CSQC_WorldLoaded =
 
     CullEditResetState();
     MinimapRegisterShaders();
+    TransitionRegisterShaders();
     // MinimapLoad is deferred to the first MinimapRender frame so the
     // entity-scan narrowing pass can see pickups (the engine populates the
     // CSQC entity table after CSQC_WorldLoaded returns).
@@ -77,6 +79,33 @@ float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent =
     return 0;
 };
 
+// Engine entrypoints for hub-fork events. Wired in via the csqcglobals
+// macro in engine/common/pr_common.h, invoked from CL_MakeActive
+// (cl_main.c) and CL_QTVPlay_f (cl_demo.c). Naming matches the engine
+// side (csqcg.CSQC_HubOnSpawn / CSQC_HubOnQtvCapture) so PR_FindFunction
+// resolves them automatically.
+void() CSQC_HubOnSpawn =
+{
+    TransitionOnSpawn();
+};
+
+void() CSQC_HubOnQtvCapture =
+{
+    TransitionOnQtvCapture();
+};
+
+// Centerprint suppression during transitions. Big middle-of-screen
+// messages (round start banners, MOTD blasts) would pop on top of the
+// held frame and the melt overlay. Notify lines (chat, frag log,
+// server greetings) are suppressed separately via con_notifylines
+// override in transition.qc; those still flow into console scrollback
+// so nothing is lost from the log.
+float(string msg) CSQC_Parse_CenterPrint =
+{
+    if (transition_is_waiting || transition_is_active) return 1;
+    return 0;
+};
+
 void() CSQC_ServerInfoChanged =
 {
     Misc_OnServerInfoChanged();
@@ -105,8 +134,12 @@ void(float seat, float seat_count, vector view_min, vector view_size,
 //   2. powcam powerup overlay (if scheduled and pip enabled)
 //   3. Minimap viewport
 //   4. Score overlay (top-most UI)
+//   5. Transition end-capture (RT->backbuffer blit + optional effect overlay)
 void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 {
+    TransitionPollTriggers();
+    TransitionBeginCapture(vwidth, vheight);
+
     minimap_rect_t main_view;
     MinimapMainViewport(vwidth, vheight, main_view);
     float draw_main = (main_view.size != '0 0 0');
@@ -194,6 +227,18 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     }
 
     MinimapRender(vwidth, vheight);
+
+    TransitionEndCapture(vwidth, vheight);
+};
+
+// Engine calls this in place of CSQC_UpdateView while it considers the
+// client to be loading (connect, map change, demo seek). We replace the
+// engine's black loading screen with the transition overlay running
+// against the last-captured frame, then hand back to CSQC_UpdateView
+// once loading completes.
+void(float vwidth, float vheight, float notmenu) CSQC_UpdateViewLoading =
+{
+    TransitionDrawLoading(vwidth, vheight);
 };
 
 // Per-seat sub-rect inside the main player view.

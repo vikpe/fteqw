@@ -12,59 +12,12 @@
 
 using namespace emscripten;
 
-/**
- * // Sample use of the browser API.
- * //
- * // All functions not returning plain strings and numbers return live
- * // references to the WASM heap and thus references values that update
- * // as the engine runs. This allows the frontend to fetch references
- * // at start, and continue pull data from these throughout the session.
- * //
- * // Some functions return Quake charset strings. These are exposed
- * // as Uint8Array and it's up to the user of the API transform such
- * // arrays into something presentable, with the freedom to deal with
- * // colors and special characters.
- * //
- * // Functions that return an object based on an index may throw
- * // exceptions on for example out-of-bounds.
- *
- * // Demonstration purposes, will botch special chars and colors.
- * const txt = new TextDecoder();
- *
- * const client = Module.getClientState();
- *
- * console.log(client.gametime, client.getLevelName());
- *
- * for (var it = client.getItemTimers(); it != null; it = it.getNext()) {
- *     console.log(it.getTypeName(), "picked up at ", it.getLocation());
- * }
- *
- * console.log(client.getPlayerLocation(3));
- *
- * const player = client.getPlayer(3);
- *
- * // Strings are typed as Uint8Array as they aren't UTF-8 or ASCII.
- * // Deal with remapping frontend side as this will be ugly.
- * console.log(txt.decode(player.getName()), txt.decode(player.getTeam()));
- *
- * // There are "cleaned" versions with special symbols and colors stripped.
- * console.log(player.getTeamPlain(), player.getNamePlain());
- *
- * const stats = client.getStats();
- * console.log(stats[Module.STAT_ARMOR]);
-
- * const items = stats[Module.STAT_ITEMS];
- * console.log("Has RL", items & Module.IT_ROCKET_LAUNCHER);
- *
- * const rlstats = player.getWeaponStats(Module.W_ROCKET_LAUNCHER);
- * console.log(rlstats.hit, rlstats.total);
- *
- * const fragstats = Module.getFragStats();
- * console.log(fragstats.totalkills);
- *
- * const player_fragstats = fragstats.getClientTotals(3);
- * console.log(player_fragstats.teamkills);
- */
+// Bindings exposing engine state to the embedding web app. Non-scalar
+// return values are live views into the WASM heap (typed_memory_view)
+// so JS can re-read without having to re-fetch each frame. Quake
+// charset strings come back as Uint8Array; the JS side owns the
+// decode-and-strip-colors step (use the *Plain variants where they
+// exist for a pre-cleaned std::string).
 
 // `entity_mapping_t` is a return type from find_entity and is
 // dereferenced inside the bindings below, so its layout must be
@@ -258,16 +211,11 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 
 	class_<playerview_t>("PlayerView")
 	        .property("playernum", &playerview_t::playernum)
-			.property("cam_spec_track", &playerview_t::cam_spec_track)
-			.function("getTrackedPlayer", +[](playerview_t& self) -> player_info_t* {
-				return &(cl.players[self.cam_spec_track]);
-			}, allow_raw_pointers());
+			.property("cam_spec_track", &playerview_t::cam_spec_track);
 
 	class_<client_state_t>("ClientState")
-		// .property("deathmatch", &client_state_t::deathmatch)
-		// .property("teamplay", &client_state_t::teamplay)
 		.property("allocated_client_slots", &client_state_t::allocated_client_slots)
-		.property("matchstate", &client_state_t::matchstate) // enum, how
+		.property("matchstate", &client_state_t::matchstate)
 		.function("getMatchElapsed", +[](client_state_t& self) -> emscripten::val {
 			int elapsed = Hub_GetMatchElapsedMs();
 			if (elapsed < 0)
@@ -496,26 +444,20 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		return &fragstats;
 	}, allow_raw_pointers());
 
+	// Output shape:
+	//   { state: "disconnected" }
+	//   { state: "connected", phase: "connecting" | "active",
+	//     type: "server" | "demo" | "qtv", last_source: string }
+	// last_source is the demo url, the qtv stream, or "localhost"
+	// for a listen server.
 	function("getConnectionInfo", +[]() -> emscripten::val {
         emscripten::val info = emscripten::val::object();
 
-        // ca_disconnected // full screen console with no connection
-		// ca_demostart // waiting to start up a demo (still disconnected but there should be a playdemo command in the cbuf somewhere so don't do other stuff)
-		// ca_connected // netchan_t established, waiting for svc_serverdata
-		// ca_onserver // processing data lists, donwloading, etc
-		// ca_active // everything is in, so frames can be rendered
-
-		// disconnected
         if (cls.state == ca_disconnected) {
             info.set("state", "disconnected");
             return info;
         }
 
-        // connected
-        // state: "connected";
-        // phase: "connecting" | "active";
-        // type: "server" | "demo" | "qtv";
-        // last_source: string; // qtv stream or demo url
         info.set("state", "connected");
 
         if (cls.state == ca_active) {

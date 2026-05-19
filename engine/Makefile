@@ -744,6 +744,7 @@ CLIENT_OBJS = \
 	cl_main.o	\
 	cl_parse.o	\
 	cl_hub.o	\
+	cl_hub_vidweb.o	\
 	cl_hub_cam.o	\
 	cl_hub_demo.o	\
 	cl_hub_participants.o	\

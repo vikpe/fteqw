@@ -36,6 +36,12 @@ void emscriptenfte_print(const char *msg);
 void emscriptenfte_setupmainloop(int(*mainloop)(double timestamp));
 NORETURN void emscriptenfte_abortmainloop(const char *caller, int fatal);
 
+//engine-ready signal. fired once after the first "Default Initialized"
+//banner from CL_StartCinematicOrMenu so the embedding web app can
+//stop reading the console log for that handshake. JS side dispatches
+//Module["onFteReady"]() and a "fte:ready" CustomEvent on window.
+void emscriptenfte_engine_ready(void);
+
 //we're trying to avoid including libpng+libjpeg+libogg in javascript due to it being redundant bloat.
 //to use such textures/sounds, we can just 'directly' load them via webgl
 void emscriptenfte_gl_loadtexturefile(int gltexid, int *width, int *height, void *data, int datasize, const char *fname, int premul, int genmips, int isreload);

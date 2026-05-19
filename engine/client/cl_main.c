@@ -459,6 +459,11 @@ void CL_MakeActive(char *gamename)
 #endif
 
 	TP_ExecTrigger("f_begin", true);
+#ifdef CSQC_DAT
+	// HUB: notify the addon that the client just entered ca_active.
+	// Direct csqcg entrypoint - no cbuf-stuff, no registered command.
+	CSQC_HubOnSpawn();
+#endif
 	if (cls.demoplayback)
 		TP_ExecTrigger("f_spawndemo", true);
 	else
@@ -2492,7 +2497,12 @@ void CL_Disconnect (const char *reason)
 		q3->cl.Disconnect(cls.sockets);
 #endif
 #ifdef CSQC_DAT
-	CSQC_Shutdown();
+	// HUB: defer to CSQC_Init's checksum check on the next connect,
+	// matching the skip at cl_parse.c CLQW_ParseServerData. Keeps the
+	// transition addon's WAITING state alive across qtv stream
+	// switches when the old TCP connection closes and the engine
+	// reaches here via CL_Disconnect.
+//	CSQC_Shutdown();
 #endif
 	// if running a local server, shut it down
 	if (cls.demoplayback != DPB_NONE)

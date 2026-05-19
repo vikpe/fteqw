@@ -1080,6 +1080,13 @@ enum
 #define csqcglobals	\
 	globalfunction(CSQC_Init,				"void(float apilevel, string enginename, float engineversion)")	\
 	globalfunction(CSQC_WorldLoaded,		"void()")	\
+	/* HUB: fork extensions - direct engine->CSQC callbacks that avoid \
+	   the registercommand/Cbuf_AddText hop. CSQC_HubOnSpawn fires when \
+	   CL_MakeActive flips cls.state = ca_active; CSQC_HubOnQtvCapture \
+	   fires right after Hub_CaptureBackbuffer snapshots the backbuffer \
+	   in CL_QTVPlay_f. */ \
+	globalfunction(CSQC_HubOnSpawn,			"void()")	\
+	globalfunction(CSQC_HubOnQtvCapture,	"void()")	\
 	globalfunction(CSQC_Shutdown,			"void()")	\
 	globalfunction(CSQC_UpdateView,			"void(float vwidth, float vheight, float notmenu)")	\
 	globalfunction(CSQC_UpdateViewLoading,	"void(float vwidth, float vheight, float notmenu)")	\

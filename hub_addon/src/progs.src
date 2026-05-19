@@ -63,6 +63,9 @@ player_info.qc
 // Module.FTE_RequestPointerLock via the `requestpointerlock` engine command).
 mouselock.qc
 
+// Screen transition overlay (capture-and-melt during connect/map change)
+transition.qc
+
 // Console commands (depend on all feature state above)
 commands.qc
 

@@ -8503,6 +8503,24 @@ qboolean CSQC_Init (qboolean anycsqc, const char *csprogsname, unsigned int chec
 	return true; //success!
 }
 
+// HUB: fork-specific engine->CSQC entrypoints. Direct PR_ExecuteProgram
+// calls (no cbuf-stuff hop, no registered console command) so the
+// callbacks don't pollute the cmd namespace. Function table slots are
+// declared in pr_common.h under the csqcglobals macro.
+void CSQC_HubOnSpawn(void)
+{
+	if (!csqcprogs || !csqcg.CSQC_HubOnSpawn)
+		return;
+	PR_ExecuteProgram(csqcprogs, csqcg.CSQC_HubOnSpawn);
+}
+
+void CSQC_HubOnQtvCapture(void)
+{
+	if (!csqcprogs || !csqcg.CSQC_HubOnQtvCapture)
+		return;
+	PR_ExecuteProgram(csqcprogs, csqcg.CSQC_HubOnQtvCapture);
+}
+
 void CSQC_RendererRestarted(qboolean initing)
 {
 	int i;

@@ -30,5 +30,6 @@ float(string cmd) CSQC_ConsoleCommand =
     if (argv(0) == "minimap_editor_remove") return CullEditRemoveCmd();
     if (argv(0) == "minimap_editor_undo")   return CullEditUndoCmd();
     if (argv(0) == "minimap_editor_export")   return CullEditExportCmd();
+    if (argv(0) == "transition")              return TransitionCmd();
     return 0;
 };
