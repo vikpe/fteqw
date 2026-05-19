@@ -3192,12 +3192,6 @@ fail:
 		{
 			if (*streamavailable) {
 				Con_Printf("streaming \"%s\" via \"%s\"\n", streamavailable, qtv->hostname);
-
-				// quake.world addon
-				if (strncmp(streamavailable, "tcp:", 4) == 0)
-                    Q_strncpyz(cls.last_qtv_stream, streamavailable + 4, sizeof(cls.last_qtv_stream));
-                else
-                    Q_strncpyz(cls.last_qtv_stream, streamavailable, sizeof(cls.last_qtv_stream));
 			}
 			else
 				Con_Printf("qtv connection established to %s\n", qtv->hostname);
@@ -3373,19 +3367,32 @@ void CL_QTVPlay_f (void)
 	password = Cmd_Argv(2);
 
 #ifdef FTE_TARGET_WEB
-	// HUB: Web app calls `qtvplay <host>` with a bare hostname; the
-	// hub's public QTV proxy expects a tcp:<host>@wss://<proxy>
-	// URL. Wrap here so the JS bridge stays "verb + bare host".
-	// Pass-through when the arg already has a stream/scheme marker.
+	// HUB: browsers can't open TCP, so every qtvplay arg without a
+	// scheme is funneled through the hub's public QTV proxy. The
+	// proxy speaks WSS to us and bridges TCP to the upstream QTV
+	// server. The full URL becomes tcp:<arg>@wss://<proxy>:
+	//   qtvplay 3@quake.se:28000
+	//     -> qtvplay tcp:3@quake.se:28000@wss://fteqtv.quake.world
+	//   qtvplay quake.se
+	//     -> qtvplay tcp:quake.se@wss://fteqtv.quake.world
 	#define HUB_QTV_PROXY "fteqtv.quake.world"
 	char wrapped_streamid[256];
-	if (!strchr(streamid, '@') && !strstr(streamid, "://"))
+	if (!strstr(streamid, "://"))
 	{
 		Q_snprintfz(wrapped_streamid, sizeof(wrapped_streamid),
 		            "tcp:%s@wss://" HUB_QTV_PROXY, streamid);
 		streamid = wrapped_streamid;
 	}
 #endif
+
+	// HUB: capture the post-wrap qtvplay argument as the canonical
+	// reconnect URL. The SOURCELIST response later overwrites
+	// last_qtv_stream with the upstream stream advertised by the QTV
+	// server (a backend Quake server's IP:port that's not reachable
+	// directly from the browser), so it can't be used to reconnect.
+	// Re-stash the user-facing URL here so the svc_disconnect
+	// reconnect path issues a working qtvplay command.
+	Q_strncpyz(cls.last_qtv_stream, streamid, sizeof(cls.last_qtv_stream));
 
 	host = strchrrev(streamid, '@');
 	if (host)
