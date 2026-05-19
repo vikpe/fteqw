@@ -960,9 +960,12 @@ static void Stats_LoadFragFile(char *name)
 			{
 				int wid;
 
-				if (Cmd_Argc() < 5)
+				// codename + fullname required; abrev + image optional.
+				// MegaTF lines in stock fragfile.dat omit the image and
+				// some omit the abrev — accept both forms silently.
+				if (Cmd_Argc() < 4)
 				{
-					Con_Printf("fragfile: line %d: #define WEAPON_CLASS expects at least 4 args\n", line_number);
+					Con_Printf("fragfile: line %d: #define WEAPON_CLASS expects at least 2 args\n", line_number);
 					continue;
 				}
 
@@ -975,9 +978,14 @@ static void Stats_LoadFragFile(char *name)
 				{Con_Printf("fragfile: line %d: weapon \"%s\" is already defined\n", line_number, tk);continue;}
 				else
 				{
+					int argc = Cmd_Argc();
 					fragstats.weapontotals[wid].fullname = Z_Copy(Cmd_Argv(3));
-					fragstats.weapontotals[wid].abrev = Z_Copy(Cmd_Argv(4));
-					fragstats.weapontotals[wid].image = Stats_GenTrackerImageString(Cmd_Argv(5));
+					fragstats.weapontotals[wid].abrev = NULL;
+					fragstats.weapontotals[wid].image = NULL;
+					if (argc > 4)
+						fragstats.weapontotals[wid].abrev = Z_Copy(Cmd_Argv(4));
+					if (argc > 5)
+						fragstats.weapontotals[wid].image = Stats_GenTrackerImageString(Cmd_Argv(5));
 				}
 			}
 			else if (!stricmp(tk, "obituary") ||
