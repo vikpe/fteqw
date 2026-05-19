@@ -87,7 +87,14 @@ static void DL_OnError(void *c, int ecode)
 	//anything which doesn't yield an http response (404 is NOT an error as far as js is aware).
 
 	dl->replycode = ecode;
-	Con_Printf(CON_WARNING"dl error(%i): %s\n", ecode, dl->url);
+	// HUB: Suppress failed .loc loads
+	{
+		size_t url_len = strlen(dl->url);
+		qboolean is_optional_loc = url_len > 4 &&
+		    !Q_strcasecmp(dl->url + url_len - 4, ".loc");
+		if (!is_optional_loc)
+			Con_Printf(CON_WARNING"dl error(%i): %s\n", ecode, dl->url);
+	}
 	dl->status = DL_FAILED;
 }
 static void DL_OnProgress(void *c, int position, int totalsize)
