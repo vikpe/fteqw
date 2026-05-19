@@ -91,6 +91,25 @@ void() Participants_Gather =
         Participants_PlayerCount++;
     }
 
+    // Sort players by ASCII (decolorized) name, case-insensitive.
+    // Downstream consumers iterate Participants_Players directly, and
+    // the team fold below takes its colors/slot from the first member
+    // encountered — alphabetical input gives a stable team order too.
+    // Insertion sort: O(n^2) is fine at n <= PARTICIPANT_MAX (32).
+    // The inner condition is split because fteqcc evaluates both sides
+    // of && before short-circuiting, which would trip a bound check on
+    // Participants_Players[-1].
+    for (int i = 1; i < Participants_PlayerCount; i++) {
+        participant_t key = Participants_Players[i];
+        int j = i - 1;
+        while (j >= 0) {
+            if (strcasecmp(Participants_Players[j].name_ascii, key.name_ascii) <= 0) break;
+            Participants_Players[j + 1] = Participants_Players[j];
+            j--;
+        }
+        Participants_Players[j + 1] = key;
+    }
+
     // Pass 2: fold by team string. Score summed across members; other
     // fields (colors, slot, name) come from the first member encountered.
     Participants_TeamCount = 0;
@@ -111,6 +130,19 @@ void() Participants_Gather =
         } else {
             Participants_Teams[existing].score += Participants_Players[i].score;
         }
+    }
+
+    // Sort teams by ASCII name, case-insensitive (same convention and
+    // split-condition shape as the player sort above).
+    for (int i = 1; i < Participants_TeamCount; i++) {
+        participant_t key = Participants_Teams[i];
+        int j = i - 1;
+        while (j >= 0) {
+            if (strcasecmp(Participants_Teams[j].name_ascii, key.name_ascii) <= 0) break;
+            Participants_Teams[j + 1] = Participants_Teams[j];
+            j--;
+        }
+        Participants_Teams[j + 1] = key;
     }
 
     // NQ teamplay detection: exactly 2 distinct pants-color teams AND

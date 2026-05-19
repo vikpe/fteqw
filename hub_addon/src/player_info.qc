@@ -139,8 +139,6 @@ float pi_hit_count;
 
 // Forward declarations so the file reads top-down.
 void(vector view_size, __out pi_layout_t L)                                                                PI_LayoutFor;
-void()                                                                                                     PI_SortPlayersByName;
-void()                                                                                                     PI_SortTeamsByName;
 string(string raw)                                                                                         PI_FormatLocation;
 float(pi_layout_t L, float score)                                                                          PI_TeamBoxWidth;
 void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float match_active, float is_single_pov, participant_t player) PI_DrawPlayerRow;
@@ -202,10 +200,8 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
         }
     }
 
-    PI_SortPlayersByName();
-    if (has_groups) {
-        PI_SortTeamsByName();
-    }
+    // Participants_Gather already sorts both arrays by name_ascii
+    // (case-insensitive) — no per-consumer sort needed here.
 
     // Compute total height so we can bottom-anchor. Team header rows are
     // taller than player rows (they carry the frag-box). Player rows
@@ -374,41 +370,6 @@ float(float evtype, float scanx, float chary, float devid) PlayerInfoInputEvent 
         return 1;
     }
     return 0;
-};
-
-// ----- sort -----------------------------------------------------------------
-
-// Insertion sort, ASCII order on the markup-stripped names ascending.
-// N is small (<= PARTICIPANT_MAX = 32) so the O(N^2) cost is negligible.
-// Both loops split the condition because fteqcc evaluates both sides of
-// && before the boundcheck fires (negative index would trip on
-// Participants_*[-1] otherwise).
-void() PI_SortPlayersByName =
-{
-    for (int i = 1; i < Participants_PlayerCount; i++) {
-        participant_t key = Participants_Players[i];
-        int j = i - 1;
-        while (j >= 0) {
-            if (strcmp(Participants_Players[j].name_ascii, key.name_ascii) <= 0) break;
-            Participants_Players[j + 1] = Participants_Players[j];
-            j--;
-        }
-        Participants_Players[j + 1] = key;
-    }
-};
-
-void() PI_SortTeamsByName =
-{
-    for (int i = 1; i < Participants_TeamCount; i++) {
-        participant_t key = Participants_Teams[i];
-        int j = i - 1;
-        while (j >= 0) {
-            if (strcmp(Participants_Teams[j].name_ascii, key.name_ascii) <= 0) break;
-            Participants_Teams[j + 1] = Participants_Teams[j];
-            j--;
-        }
-        Participants_Teams[j + 1] = key;
-    }
 };
 
 // ----- row + header rendering -----------------------------------------------
