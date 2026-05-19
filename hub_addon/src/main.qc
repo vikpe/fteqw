@@ -137,6 +137,16 @@ void(float seat, float seat_count, vector view_min, vector view_size,
 //   5. Transition end-capture (RT->backbuffer blit + optional effect overlay)
 void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
 {
+    // ftejslib.js sets preserveDrawingBuffer:true so Hub_CaptureBackbuffer
+    // can sample the backbuffer between frames for the QTV transition.
+    // That flag also makes WebGL keep stale contents between frames: any
+    // pixel not covered by a renderscene / drawfill below shows the
+    // previous frame. Most visible in minimap modes 2/3 where the main
+    // view is partial or absent, and letterbox bars + cursor positions
+    // smear across frames. Clear the full canvas before anything draws.
+    drawfill('0 0 0', [vwidth, vheight, 0], '0 0 0', 1);
+    drawfill('0 0 0', '0 0 0', '1 1 1', 1);  // reset blendmode (FTE quirk)
+
     TransitionPollTriggers();
     TransitionBeginCapture(vwidth, vheight);
 
