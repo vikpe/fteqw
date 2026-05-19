@@ -7553,6 +7553,19 @@ void CL_StartCinematicOrMenu(void)
 
 	Con_TPrintf ("^Ue080^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081 %s %sInitialized ^Ue081^Ue081^Ue081^Ue081^Ue081^Ue081^Ue082\n", *fs_gamename.string?fs_gamename.string:"Nothing", com_installer?"Installer ":"");
 
+#ifdef FTE_TARGET_WEB
+	// HUB: signal the embedding web app once. Replaces the previous
+	// console-log scrape for "Default Initialized" so the frontend
+	// can listen via window.Module.onFteReady / "fte:ready" event.
+	{
+		static qboolean hub_ready_fired = false;
+		if (!hub_ready_fired) {
+			hub_ready_fired = true;
+			emscriptenfte_engine_ready();
+		}
+	}
+#endif
+
 	//there might be some console command or somesuch waiting for the renderer to begin (demos or map command or whatever all need model support).
 	realtime+=1;
 	Cbuf_Execute ();	//server may have been waiting for the renderer
