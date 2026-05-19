@@ -9782,7 +9782,16 @@ void CLNQ_ParseServerMessage (void)
 			break;
 
 		case svc_disconnect:
-			CL_Disconnect(cls.demoplayback?NULL:"Server disconnected");	//don't show any errors on end-of-demo.
+			if (cls.demoplayback)
+			{
+				// Freeze at the disconnect message instead of tearing
+				// the demo down. Same rationale as the EOF-pause in
+				// CL_GetDemoMessage: don't cross the boundary.
+				extern cvar_t cl_demospeed;
+				Cvar_Set(&cl_demospeed, "0");
+				return;
+			}
+			CL_Disconnect("Server disconnected");
 			CL_NextDemo();
 			return;
 
