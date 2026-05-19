@@ -8045,8 +8045,11 @@ void CLQW_ParseServerMessage (void)
 			}
 			else if (cls.demoplayback)
 			{
-				CL_Disconnect(NULL);
-				CL_NextDemo();
+				// Freeze at the disconnect message instead of tearing
+				// the demo down. Same rationale as the EOF-pause in
+				// CL_GetDemoMessage: don't cross the boundary.
+				extern cvar_t cl_demospeed;
+				Cvar_Set(&cl_demospeed, "0");
 				return;
 			}
 			else if (cls.state == ca_connected)
@@ -8561,8 +8564,9 @@ void CLQW_ParseServerMessage (void)
 	// End-of-frame hook for the Hub demo-event scanner. Snapshots
 	// origins for deaths / killers observed during this packet now
 	// that all per-player playerinfos have landed in cl.inframes.
-	// No-op outside an active scan.
-	if (cls.demoplayback == DPB_MVD)
+	// No-op outside an active scan. Fires for QWD too (single-POV
+	// QW protocol) since CLQW_ParseServerMessage handles both.
+	if (cls.demoplayback == DPB_MVD || cls.demoplayback == DPB_QUAKEWORLD)
 		Hub_DemoEvent_OnFrameEnd();
 }
 
@@ -10426,6 +10430,11 @@ void CLNQ_ParseServerMessage (void)
 
 		packetusage_pending[cmd] += MSG_GetReadCount()-cmdstart;
 	}
+
+	// End-of-frame hook for the Hub demo-event scanner. Mirrors the
+	// MVD site (~line 8565). No-op outside an active scan.
+	if (cls.demoplayback == DPB_NETQUAKE)
+		Hub_DemoEvent_OnFrameEnd();
 }
 #endif
 

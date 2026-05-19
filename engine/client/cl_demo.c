@@ -376,6 +376,8 @@ void demo_resetcache(int bytes, void *data)
 void CL_ProgressDemoTime(void)
 {
 	extern cvar_t cl_demospeed;
+	extern int    hub_demo_start_offset_ms;
+	extern int    hub_demo_total_ms;
 
 	if (cl.parsecount && Media_PausedDemo(true))
 	{	//console visible whilst democapturing
@@ -391,6 +393,20 @@ void CL_ProgressDemoTime(void)
 		demtime += host_frametime*cl_demospeed.value;
 	else
 		demtime += host_frametime;
+
+	// Hard cap demtime at the demo's last known packet timestamp. Without
+	// this, `cl_demospeed 100` from a paused-at-EOF state would race past
+	// the end (cl_demospeed=0 is re-applied by the EOF handler but only
+	// AFTER this function advanced demtime in the same frame). The cap
+	// is no-op when the timeline hasn't been scanned yet
+	// (hub_demo_total_ms == 0).
+	if (cls.demoplayback && hub_demo_total_ms > 0)
+	{
+		double max_demtime =
+		    (hub_demo_start_offset_ms + hub_demo_total_ms) / 1000.0;
+		if (demtime > max_demtime)
+			demtime = max_demtime;
+	}
 }
 
 static void CL_DemoSeek_RestoreTrack(void)
@@ -575,10 +591,17 @@ qboolean CL_GetDemoMessage (void)
 
 	if (endofdemo)
 	{
+		extern cvar_t cl_demospeed;
 		endofdemo = false;
-		CL_StopPlayback ();
-
-		CL_NextDemo();
+		// Don't cross the boundary: freeze the demo at the last frame
+		// instead of disconnecting and chaining to the next demo. This
+		// preserves cls.demoinfile so URL-loaded demos (which can't be
+		// re-opened by path) stay scrubbable backward, and keeps the
+		// Hub event scanner's post-scan restore path simple. Setting
+		// cl_demospeed=0 stops demtime advancement in
+		// CL_ProgressDemoTime; the timing gate below then blocks any
+		// further forward reads. Backward seeks still work.
+		Cvar_Set(&cl_demospeed, "0");
 		return 0;
 	}
 
@@ -656,6 +679,21 @@ qboolean CL_GetDemoMessage (void)
 					CL_DemoSeek_RestoreTrack();
 					return 0;
 				}
+			}
+			else if (cls.demoseeking != DEMOSEEK_NOT)
+			{
+				// DEMOSEEK_INTERMISSION (or any other non-TIME seek mode):
+				// race ahead with no per-frame timing gate. The
+				// svc_intermission handler flips demoseeking back to
+				// DEMOSEEK_NOT, ending the race naturally. Required for
+				// Hub_DemoEvent_Scan on NQ demos.
+				//
+				// Keep demtime in sync with cl.gametime so consumers
+				// (Hub_DemoEvent_TimeMs, anything else reading demtime)
+				// see real timestamps. Normally the timing-gate branch
+				// below does this; the race skips that branch.
+				if (cl.gametime > 0)
+					demtime = cl.gametime;
 			}
 			else if (cl.demonudge > 0)
 				cl.demonudge--;

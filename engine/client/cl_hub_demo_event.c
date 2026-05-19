@@ -1089,9 +1089,11 @@ int Hub_DemoEvent_Scan(void)
 		Con_Printf("not playing a demo\n");
 		return -1;
 	}
-	if (cls.demoplayback != DPB_MVD)
+	if (cls.demoplayback != DPB_MVD &&
+	    cls.demoplayback != DPB_QUAKEWORLD &&
+	    cls.demoplayback != DPB_NETQUAKE)
 	{
-		Con_Printf("demo_events_scan: MVD only in this build\n");
+		Con_Printf("demo_events_scan: MVD / QWD / NQ only\n");
 		return -1;
 	}
 	if (!*cls.lastdemoname)
@@ -1112,11 +1114,14 @@ int Hub_DemoEvent_Scan(void)
 		return hub_demo_event_count;
 	}
 
+	extern cvar_t cl_demospeed;
 	float    saved_time           = demtime > 0 ? demtime : 0;
 	char     saved_name[MAX_OSPATH];
+	char     saved_demospeed[32];
 	qboolean saved_was_systempath = cls.lastdemowassystempath;
 	int      demotype             = cls.demoplayback;
-	Q_strncpyz(saved_name, cls.lastdemoname, sizeof(saved_name));
+	Q_strncpyz(saved_name,      cls.lastdemoname,    sizeof(saved_name));
+	Q_strncpyz(saved_demospeed, cl_demospeed.string, sizeof(saved_demospeed));
 
 	double t_start = Sys_DoubleTime();
 
@@ -1178,6 +1183,9 @@ int Hub_DemoEvent_Scan(void)
 	Hub_ResetMatchState();
 	cls.demoseektime = saved_time;
 	cls.demoseeking  = DEMOSEEK_TIME;
+	// Restore cl_demospeed: the EOF-pause path sets it to 0 when the
+	// scan races to the end of the demo.
+	Cvar_Set(&cl_demospeed, saved_demospeed);
 
 	Q_strncpyz(last_scanned_demo, saved_name, sizeof(last_scanned_demo));
 
