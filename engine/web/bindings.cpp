@@ -66,6 +66,10 @@ using namespace emscripten;
  * console.log(player_fragstats.teamkills);
  */
 
+// `entity_mapping_t` is a return type from find_entity and is
+// dereferenced inside the bindings below, so its layout must be
+// visible up top. The table + every static helper is defined after
+// EMSCRIPTEN_BINDINGS so the public API reads first.
 typedef struct entity_mapping_st {
 	const char *mdl;
 	const char *tp_cvar;
@@ -73,152 +77,16 @@ typedef struct entity_mapping_st {
 	int skin;
 } entity_mapping_t;
 
-static entity_mapping_t entity_mapping[] = {
-		{ "progs/backpack.mdl", "tp_name_backpack", 0,                   -1 },
-		{ "progs/ring.mdl",     "tp_name_ring",     IT_INVISIBILITY,     -1 },
-		{ "progs/invulner.mdl", "tp_name_pent",     IT_INVULNERABILITY,  -1 },
-		{ "progs/quaddama.mdl", "tp_name_quad",     IT_QUAD,             -1 },
-		{ "progs/suit.mdl",     "tp_name_suit",     IT_SUIT,             -1 },
-		{ "progs/armor.mdl",    "tp_name_ra",       IT_ARMOR3,            2 },
-		{ "progs/armor.mdl",    "tp_name_ya",       IT_ARMOR2,            1 },
-		{ "progs/armor.mdl",    "tp_name_ga",       IT_ARMOR1,            0 },
-		{ "progs/g_shot.mdl",   "tp_name_ssg",      IT_SUPER_SHOTGUN,    -1 },
-		{ "progs/g_nail.mdl",   "tp_name_ng",       IT_NAILGUN,          -1 },
-		{ "progs/g_nail2.mdl",  "tp_name_sng",      IT_SUPER_NAILGUN,    -1 },
-		{ "progs/g_rock.mdl",   "tp_name_gl",       IT_GRENADE_LAUNCHER, -1 },
-		{ "progs/g_rock2.mdl",  "tp_name_rl",       IT_ROCKET_LAUNCHER,  -1 },
-		{ "progs/g_light.mdl",  "tp_name_lg",       IT_LIGHTNING,        -1 },
-		{ "maps/b_bh100.bsp",   "tp_name_mh",       IT_SUPERHEALTH,      -1 },
-};
-
-static const entity_mapping_t *find_entity(int entnum) {
-	entity_state_t *ent;
-	const char *mdl;
-	int i;
-
-	if (entnum >= cl.maxlerpents || !cl.lerpentssequence || cl.lerpents[entnum].sequence != cl.lerpentssequence) {
-		if (entnum >= 0 || entnum < cl_baselines_count) {
-			ent = &cl_baselines[entnum];
-		} else {
-			throw std::out_of_range("itemtimer entity index out of range");
-		}
-	} else {
-		ent = (&cl.lerpents[entnum])->entstate;
-	}
-
-	if (ent->modelindex < 0 || ent->modelindex >= MAX_PRECACHE_MODELS)
-		throw std::out_of_range("itemtimer entity model index out of range");
-
-	mdl = cl.model_name[ent->modelindex];
-	if (!mdl)
-		throw std::out_of_range("itemtimer entity model not found");
-
-	for (i = 0; i < countof(entity_mapping); i++) {
-		entity_mapping_t *e = &entity_mapping[i];
-		if (!strcmp(e->mdl, mdl) && (e->skin == -1 || e->skin == ent->skinnum))
-			return e;
-	}
-
-	throw std::invalid_argument("itemtimer entity type not supported");
-}
-
-static void collect_infobuf(void *ctx, const char *key, const char *value) {
-	emscripten::val *result = (emscripten::val *) ctx;
-	result->set(key, value);
-}
-
-// Standard Quake brush-box items (item_health, item_shells, _spikes,
-// _rockets, _cells) call setmodel("maps/b_*.bsp") at runtime; the box
-// geometry sits at the +X / +Y corner of the entity origin, so the
-// visual center is at origin + (16, 16). Used by both getEntities()
-// and highlightEntityIndex() so the web sees a single consistent
-// position for marker placement and teleport target.
-static bool is_brush_box_item(const char *classname) {
-	return !strcmp(classname, "item_health")  ||
-	       !strcmp(classname, "item_shells")  ||
-	       !strcmp(classname, "item_spikes")  ||
-	       !strcmp(classname, "item_rockets") ||
-	       !strcmp(classname, "item_cells");
-}
-
-// Resolves the effective world position of a BSP entity record.
-// Point entities carry their position directly in `origin`. Brush
-// entities (trigger_teleport, trigger_hurt, ...) leave origin at
-// 0,0,0 and reference a worldmodel submodel via `model "*N"`; for
-// those we compute the bbox center from the model_t submodel table.
-// Returns true on success.
-static bool resolve_bsp_entity_origin(const char *origin_str,
-                                      const char *model_str,
-                                      float *ox, float *oy, float *oz) {
-	float x = 0, y = 0, z = 0;
-	int parsed = sscanf(origin_str, "%f %f %f", &x, &y, &z);
-	bool origin_present = parsed == 3 && (x != 0 || y != 0 || z != 0);
-	if (origin_present) {
-		*ox = x; *oy = y; *oz = z;
-		return true;
-	}
-	if (model_str && model_str[0] == '*' && cl.worldmodel &&
-	    cl.worldmodel->submodels) {
-		int n = atoi(model_str + 1);
-		if (n > 0 && n < cl.worldmodel->numsubmodels) {
-			mmodel_t *sm = &cl.worldmodel->submodels[n];
-			*ox = (sm->mins[0] + sm->maxs[0]) * 0.5f;
-			*oy = (sm->mins[1] + sm->maxs[1]) * 0.5f;
-			*oz = (sm->mins[2] + sm->maxs[2]) * 0.5f;
-			return true;
-		}
-	}
-	if (parsed == 3) {  // origin was explicitly "0 0 0"
-		*ox = x; *oy = y; *oz = z;
-		return true;
-	}
-	return false;
-}
-
-// Resolves the world origin of the info_teleport_destination whose
-// targetname matches `target`. Walks the BSP entity string once. Returns
-// true on hit (and writes ox/oy/oz); false when no destination has that
-// targetname or no map is loaded. Used by getEntities() to surface the
-// destination's loc_name on each trigger_teleport entry so the web app
-// can show "from X to Y" without doing the lookup client-side.
-static bool find_teleport_destination_origin(const char *target,
-                                             float *ox, float *oy, float *oz) {
-	if (!target || !target[0]) return false;
-	if (!cl.worldmodel) return false;
-	const char *ents = Mod_GetEntitiesString(cl.worldmodel);
-	if (!ents) return false;
-	char token[1024];
-	while (ents && *ents) {
-		ents = COM_ParseOut(ents, token, sizeof(token));
-		if (token[0] != '{') continue;
-		char classname[128]        = "";
-		char origin_str[128]       = "";
-		char model_field[128]      = "";
-		char targetname_field[128] = "";
-		while (ents && *ents) {
-			ents = COM_ParseOut(ents, token, sizeof(token));
-			if (token[0] == '}') break;
-			char value[1024];
-			ents = COM_ParseOut(ents, value, sizeof(value));
-			if      (!strcmp(token, "classname"))  Q_strncpyz(classname,        value, sizeof(classname));
-			else if (!strcmp(token, "origin"))     Q_strncpyz(origin_str,       value, sizeof(origin_str));
-			else if (!strcmp(token, "model"))      Q_strncpyz(model_field,      value, sizeof(model_field));
-			else if (!strcmp(token, "targetname")) Q_strncpyz(targetname_field, value, sizeof(targetname_field));
-		}
-		if (strcmp(classname, "info_teleport_destination")) continue;
-		if (strcmp(targetname_field, target))               continue;
-		return resolve_bsp_entity_origin(origin_str, model_field, ox, oy, oz);
-	}
-	return false;
-}
-
-static lerpents_t* get_player_lerped(int index) {
-	if (index + 1 < cl.maxlerpents && cl.lerpentssequence && cl.lerpents[index + 1].sequence == cl.lerpentssequence)
-		return &cl.lerpents[index + 1];
-	if (cl.lerpentssequence && cl.lerpplayers[index].sequence == cl.lerpentssequence)
-		return &cl.lerpplayers[index];
-	throw std::out_of_range("Player index out of range");
-}
+static const entity_mapping_t *find_entity(int entnum);
+static void                    collect_infobuf(void *ctx, const char *key, const char *value);
+static bool                    is_brush_box_item(const char *classname);
+static bool                    resolve_bsp_entity_origin(const char *origin_str,
+                                                         const char *model_str,
+                                                         float *ox, float *oy, float *oz);
+static bool                    find_teleport_destination_origin(const char *target,
+                                                                float *ox, float *oy, float *oz);
+static lerpents_t             *get_player_lerped(int index);
+static void                    hub_demo_jump_seconds(double seconds);
 
 EMSCRIPTEN_BINDINGS(browser_api) {
 	constant("STAT_HEALTH",         (int) STAT_HEALTH        );
@@ -969,7 +837,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	// uniformly across demo playback, local listen server (`+map`),
 	// and live connection. Independent of cl_baselines being
 	// populated.
-	function("getEntities", +[]() -> emscripten::val {
+	function("getMapEntities", +[]() -> emscripten::val {
 		emscripten::val result = emscripten::val::array();
 		if (!cl.worldmodel) return result;
 		const char *ents = Mod_GetEntitiesString(cl.worldmodel);
@@ -979,10 +847,10 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		// registered with the FS. Custom maps ship their .loc inside
 		// that same pack, and FS_LoadMapPackFile runs in a later
 		// cl_parse stage than the one that sets cl.worldmodel - so
-		// without this an early getEntities() can't find the .loc
+		// without this an early getMapEntities() can't find the .loc
 		// even though the file is right there. Idempotent
 		// (FS_MapPackIsActive short-circuit), so calling it on every
-		// getEntities() is cheap. Then force-load the .loc and pin
+		// getMapEntities() is cheap. Then force-load the .loc and pin
 		// cls.state = ca_active for the duration so TP_LocationName
 		// doesn't bail with "someplace".
 		if (cl.worldmodel && cl.worldmodel->archive)
@@ -1098,7 +966,7 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	});
 
 	// Set the CSQC minimap highlight to the world position of the
-	// entity at iteration index `id` (same id field getEntities()
+	// entity at iteration index `id` (same id field getMapEntities()
 	// returns). For teleporters (trigger_teleport / info_teleport_-
 	// destination) the linked partner is highlighted too via the
 	// target/targetname relationship - the cvar format supports
@@ -1349,35 +1217,40 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		// with setMinimapHighlight / setMinimapHeatmap).
 	});
 
-	// Seek the active demo to `seconds` from the start. Floors and clamps
-	// to >= 0; no-ops when no demo is loaded, when the elapsed time isn't
-	// known yet, or when the requested second is within 1s of current
-	function("demoJump", +[](double seconds) {
-		if (!cls.lastdemoname[0]) return;
-		int elapsed_ms = Hub_GetDemoElapsedMs();
-		if (elapsed_ms <= 0) return;
-		int new_secs = (int) floor(seconds);
-		if (new_secs < 0) new_secs = 0;
-		// Clamp to one second before the end so seeks can't land past
-		// the last packet and trigger the EOF/disconnect path.
-		extern int hub_demo_total_ms;
-		if (hub_demo_total_ms > 1000)
-		{
-			int max_secs = (hub_demo_total_ms - 1000) / 1000;
-			if (new_secs > max_secs) new_secs = max_secs;
+	// Single entry point for console commands the web app pushes into
+	// the engine. Replaces the JS-side `command(name, value)` wrapper
+	// that built "name [value]\n" and called FTEC.cbufadd directly.
+	//
+	// `value` may be undefined, a string, or a number. Undefined sends
+	// just the command name; otherwise the value is appended after a
+	// space. Numbers stringify with %g.
+	//
+	// "demo_jump" is special-cased: the engine's built-in demo_jump
+	// expects absolute level-time seconds, but the web app thinks in
+	// demo-relative seconds. hub_demo_jump_seconds applies the NQ
+	// start_offset shift and the clamp/no-op logic that JS used to
+	// route through Module.demoJump.
+	function("command", +[](std::string name, emscripten::val value) {
+		if (name == "demo_jump") {
+			double seconds = value.isUndefined() || value.isNull()
+				? 0.0
+				: value.as<double>();
+			hub_demo_jump_seconds(seconds);
+			return;
 		}
-		float current_secs = elapsed_ms / 1000.0f;
-		if (fabsf((float) new_secs - current_secs) < 1.0f) return;
-		// Hub_GetDemoElapsedMs reports demo-relative ms; the engine's
-		// `demo_jump` command takes the same unit as demtime, which is
-		// absolute level time for NQ. Shift the demo-relative request
-		// back into that frame so NQ seeks land in the right place.
-		// QW/MVD have start_offset = 0, so this is a no-op there.
-		extern int hub_demo_start_offset_ms;
-		int abs_secs = new_secs + (hub_demo_start_offset_ms + 500) / 1000;
-		char cmd[64];
-		snprintf(cmd, sizeof(cmd), "demo_jump %d\n", abs_secs);
-		Cbuf_AddText(cmd, RESTRICT_LOCAL);
+		char buf[1024];
+		if (value.isUndefined() || value.isNull()) {
+			Q_snprintfz(buf, sizeof(buf), "%s\n", name.c_str());
+		} else if (value.isString()) {
+			Q_snprintfz(buf, sizeof(buf), "%s %s\n",
+			            name.c_str(), value.as<std::string>().c_str());
+		} else if (value.isNumber()) {
+			Q_snprintfz(buf, sizeof(buf), "%s %g\n",
+			            name.c_str(), value.as<double>());
+		} else {
+			Q_snprintfz(buf, sizeof(buf), "%s\n", name.c_str());
+		}
+		Cbuf_AddText(buf, RESTRICT_LOCAL);
 	});
 
 	// One-line summary of the current match. Built from the same
@@ -1460,4 +1333,184 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		return std::string(buf);
 	});
 
+}
+
+// ---- Static helpers ------------------------------------------------------
+
+static entity_mapping_t entity_mapping[] = {
+		{ "progs/backpack.mdl", "tp_name_backpack", 0,                   -1 },
+		{ "progs/ring.mdl",     "tp_name_ring",     IT_INVISIBILITY,     -1 },
+		{ "progs/invulner.mdl", "tp_name_pent",     IT_INVULNERABILITY,  -1 },
+		{ "progs/quaddama.mdl", "tp_name_quad",     IT_QUAD,             -1 },
+		{ "progs/suit.mdl",     "tp_name_suit",     IT_SUIT,             -1 },
+		{ "progs/armor.mdl",    "tp_name_ra",       IT_ARMOR3,            2 },
+		{ "progs/armor.mdl",    "tp_name_ya",       IT_ARMOR2,            1 },
+		{ "progs/armor.mdl",    "tp_name_ga",       IT_ARMOR1,            0 },
+		{ "progs/g_shot.mdl",   "tp_name_ssg",      IT_SUPER_SHOTGUN,    -1 },
+		{ "progs/g_nail.mdl",   "tp_name_ng",       IT_NAILGUN,          -1 },
+		{ "progs/g_nail2.mdl",  "tp_name_sng",      IT_SUPER_NAILGUN,    -1 },
+		{ "progs/g_rock.mdl",   "tp_name_gl",       IT_GRENADE_LAUNCHER, -1 },
+		{ "progs/g_rock2.mdl",  "tp_name_rl",       IT_ROCKET_LAUNCHER,  -1 },
+		{ "progs/g_light.mdl",  "tp_name_lg",       IT_LIGHTNING,        -1 },
+		{ "maps/b_bh100.bsp",   "tp_name_mh",       IT_SUPERHEALTH,      -1 },
+};
+
+static const entity_mapping_t *find_entity(int entnum) {
+	entity_state_t *ent;
+	const char *mdl;
+	int i;
+
+	if (entnum >= cl.maxlerpents || !cl.lerpentssequence || cl.lerpents[entnum].sequence != cl.lerpentssequence) {
+		if (entnum >= 0 || entnum < cl_baselines_count) {
+			ent = &cl_baselines[entnum];
+		} else {
+			throw std::out_of_range("itemtimer entity index out of range");
+		}
+	} else {
+		ent = (&cl.lerpents[entnum])->entstate;
+	}
+
+	if (ent->modelindex < 0 || ent->modelindex >= MAX_PRECACHE_MODELS)
+		throw std::out_of_range("itemtimer entity model index out of range");
+
+	mdl = cl.model_name[ent->modelindex];
+	if (!mdl)
+		throw std::out_of_range("itemtimer entity model not found");
+
+	for (i = 0; i < countof(entity_mapping); i++) {
+		entity_mapping_t *e = &entity_mapping[i];
+		if (!strcmp(e->mdl, mdl) && (e->skin == -1 || e->skin == ent->skinnum))
+			return e;
+	}
+
+	throw std::invalid_argument("itemtimer entity type not supported");
+}
+
+static void collect_infobuf(void *ctx, const char *key, const char *value) {
+	emscripten::val *result = (emscripten::val *) ctx;
+	result->set(key, value);
+}
+
+// Standard Quake brush-box items (item_health, item_shells, _spikes,
+// _rockets, _cells) call setmodel("maps/b_*.bsp") at runtime; the box
+// geometry sits at the +X / +Y corner of the entity origin, so the
+// visual center is at origin + (16, 16). Used by both getMapEntities()
+// and highlightEntityIndex() so the web sees a single consistent
+// position for marker placement and teleport target.
+static bool is_brush_box_item(const char *classname) {
+	return !strcmp(classname, "item_health")  ||
+	       !strcmp(classname, "item_shells")  ||
+	       !strcmp(classname, "item_spikes")  ||
+	       !strcmp(classname, "item_rockets") ||
+	       !strcmp(classname, "item_cells");
+}
+
+// Resolves the effective world position of a BSP entity record.
+// Point entities carry their position directly in `origin`. Brush
+// entities (trigger_teleport, trigger_hurt, ...) leave origin at
+// 0,0,0 and reference a worldmodel submodel via `model "*N"`; for
+// those we compute the bbox center from the model_t submodel table.
+// Returns true on success.
+static bool resolve_bsp_entity_origin(const char *origin_str,
+                                      const char *model_str,
+                                      float *ox, float *oy, float *oz) {
+	float x = 0, y = 0, z = 0;
+	int parsed = sscanf(origin_str, "%f %f %f", &x, &y, &z);
+	bool origin_present = parsed == 3 && (x != 0 || y != 0 || z != 0);
+	if (origin_present) {
+		*ox = x; *oy = y; *oz = z;
+		return true;
+	}
+	if (model_str && model_str[0] == '*' && cl.worldmodel &&
+	    cl.worldmodel->submodels) {
+		int n = atoi(model_str + 1);
+		if (n > 0 && n < cl.worldmodel->numsubmodels) {
+			mmodel_t *sm = &cl.worldmodel->submodels[n];
+			*ox = (sm->mins[0] + sm->maxs[0]) * 0.5f;
+			*oy = (sm->mins[1] + sm->maxs[1]) * 0.5f;
+			*oz = (sm->mins[2] + sm->maxs[2]) * 0.5f;
+			return true;
+		}
+	}
+	if (parsed == 3) {  // origin was explicitly "0 0 0"
+		*ox = x; *oy = y; *oz = z;
+		return true;
+	}
+	return false;
+}
+
+// Resolves the world origin of the info_teleport_destination whose
+// targetname matches `target`. Walks the BSP entity string once. Returns
+// true on hit (and writes ox/oy/oz); false when no destination has that
+// targetname or no map is loaded. Used by getMapEntities() to surface the
+// destination's loc_name on each trigger_teleport entry so the web app
+// can show "from X to Y" without doing the lookup client-side.
+static bool find_teleport_destination_origin(const char *target,
+                                             float *ox, float *oy, float *oz) {
+	if (!target || !target[0]) return false;
+	if (!cl.worldmodel) return false;
+	const char *ents = Mod_GetEntitiesString(cl.worldmodel);
+	if (!ents) return false;
+	char token[1024];
+	while (ents && *ents) {
+		ents = COM_ParseOut(ents, token, sizeof(token));
+		if (token[0] != '{') continue;
+		char classname[128]        = "";
+		char origin_str[128]       = "";
+		char model_field[128]      = "";
+		char targetname_field[128] = "";
+		while (ents && *ents) {
+			ents = COM_ParseOut(ents, token, sizeof(token));
+			if (token[0] == '}') break;
+			char value[1024];
+			ents = COM_ParseOut(ents, value, sizeof(value));
+			if      (!strcmp(token, "classname"))  Q_strncpyz(classname,        value, sizeof(classname));
+			else if (!strcmp(token, "origin"))     Q_strncpyz(origin_str,       value, sizeof(origin_str));
+			else if (!strcmp(token, "model"))      Q_strncpyz(model_field,      value, sizeof(model_field));
+			else if (!strcmp(token, "targetname")) Q_strncpyz(targetname_field, value, sizeof(targetname_field));
+		}
+		if (strcmp(classname, "info_teleport_destination")) continue;
+		if (strcmp(targetname_field, target))               continue;
+		return resolve_bsp_entity_origin(origin_str, model_field, ox, oy, oz);
+	}
+	return false;
+}
+
+static lerpents_t* get_player_lerped(int index) {
+	if (index + 1 < cl.maxlerpents && cl.lerpentssequence && cl.lerpents[index + 1].sequence == cl.lerpentssequence)
+		return &cl.lerpents[index + 1];
+	if (cl.lerpentssequence && cl.lerpplayers[index].sequence == cl.lerpentssequence)
+		return &cl.lerpplayers[index];
+	throw std::out_of_range("Player index out of range");
+}
+
+// Seek the active demo to `seconds` from the start. Called from the
+// command("demo_jump", ...) dispatch. Floors and clamps to >= 0;
+// no-ops when no demo is loaded, when elapsed time isn't known yet,
+// or when the requested second is within 1s of current. Clamps to
+// one second before the end so seeks can't land past the last packet
+// and trigger the EOF/disconnect path. Hub_GetDemoElapsedMs reports
+// demo-relative ms; the engine's `demo_jump` command takes the same
+// unit as demtime (absolute level time for NQ). Shift the
+// demo-relative request back into that frame so NQ seeks land in the
+// right place. QW/MVD have start_offset = 0, so this is a no-op there.
+static void hub_demo_jump_seconds(double seconds) {
+	if (!cls.lastdemoname[0]) return;
+	int elapsed_ms = Hub_GetDemoElapsedMs();
+	if (elapsed_ms <= 0) return;
+	int new_secs = (int) floor(seconds);
+	if (new_secs < 0) new_secs = 0;
+	extern int hub_demo_total_ms;
+	if (hub_demo_total_ms > 1000)
+	{
+		int max_secs = (hub_demo_total_ms - 1000) / 1000;
+		if (new_secs > max_secs) new_secs = max_secs;
+	}
+	float current_secs = elapsed_ms / 1000.0f;
+	if (fabsf((float) new_secs - current_secs) < 1.0f) return;
+	extern int hub_demo_start_offset_ms;
+	int abs_secs = new_secs + (hub_demo_start_offset_ms + 500) / 1000;
+	char cmd[64];
+	snprintf(cmd, sizeof(cmd), "demo_jump %d\n", abs_secs);
+	Cbuf_AddText(cmd, RESTRICT_LOCAL);
 }
