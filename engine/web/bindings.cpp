@@ -770,6 +770,22 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		web_log_enabled = enabled ? (qboolean)true : (qboolean)false;
 	});
 
+	// Pre-create the CSQC-side autocvars the web app drives before
+	// csaddon.dat has loaded. csaddon.dat (hub_addon/) only loads on
+	// world load (demo playback or server connect), so any "set
+	// powcam_enabled 1" the web app pushes via Cbuf_AddText during
+	// engine boot lands on an empty cvar table and the dispatcher
+	// prints "Unknown command". Creating the cvars here puts them in
+	// the engine table immediately; when csaddon.dat eventually loads,
+	// its autocvar_X declarations bind to the existing cvars and pick
+	// up whatever value the web app already set. Defaults mirror the
+	// QC declarations (hub_addon/src/powcam.qc, xray.qc, minimap_data.qc).
+	function("preregisterHubCvars", +[]() {
+		Cvar_Get("powcam_enabled", "1", 0, "Hub state");
+		Cvar_Get("xray",           "1", 0, "Hub state");
+		Cvar_Get("minimap_mode",   "0", 0, "Hub state");
+	});
+
 	// Web app's hover-on-canvas signal. The embedding page already tracks
 	// this for hiding the demo time slider when the cursor leaves the
 	// canvas; routing it through here lets CSQC overlays follow the same
