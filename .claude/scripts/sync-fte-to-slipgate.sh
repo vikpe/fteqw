@@ -17,8 +17,9 @@
 
 set -u
 
-SRC_ENGINE=/home/vikpe/dev/fteqw-vikpe/engine/release
-SRC_ADDON=/home/vikpe/dev/fteqw-vikpe/hub_addon
+BASEDIR=/home/vikpe/dev/fteqw
+SRC_ENGINE=$BASEDIR/engine/release
+SRC_ADDON=$BASEDIR/hub_addon
 DST=/home/vikpe/dev/slipgate/web/apps/website/public/fte
 
 sync_artifacts() {
@@ -39,7 +40,7 @@ if [ "${1:-}" = "build" ]; then
     export FTE_TARGET=web
     # shellcheck disable=SC1091
     . /home/vikpe/emsdk/emsdk_env.sh > /dev/null 2>&1
-    cd /home/vikpe/dev/fteqw-vikpe/engine
+    cd "$BASEDIR/engine"
     rm -f release/ftewebgl.js release/ftewebgl.wasm
     make -j"$(nproc)" gl-rel LINK_EZHUD=1 LINK_OPENSSL=1
 
