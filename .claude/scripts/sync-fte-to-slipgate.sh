@@ -17,10 +17,14 @@
 
 set -u
 
-BASEDIR=/home/vikpe/dev/fteqw
+# Script lives at <slipgate>/fteqw/.claude/scripts/, so fteqw is two
+# levels up and the slipgate root one level above that.
+SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+BASEDIR=$(cd "$SCRIPT_DIR/../.." && pwd)
+SLIPGATE_DIR=$(cd "$BASEDIR/.." && pwd)
 SRC_ENGINE=$BASEDIR/engine/release
 SRC_ADDON=$BASEDIR/hub_addon
-DST=/home/vikpe/dev/slipgate/web/apps/website/public/fte
+DST=$SLIPGATE_DIR/web/apps/website/public/fte
 
 sync_artifacts() {
     [ -f "$SRC_ENGINE/ftewebgl.js"   ] && cp -f "$SRC_ENGINE/ftewebgl.js"   "$DST/" 2>/dev/null
@@ -38,8 +42,24 @@ if [ "${1:-}" = "build" ]; then
     # FTE web engine. emsdk env is required for em++; FTE_TARGET=web
     # selects the emscripten build path inside the Makefile.
     export FTE_TARGET=web
-    # shellcheck disable=SC1091
-    . /home/vikpe/emsdk/emsdk_env.sh > /dev/null 2>&1
+    if ! command -v em++ >/dev/null 2>&1; then
+        emsdk_env=""
+        for candidate in \
+            "${EMSDK:+$EMSDK/emsdk_env.sh}" \
+            "$HOME/emsdk/emsdk_env.sh" \
+            "$HOME/dev/emsdk/emsdk_env.sh" \
+            "/opt/emsdk/emsdk_env.sh" \
+            "/usr/local/emsdk/emsdk_env.sh"
+        do
+            [ -n "$candidate" ] && [ -f "$candidate" ] && emsdk_env=$candidate && break
+        done
+        if [ -z "$emsdk_env" ]; then
+            echo "emsdk_env.sh not found. Set EMSDK or install emsdk in ~/emsdk." >&2
+            exit 1
+        fi
+        # shellcheck disable=SC1090
+        . "$emsdk_env" > /dev/null 2>&1
+    fi
     cd "$BASEDIR/engine"
     rm -f release/ftewebgl.js release/ftewebgl.wasm
     make -j"$(nproc)" gl-rel LINK_EZHUD=1 LINK_OPENSSL=1
