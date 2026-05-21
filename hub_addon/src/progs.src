@@ -64,6 +64,7 @@ player_info.qc
 mouselock.qc
 
 // Screen transition overlay (capture-and-melt during connect/map change)
+transition_shaders.qc
 transition.qc
 
 // Console commands (depend on all feature state above)
