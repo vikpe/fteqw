@@ -406,15 +406,110 @@ void main() { tc = v_texcoord; vc = v_colour; gl_Position = ftetransform(); }
 varying vec2 tc;
 varying vec4 vc;
 
-// Fixed pixel size per cell - chars stay the same size regardless of
-// the screen resolution. Larger screens get more cells, smaller fewer.
-const float CELL_PX = 18.0;
-// FALLERHEIGHT is the per-faller cycle period in mod-space. Sized so
-// the cycle (~ FALLERHEIGHT / speed iTime units, ~22 s) outlasts the
-// max wait (5 s), while the per-faller spacing (FALLERHEIGHT / N) is
-// short enough that several drops are visible per column at once
-// instead of one sparse drop with gaps between cycles.
-const float FALLERHEIGHT = 20.0;
+// Forward declarations - implementations live below main().
+float hash11(float p);
+float character(float n, vec2 p);
+float pickN(vec2 cell, float step);
+float pickBinary(vec2 cell, float step);
+float fallerSpeed(float col, float faller);
+
+void main()
+{
+    // Fixed pixel size per cell - chars stay the same size regardless of
+    // the screen resolution. Larger screens get more cells, smaller fewer.
+    const float MATRIX_CELL_PX = 24.0;
+    // Per-faller cycle period in mod-space. Sized so the cycle
+    // (~ MATRIX_FALLER_HEIGHT / speed iTime units, ~22 s) outlasts the
+    // max wait (5 s), while the per-faller spacing
+    // (MATRIX_FALLER_HEIGHT / N) is short enough that several drops are
+    // visible per column at once instead of one sparse drop with gaps
+    // between cycles.
+    const float MATRIX_FALLER_HEIGHT = 20.0;
+
+    // vc.a encoding: [0, 1] = active progress; >= 1.5 = looping wait
+    // phase. vc.r carries continuous elapsed seconds since the
+    // transition started (wait_duration + active_elapsed), so the
+    // rain's iTime never snaps back to 0 at the wait->active handoff.
+    float vc_a    = vc.a;
+    float looping = step(1.5, vc_a);
+    float t_eff   = vc_a * (1.0 - looping);
+    float iTime   = vc.r * 1.5;
+
+    // Cells are defined in pixel space via gl_FragCoord (y-up by default
+    // in WebGL/GLSL ES), so chars are a fixed pixel size regardless of
+    // resolution. cell.y=0 is at the bottom of the screen.
+    vec2 pix  = fract(gl_FragCoord.xy / MATRIX_CELL_PX);
+    vec2 cell = floor(gl_FragCoord.xy / MATRIX_CELL_PX);
+
+    // Default: static background = binary 0/1 per cell. Cells inside an
+    // active drop/trail override their glyph with a random 0-9 (so the
+    // streak reveals decimal digits as it scrolls past).
+    float n = pickBinary(cell, 0.0);
+
+    // Trail length scales with the column's speed: slow columns get
+    // short trails, fast columns get long ones (max 8 chars).
+    float col_speed = fallerSpeed(cell.x, 0.0);
+    float trail_len = mix(2.0, 8.0, clamp((col_speed - 0.04) / 0.30, 0.0, 1.0));
+
+    float drop_amt  = 0.0;
+    float trail_amt = 0.0;
+    for (int i = 0; i < 10; i++) {
+        float fi = float(i);
+        float m = mod((iTime + fi * 3534.34 + cell.x * 17.0) * col_speed, MATRIX_FALLER_HEIGHT);
+        float head_y = floor((3.0 - m) / 0.05);
+        float offset = cell.y - head_y;
+        // Glyph varies per (cell, faller) so each row of a streak shows
+        // its own random 0-9 digit. The 3-col-wide glyph design keeps
+        // sideways jitter to a minimum even with this variation.
+        if (offset > -0.5 && offset < 0.5) {
+            drop_amt += 1.0;
+            n = pickN(cell, fi + 1.0);
+        } else if (offset > 0.5 && offset < trail_len + 0.5) {
+            trail_amt += (trail_len + 1.0 - offset) / trail_len;
+            n = pickN(cell, fi + 1.0);
+        }
+    }
+
+    float mask = character(n, vec2(-1.0) + pix * 2.0);
+    // Depth cue: slow columns are dimmer (appear further away).
+    float depth_alpha = mix(0.25, 1.0, clamp((col_speed - 0.04) / 0.30, 0.0, 1.0));
+    float rain_alpha = clamp(drop_amt + trail_amt, 0.0, 1.0) * mask * 0.5 * depth_alpha;
+
+    // Luminance of the scene; drives the matrix green channel below.
+    // Raw [0, 1] - char_shift handles visibility at both extremes.
+    vec2 flipped_tc = vec2(tc.x, 1.0 - tc.y);
+    vec3 old_col    = texture2D(s_t0, flipped_tc).rgb;
+    float gray      = dot(old_col, vec3(0.3, 0.59, 0.11));
+
+    // 1. Static layer: chars shift the green channel in opposite
+    //    directions depending on the scene brightness - brighter than
+    //    the scene where the scene is dark, darker than the scene where
+    //    the scene is bright. Guarantees visible contrast at both
+    //    extremes (unlike Overlay blend, which fades to invisible near
+    //    pure black or white).
+    float char_shift = mix(0.1, -0.1, gray);
+    float g_static   = gray + mask * char_shift;
+
+    // 2. Rain layer: screen blend (lightens) on the static layer's green
+    //    channel. drop cell gets near-full screen (1.0); trail fades.
+    float g_final = 1.0 - (1.0 - g_static) * (1.0 - rain_alpha);
+
+    vec3 matrix_out = vec3(0.0, g_final, 0.0);
+
+    // Fade the matrix effect in over the first 0.2 s of the transition
+    // (vc.r is monotonic elapsed seconds). Avoids the snap from raw
+    // scene -> full matrix when the transition starts.
+    float fade_in = smoothstep(0.0, 0.2, vc.r);
+    vec3 combined = mix(old_col, matrix_out, fade_in);
+
+    // Fade to new scene only during the active phase (latter half).
+    // Looping forces fade = 0 so the new scene stays hidden until ready.
+    vec3 new_col = texture2D(s_t1, flipped_tc).rgb;
+    float fade   = smoothstep(0.5, 1.0, t_eff) * (1.0 - looping);
+
+    vec3 src = mix(combined, new_col, fade);
+    gl_FragColor = vec4(src, 1.0);
+}
 
 float hash11(float p) { return fract(sin(p * 91.345) * 47453.5); }
 
@@ -461,86 +556,6 @@ float pickBinary(vec2 cell, float step)
 float fallerSpeed(float col, float faller)
 {
     return mod(cos(col * 363.435), 0.3) + 0.04;
-}
-
-void main()
-{
-    // vc.a encoding: [0, 1] = active progress; >= 1.5 = looping wait
-    // phase. vc.r carries continuous elapsed seconds since the
-    // transition started (wait_duration + active_elapsed), so the
-    // rain's iTime never snaps back to 0 at the wait->active handoff.
-    float vc_a    = vc.a;
-    float looping = step(1.5, vc_a);
-    float t_eff   = vc_a * (1.0 - looping);
-    float iTime   = vc.r * 1.5;
-
-    // Cells are defined in pixel space via gl_FragCoord (y-up by default
-    // in WebGL/GLSL ES), so chars are a fixed pixel size regardless of
-    // resolution. cell.y=0 is at the bottom of the screen.
-    vec2 pix  = fract(gl_FragCoord.xy / CELL_PX);
-    vec2 cell = floor(gl_FragCoord.xy / CELL_PX);
-
-    // Default: static background = binary 0/1 per cell. Cells inside an
-    // active drop/trail override their glyph with a random 0-9 (so the
-    // streak reveals decimal digits as it scrolls past).
-    float n = pickBinary(cell, 0.0);
-
-    // Trail length scales with the column's speed: slow columns get
-    // short trails, fast columns get long ones (max 8 chars).
-    float col_speed = fallerSpeed(cell.x, 0.0);
-    float trail_len = mix(2.0, 8.0, clamp((col_speed - 0.04) / 0.30, 0.0, 1.0));
-
-    float drop_amt  = 0.0;
-    float trail_amt = 0.0;
-    for (int i = 0; i < 10; i++) {
-        float fi = float(i);
-        float m = mod((iTime + fi * 3534.34 + cell.x * 17.0) * col_speed, FALLERHEIGHT);
-        float head_y = floor((3.0 - m) / 0.05);
-        float offset = cell.y - head_y;
-        // Glyph varies per (cell, faller) so each row of a streak shows
-        // its own random 0-9 digit. The 3-col-wide glyph design keeps
-        // sideways jitter to a minimum even with this variation.
-        if (offset > -0.5 && offset < 0.5) {
-            drop_amt += 1.0;
-            n = pickN(cell, fi + 1.0);
-        } else if (offset > 0.5 && offset < trail_len + 0.5) {
-            trail_amt += (trail_len + 1.0 - offset) / trail_len;
-            n = pickN(cell, fi + 1.0);
-        }
-    }
-
-    float mask = character(n, vec2(-1.0) + pix * 2.0);
-    // Depth cue: slow columns are dimmer (appear further away).
-    float depth_alpha = mix(0.25, 1.0, clamp((col_speed - 0.04) / 0.30, 0.0, 1.0));
-    float rain_alpha = clamp(drop_amt + trail_amt, 0.0, 1.0) * mask * 0.5 * depth_alpha;
-
-    // Scene reduced to its green-channel luminance: matrix-style
-    // grayscale tint.
-    vec2 flipped_tc = vec2(tc.x, 1.0 - tc.y);
-    vec3 old_col    = texture2D(s_t0, flipped_tc).rgb;
-    float gray      = dot(old_col, vec3(0.3, 0.59, 0.11));
-
-    // 1. Static layer: chars composited via Overlay blend on the green
-    //    luminance. char_overlay above 0.5 lifts char pixels above the
-    //    scene baseline.
-    float char_overlay = mix(0.5, 0.62, mask);
-    float g_static = gray < 0.5
-        ? 2.0 * gray * char_overlay
-        : 1.0 - 2.0 * (1.0 - gray) * (1.0 - char_overlay);
-
-    // 2. Rain layer: screen blend (lightens) on the static layer's green
-    //    channel. drop cell gets near-full screen (1.0); trail fades.
-    float g_final = 1.0 - (1.0 - g_static) * (1.0 - rain_alpha);
-
-    vec3 combined = vec3(0.0, g_final, 0.0);
-
-    // Fade to new scene only during the active phase (latter half).
-    // Looping forces fade = 0 so the new scene stays hidden until ready.
-    vec3 new_col = texture2D(s_t1, flipped_tc).rgb;
-    float fade   = smoothstep(0.5, 1.0, t_eff) * (1.0 - looping);
-
-    vec3 src = mix(combined, new_col, fade);
-    gl_FragColor = vec4(src, 1.0);
 }
 #endif
     }
