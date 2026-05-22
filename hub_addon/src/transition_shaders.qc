@@ -4,8 +4,9 @@
 #define TRANSITION_EFFECT_SHOCKWAVE    3
 #define TRANSITION_EFFECT_PIXELATE     4
 #define TRANSITION_EFFECT_BULGE_PINCH  5
-#define TRANSITION_EFFECT_MATRIX        6
-#define TRANSITION_EFFECT_COUNT        7
+#define TRANSITION_EFFECT_MATRIX       6
+#define TRANSITION_EFFECT_PLASMA_BURN  7
+#define TRANSITION_EFFECT_COUNT        8
 
 #define TRANSITION_EFFECT_DEFAULT      TRANSITION_EFFECT_MELT
 
@@ -25,7 +26,8 @@ string(float effect) TransitionShaderName =
     case TRANSITION_EFFECT_SHOCKWAVE:    return "hub_transition_shockwave";
     case TRANSITION_EFFECT_PIXELATE:     return "hub_transition_pixelate";
     case TRANSITION_EFFECT_BULGE_PINCH:  return "hub_transition_bulge_pinch";
-    case TRANSITION_EFFECT_MATRIX:        return "hub_transition_matrix";
+    case TRANSITION_EFFECT_MATRIX:       return "hub_transition_matrix";
+    case TRANSITION_EFFECT_PLASMA_BURN:  return "hub_transition_plasma_burn";
     default:                             return "hub_transition_melt";
     }
 };
@@ -41,6 +43,7 @@ string(float effect) TransitionEffectName =
     case TRANSITION_EFFECT_PIXELATE:     return "pixelate";
     case TRANSITION_EFFECT_BULGE_PINCH:  return "bulge_pinch";
     case TRANSITION_EFFECT_MATRIX:       return "matrix";
+    case TRANSITION_EFFECT_PLASMA_BURN:  return "plasma_burn";
     default:                             return "";
     }
 };
@@ -66,7 +69,8 @@ float(string name) TransitionParseStyle =
 // Per-effect duration scaling (in seconds, relative to base_duration).
 float(float effect, float base_duration) TransitionEffectDuration =
 {
-    if (effect == TRANSITION_EFFECT_PIXELATE) return base_duration * 1.6;
+    if (effect == TRANSITION_EFFECT_PIXELATE)    return base_duration * 1.6;
+    if (effect == TRANSITION_EFFECT_PLASMA_BURN) return base_duration * 1.3;
     return base_duration;
 };
 
@@ -567,4 +571,70 @@ float fallerSpeed(float col, float faller)
         map $currentrender
     }
 })");
+
+    shaderforname("hub_transition_plasma_burn", R"({
+    program
+    {
+!!ver 100
+!!samps 2
+#ifdef VERTEX_SHADER
+attribute vec2 v_texcoord;
+attribute vec4 v_colour;
+varying vec2 tc;
+varying vec4 vc;
+void main() { tc = v_texcoord; vc = v_colour; gl_Position = ftetransform(); }
+#endif
+#ifdef FRAGMENT_SHADER
+varying vec2 tc;
+varying vec4 vc;
+void main()
+{
+    float t = vc.a;
+
+    // vc.r is a per-transition random seed in [0, 1). Used to offset
+    // the plasma field's spatial position, rotation, and per-octave
+    // phase so the reveal pattern differs each transition.
+    float seed = vc.r;
+    float ang  = seed * 6.2831853;
+    float ca   = cos(ang);
+    float sa   = sin(ang);
+    vec2 offset    = vec2(seed * 17.3, seed * 29.7);
+    mat2 rot       = mat2(ca, -sa, sa, ca);
+    vec2 hotspot   = vec2(4.0) + (rot * vec2(seed * 3.0 - 1.5, seed * 2.0 - 1.0));
+
+    // 4-octave sin-plasma normalized to [0, 1]. Used as the per-pixel
+    // reveal threshold so the new scene bleeds through following the
+    // plasma field's contours.
+    vec2 p = rot * (tc * 8.0) + offset;
+    float plasma = sin(p.x + t * 4.0 + seed * 11.0)
+                 + sin(p.y - t * 3.0 + seed * 7.3)
+                 + sin((p.x + p.y) * 0.7 + t * 5.0 + seed * 5.1)
+                 + sin(length(p - hotspot) * 1.5 + t * 6.0 + seed * 13.7);
+    plasma = (plasma + 4.0) / 8.0;
+
+    float reveal = smoothstep(plasma - 0.08, plasma + 0.08, t);
+
+    vec2 flipped = vec2(tc.x, 1.0 - tc.y);
+    vec3 old_col = texture2D(s_t0, flipped).rgb;
+    vec3 new_col = texture2D(s_t1, flipped).rgb;
+    vec3 src = mix(old_col, new_col, reveal);
+
+    // Hot edge: bright where reveal is mid-transition.
+    float edge = 1.0 - abs(reveal - 0.5) * 2.0;
+    edge = smoothstep(0.6, 1.0, edge);
+    src += vec3(1.2, 0.55, 0.12) * edge;
+
+    gl_FragColor = vec4(src, 1.0);
+}
+#endif
+    }
+    {
+        map $sourcecolour
+        blendfunc replace
+    }
+    {
+        map $currentrender
+    }
+})");
+
 };

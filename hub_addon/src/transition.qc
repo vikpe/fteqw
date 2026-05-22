@@ -14,6 +14,12 @@ float  transition_start_time;
 float  transition_duration;
 float  transition_effect;
 
+// Per-transition random seed passed to non-loop effect shaders via
+// vc.r, so deterministic-looking effects (e.g. plasma_burn) can
+// scramble their pattern each time. Regenerated on every TransitionStart
+// and TransitionOnQtvCapture.
+float  transition_seed;
+
 float  transition_should_capture;
 float  transition_is_capturing;
 float  transition_is_waiting;
@@ -74,6 +80,7 @@ void() TransitionOnQtvCapture =
     transition_wait_start_time = cltime;
     transition_render_time     = 0;
     transition_render_last_cltime = cltime;
+    transition_seed            = random();
     transition_prev_con_stayhidden  = cvar("con_stayhidden");
     transition_prev_con_notifylines = cvar("con_notifylines");
     cvar_set("con_stayhidden",  "1");
@@ -195,6 +202,7 @@ void(float effect, float duration) TransitionStart =
     transition_should_capture = 1;
     transition_render_time     = 0;
     transition_render_last_cltime = cltime;
+    transition_seed           = random();
     if (autocvar_transition_debug_loop) {
         // Debug: enter the looping/waiting phase and stay there. The
         // OnSpawn/PollTriggers checks above bail out so we never promote
@@ -275,7 +283,10 @@ void(float vwidth, float vheight) TransitionDrawOverlay =
                            [transition_render_time, 0, 0], progress);
         return;
     }
-    TransitionDrawQuad(name, vwidth, vheight, '1 1 1', progress);
+    // vc.r carries the per-transition random seed for shaders that
+    // want to scramble their pattern each run (plasma_burn etc.).
+    TransitionDrawQuad(name, vwidth, vheight,
+                       [transition_seed, 1, 1], progress);
 };
 
 void() TransitionFinish =
