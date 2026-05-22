@@ -19,7 +19,7 @@ void(float apilevel, string enginename, float engineversion) CSQC_Init =
     registercommand("minimap_editor_remove", "Remove the currently highlighted cull volume (the closest one in range, shown brighter with a yellow accent border).");
     registercommand("minimap_editor_undo",   "Undo the last minimap_editor_add or minimap_editor_remove. Single level - no redo.");
     registercommand("minimap_editor_export",   "Write the current in-memory cull volumes to maps/<map>.cull. The only command that touches the file system.");
-    registercommand("transition", "Trigger a screen transition effect. Usage: transition <style> [duration_seconds]. Styles: melt, telefrag, crt_off, swirl, water_drop, pixelate.");
+    registercommand("transition", strcat("Trigger a screen transition effect. Usage: transition <style> [duration_seconds]. Styles: ", TransitionStylesString(), "."));
     MinimapRegisterDescriptions();
 };
 
