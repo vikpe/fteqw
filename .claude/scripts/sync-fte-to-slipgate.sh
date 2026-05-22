@@ -61,6 +61,13 @@ if [ "${1:-}" = "build" ]; then
         . "$emsdk_env" > /dev/null 2>&1
     fi
     cd "$BASEDIR/engine"
+    # First-time setup: build third-party libs (zlib/opus/speex). The
+    # Makefile names the dir libs-wasm32-unknown-emscripten under the
+    # emsdk wasm32 target; the existence check covers the typical case.
+    if ! ls -d libs-wasm32-* >/dev/null 2>&1; then
+        echo "engine libs missing - running makelibs (one-time, slow)..."
+        make FTE_TARGET=web makelibs
+    fi
     rm -f release/ftewebgl.js release/ftewebgl.wasm
     make -j"$(nproc)" gl-rel LINK_EZHUD=1 LINK_OPENSSL=1
 
