@@ -8622,10 +8622,16 @@ void CSQC_WorldLoaded(void)
 	worldent->v->solid = SOLID_BSP;
 	wmodelindex = CS_FindModel(csqc_world.worldmodel?csqc_world.worldmodel->name:"", &tmp);
 	tmp = csqc_worldchanged;
+	// HUB: clear readonly *before* the setmodel - the previous map's
+	// CSQC_WorldLoaded tail re-latched the flag, and the hub fork keeps
+	// the CSQC VM alive across disconnects (CL_Disconnect /
+	// CLQW_ParseServerData both skip CSQC_Shutdown), so the second and
+	// subsequent map loads otherwise hit csqc_setmodel's readonly guard
+	// and print "setmodel on readonly entity 0", leaving csqc_world's
+	// worldmodel pinned to the previous map.
+	worldent->readonly = false;
 	csqc_setmodel(csqcprogs, worldent, wmodelindex);
 	csqc_worldchanged = tmp;
-
-	worldent->readonly = false;	//just in case
 
 	World_ClearWorld(&csqc_world, true);
 
