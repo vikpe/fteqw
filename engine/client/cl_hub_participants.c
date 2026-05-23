@@ -46,8 +46,12 @@ static void gather_players(hub_participants_t *out)
 		e->userid = p->userid;
 		e->frags  = p->frags;
 		// Bots conventionally appear with userid 0 (cl_cam.c relies on
-		// the same heuristic).
-		e->is_bot = (p->userid == 0) ? 1 : 0;
+		// the same heuristic), but a live QW server also tags them
+		// explicitly via the "*bot" userinfo key (sv_main / q1qvm). The
+		// userid heuristic alone misses bots once the server has issued
+		// real userids, so check both.
+		const char *bot_marker = InfoBuf_ValueForKey(&p->userinfo, "*bot");
+		e->is_bot = (p->userid == 0 || (bot_marker && bot_marker[0])) ? 1 : 0;
 
 		Q_strncpyz(e->name_bytestr, p->name, sizeof(e->name_bytestr));
 		// NetQuake demos have no team userinfo string; the engine
