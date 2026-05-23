@@ -167,7 +167,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 	#include STRINGIFY(BRANDING_INC)
 #endif
 #ifndef DISTRIBUTION
-	#define DISTRIBUTION "FTE"	//short name used to identify this engine. must be a single word
+	#define DISTRIBUTION "FTE-HUB"	//short name used to identify this engine. must be a single word. Quake.World fork brand.
 #endif
 #ifndef DISTRIBUTIONLONG
 	#define DISTRIBUTIONLONG "Forethought Entertainment"	//effectively the 'company' name
