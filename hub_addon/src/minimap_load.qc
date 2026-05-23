@@ -22,6 +22,7 @@
 // Forward declarations (top-down ordering).
 void()             MinimapAutoBounds;
 float()            MinimapNarrowByTraceline;
+float()            MinimapExpandByPickups;
 float(string line) MinimapParseLine;
 void()             MinimapDeriveBoundsFromVolumes;
 
@@ -37,6 +38,7 @@ float() MinimapLoad =
 
     MinimapAutoBounds();
     MinimapNarrowByTraceline();
+    MinimapExpandByPickups();
 
     string cull_path = sprintf("maps/%s.cull", mapname);
     filestream fh = fopen(cull_path, FILE_READ);
@@ -231,6 +233,71 @@ float() MinimapNarrowByTraceline =
     }
     debug("minimap: traceline probe narrowed bounds (%g hits / %g cells), center %v, ortho %g, height %g",
           hits, cols * rows, minimap_center, minimap_ortho, minimap_height);
+    return 1;
+};
+
+// After grid-traceline narrowing, walk client entities for pickups and
+// expand the bbox to include any whose XY falls outside. Pickups always
+// sit in playable space by definition, so the bbox must contain them -
+// the traceline grid misses items that land between probe cells, in
+// alcoves with no ceiling within range, or under open-sky areas where
+// the ceiling trace hits sky and gets rejected (schloss MH / YA are the
+// canonical case).
+//
+// Models are identified via MinimapIsFloorAnchor (the same allowlist the
+// /minimap scan command uses). Spawn points and triggers have no client-
+// visible model in vanilla Quake so they can't be enumerated this way;
+// items + weapons cover the common case.
+//
+// Returns 1 if at least one pickup pushed the bbox outward.
+float() MinimapExpandByPickups =
+{
+    if (minimap_world_dx <= 0 || minimap_world_dy <= 0) {
+        return 0;
+    }
+
+    float min_x = minimap_center.x - minimap_world_dx * 0.5;
+    float max_x = minimap_center.x + minimap_world_dx * 0.5;
+    float min_y = minimap_center.y - minimap_world_dy * 0.5;
+    float max_y = minimap_center.y + minimap_world_dy * 0.5;
+
+    float pickup_count = 0;
+    float expanded     = 0;
+    float ent_count    = getentity(0, GE_MAXENTS);
+    for (float j = 1; j < ent_count; j++) {
+        float is_active = getentity(j, GE_ACTIVE);
+        if (!is_active) continue;
+        float model_index = getentity(j, GE_MODELINDEX);
+        if (model_index == 0) continue;
+        string model_name = modelnameforindex(model_index);
+        if (!MinimapIsFloorAnchor(model_name)) continue;
+        pickup_count++;
+        vector org = getentity(j, GE_ORIGIN);
+        if (org.x < min_x) { min_x = org.x; expanded = 1; }
+        if (org.x > max_x) { max_x = org.x; expanded = 1; }
+        if (org.y < min_y) { min_y = org.y; expanded = 1; }
+        if (org.y > max_y) { max_y = org.y; expanded = 1; }
+    }
+
+    if (!expanded) {
+        debug("minimap: pickup expansion not needed (%g pickups all inside bbox)",
+              pickup_count);
+        return 0;
+    }
+
+    // Half-pickup-radius padding so item icons don't kiss the viewport edge.
+    float pad = 32;
+    min_x -= pad; max_x += pad;
+    min_y -= pad; max_y += pad;
+
+    minimap_center.x = (min_x + max_x) * 0.5;
+    minimap_center.y = (min_y + max_y) * 0.5;
+    minimap_world_dx = max_x - min_x;
+    minimap_world_dy = max_y - min_y;
+    minimap_ortho    = max(minimap_world_dx, minimap_world_dy) * 0.5;
+
+    debug("minimap: expanded bbox to include %g pickups, new dx=%g dy=%g center=%v",
+          pickup_count, minimap_world_dx, minimap_world_dy, minimap_center);
     return 1;
 };
 
