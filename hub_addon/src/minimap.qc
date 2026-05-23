@@ -113,8 +113,13 @@ void(float vwidth, float vheight) MinimapRender =
     setviewprop(VF_MIN,            vmin);
     setviewprop(VF_SIZE,           vsize);
 
+    // setviewprop is variadic; FTEQCC passes int args as raw bits and
+    // the engine reads PARM1 as a float (then casts to int). Passing
+    // (float)i forces the bytecode store to land in float ofs, so the
+    // index round-trips correctly. Without the cast every write lands
+    // at slot 0 and only the last add survives.
     for (int i = 0; i < minimap_num_volumes; i++) {
-        setviewprop(VF_CULLVOLUME, i,
+        setviewprop(VF_CULLVOLUME, (float)i,
                     minimap_volumes[i].mins,
                     minimap_volumes[i].maxs);
     }
@@ -126,7 +131,7 @@ void(float vwidth, float vheight) MinimapRender =
     vector edit_mins, edit_maxs;
     if (CullEditInFlightBounds(edit_mins, edit_maxs) &&
         minimap_num_volumes < MINIMAP_MAX_CULL_VOLUMES) {
-        setviewprop(VF_CULLVOLUME, minimap_num_volumes,
+        setviewprop(VF_CULLVOLUME, (float)minimap_num_volumes,
                     edit_mins, edit_maxs);
     }
 
