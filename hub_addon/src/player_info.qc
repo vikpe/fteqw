@@ -67,7 +67,7 @@
 //                                    Alpha == 0 disables the frame.
 // playerinfo_frame_padding "X Y"   - inner padding around the content, design px
 var float  autocvar_playerinfo                = 1;
-var vector autocvar_playerinfo_margin         = '16 16 0';
+var vector autocvar_playerinfo_margin         = '8 16 0';
 var float  autocvar_playerinfo_scale          = 1;
 var string autocvar_playerinfo_font           = "";
 var vector autocvar_playerinfo_player_padding = '0 1 0';
