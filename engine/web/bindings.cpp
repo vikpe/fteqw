@@ -1219,11 +1219,14 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 		hub_participants_t parts;
 		Hub_BuildParticipants(&parts);
 
-		auto join_player_names = [&](const char *prefix) -> std::string {
+		auto join_player_names = [&](const char *prefix, bool is_skip_bots) -> std::string {
 			std::string out = prefix;
+			bool is_first = true;
 			for (int i = 0; i < parts.player_count; i++) {
-				if (i > 0) out += ", ";
+				if (is_skip_bots && parts.players[i].is_bot) continue;
+				if (!is_first) out += ", ";
 				out += parts.players[i].name_unicode;
+				is_first = false;
 			}
 			return out;
 		};
@@ -1252,13 +1255,13 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 
 		if (!strcasecmp(mode, "tot")) {
 			if (parts.player_count == 0) return std::string();
-			return join_player_names("tot: ");
+			return join_player_names("tot: ", true);
 		}
 
 		// Race modes have no head-to-head matchup - just list all players.
 		if (mode && strstr(mode, "race")) {
 			if (parts.player_count == 0) return std::string();
-			return join_player_names("");
+			return join_player_names("", false);
 		}
 		if (parts.team_count >= 2) {
 			return std::string(parts.teams[0].team_unicode) + " vs " + std::string(parts.teams[1].team_unicode);
