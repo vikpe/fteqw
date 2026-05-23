@@ -591,9 +591,10 @@ EMSCRIPTEN_BINDINGS(browser_api) {
 	// up whatever value the web app already set. Defaults mirror the
 	// QC declarations (hub_addon/src/powcam.qc, xray.qc, minimap_data.qc).
 	function("preregisterHubCvars", +[]() {
-		Cvar_Get("powcam_enabled", "1", 0, "Hub state");
-		Cvar_Get("xray",           "1", 0, "Hub state");
-		Cvar_Get("minimap_mode",   "0", 0, "Hub state");
+		Cvar_Get("powcam_enabled",   "1",         0, "Hub state");
+		Cvar_Get("xray",             "1",         0, "Hub state");
+		Cvar_Get("minimap_mode",     "0",         0, "Hub state");
+		Cvar_Get("transition_style", "randomize", 0, "Hub state");
 	});
 
 	// Web app's hover-on-canvas signal. The embedding page already tracks
