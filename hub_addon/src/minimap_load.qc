@@ -22,7 +22,8 @@
 // Forward declarations (top-down ordering).
 void()             MinimapAutoBounds;
 float()            MinimapNarrowByTraceline;
-float()            MinimapExpandByPickups;
+void()             MinimapExpandByPickups;
+float(string c)    MinimapIsPickupClassname;
 float(string line) MinimapParseLine;
 void()             MinimapDeriveBoundsFromVolumes;
 
@@ -236,24 +237,23 @@ float() MinimapNarrowByTraceline =
     return 1;
 };
 
-// After grid-traceline narrowing, walk client entities for pickups and
-// expand the bbox to include any whose XY falls outside. Pickups always
-// sit in playable space by definition, so the bbox must contain them -
-// the traceline grid misses items that land between probe cells, in
-// alcoves with no ceiling within range, or under open-sky areas where
-// the ceiling trace hits sky and gets rejected (schloss MH / YA are the
-// canonical case).
+// After grid-traceline narrowing, walk the BSP entity lump for pickups
+// and spawn points and expand the bbox to include the local rooms
+// around each. From every pickup origin we cast 8 horizontal rays at
+// 45-degree intervals; each ray's hit point pushes the bbox out. This
+// captures the actual walls bounding the item rather than padding by a
+// guessed constant (alcoves get tight bounds, open arenas get wide
+// ones).
 //
-// Models are identified via MinimapIsFloorAnchor (the same allowlist the
-// /minimap scan command uses). Spawn points and triggers have no client-
-// visible model in vanilla Quake so they can't be enumerated this way;
-// items + weapons cover the common case.
-//
-// Returns 1 if at least one pickup pushed the bbox outward.
-float() MinimapExpandByPickups =
+// getentitytoken reads the static BSP entity lump directly, so this
+// runs once at map load with no network race against entity baseline
+// streaming.
+#define MINIMAP_PICKUP_RAY_DIST 4096
+#define MINIMAP_PICKUP_RAY_COUNT 8
+void() MinimapExpandByPickups =
 {
     if (minimap_world_dx <= 0 || minimap_world_dy <= 0) {
-        return 0;
+        return;
     }
 
     float min_x = minimap_center.x - minimap_world_dx * 0.5;
@@ -263,32 +263,65 @@ float() MinimapExpandByPickups =
 
     float pickup_count = 0;
     float expanded     = 0;
-    float ent_count    = getentity(0, GE_MAXENTS);
-    for (float j = 1; j < ent_count; j++) {
-        float is_active = getentity(j, GE_ACTIVE);
-        if (!is_active) continue;
-        float model_index = getentity(j, GE_MODELINDEX);
-        if (model_index == 0) continue;
-        string model_name = modelnameforindex(model_index);
-        if (!MinimapIsFloorAnchor(model_name)) continue;
+    float pi           = 3.14159265;
+    float step         = 2 * pi / MINIMAP_PICKUP_RAY_COUNT;
+
+    // The empty-arg form resets the cursor and returns nothing; the
+    // first real token comes from the next call. Skipping the reset's
+    // return value was the bug that made every map look pickup-free.
+    getentitytoken("");
+    string tok = getentitytoken();
+    while (tok != "") {
+        if (tok != "{") {
+            tok = getentitytoken();
+            continue;
+        }
+        // Inside an entity block: pull key/value pairs until '}'.
+        string classname = "";
+        vector origin    = '0 0 0';
+        for (;;) {
+            string key = getentitytoken();
+            if (key == "" || key == "}") break;
+            string val = getentitytoken();
+            if (val == "") break;
+            if      (key == "classname") classname = val;
+            else if (key == "origin")    origin    = stov(val);
+        }
+        if (!MinimapIsPickupClassname(classname)) {
+            tok = getentitytoken();
+            continue;
+        }
         pickup_count++;
-        vector org = getentity(j, GE_ORIGIN);
-        if (org.x < min_x) { min_x = org.x; expanded = 1; }
-        if (org.x > max_x) { max_x = org.x; expanded = 1; }
-        if (org.y < min_y) { min_y = org.y; expanded = 1; }
-        if (org.y > max_y) { max_y = org.y; expanded = 1; }
+
+        // Baseline: the pickup origin itself sits in playable space.
+        if (origin.x < min_x) { min_x = origin.x; expanded = 1; }
+        if (origin.x > max_x) { max_x = origin.x; expanded = 1; }
+        if (origin.y < min_y) { min_y = origin.y; expanded = 1; }
+        if (origin.y > max_y) { max_y = origin.y; expanded = 1; }
+
+        // Walls in 8 directions. Skip rays that escape (trace_fraction
+        // == 1, no hit within MINIMAP_PICKUP_RAY_DIST) so an item near
+        // an open void doesn't stretch the bbox to the ray endpoint.
+        for (float k = 0; k < MINIMAP_PICKUP_RAY_COUNT; k++) {
+            float ang = k * step;
+            vector dir = [cos(ang), sin(ang), 0];
+            vector dst = origin + dir * MINIMAP_PICKUP_RAY_DIST;
+            traceline(origin, dst, MOVE_NORMAL | MOVE_NOMONSTERS, world);
+            if (trace_fraction >= 1) continue;
+            vector hit = trace_endpos;
+            if (hit.x < min_x) { min_x = hit.x; expanded = 1; }
+            if (hit.x > max_x) { max_x = hit.x; expanded = 1; }
+            if (hit.y < min_y) { min_y = hit.y; expanded = 1; }
+            if (hit.y > max_y) { max_y = hit.y; expanded = 1; }
+        }
+        tok = getentitytoken();
     }
 
     if (!expanded) {
         debug("minimap: pickup expansion not needed (%g pickups all inside bbox)",
               pickup_count);
-        return 0;
+        return;
     }
-
-    // Half-pickup-radius padding so item icons don't kiss the viewport edge.
-    float pad = 32;
-    min_x -= pad; max_x += pad;
-    min_y -= pad; max_y += pad;
 
     minimap_center.x = (min_x + max_x) * 0.5;
     minimap_center.y = (min_y + max_y) * 0.5;
@@ -298,7 +331,19 @@ float() MinimapExpandByPickups =
 
     debug("minimap: expanded bbox to include %g pickups, new dx=%g dy=%g center=%v",
           pickup_count, minimap_world_dx, minimap_world_dy, minimap_center);
-    return 1;
+};
+
+// Classnames that mark playable-space positions: weapons, items
+// (health / armor / powerups / ammo), and player spawn points. Vanilla
+// Quake + common mods. Things like info_teleport_destination and
+// info_intermission are skipped because their authored coords can sit
+// well outside the playable area.
+float(string c) MinimapIsPickupClassname =
+{
+    if (c == "info_player_deathmatch") return 1;
+    if (substring(c, 0, 7) == "weapon_") return 1;
+    if (substring(c, 0, 5) == "item_") return 1;
+    return 0;
 };
 
 float(string line) MinimapParseLine =

@@ -128,6 +128,7 @@ var float  minimap_world_dy    = 0;   // BSP depth  (maxs.y - mins.y)
 // the status command.
 var float  minimap_loaded      = 0;
 
+
 // Name of the last map MinimapLoad processed. Used to re-run the load
 // pipeline when `mapname` changes mid-session (e.g. demo seek across maps).
 var string minimap_loaded_for  = "";
