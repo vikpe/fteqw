@@ -750,6 +750,15 @@ static void P_LoadTexture(part_type_t *ptype, qboolean warn)
 	if (!ptype->looks.shader)
 	{
 		/*okay, so no shader, generate a shader that matches the legacy/shaderless mode*/
+		// HUB: `nodepth` removed from every blendmode below so particles
+		// depth-test against world geometry - upstream lets them bleed
+		// through walls (most obvious with the torch flames).
+		// `polygonoffset` was also dropped: with depth-test enabled it
+		// became a problem at long distances (depth precision degrades
+		// to ~1 world unit at the far plane; the default
+		// polygonoffset of -25 then pushes the sprite past the wall in
+		// front of its emitter). Additive sprites don't write depth so
+		// there's no self z-fighting concern at the emitter.
 		switch(ptype->looks.blendmode)
 		{
 		case BM_BLEND:
@@ -765,9 +774,7 @@ static void P_LoadTexture(part_type_t *ptype, qboolean warn)
 						"blendfunc blend\n"
 						"rgbgen vertex\n"
 						"alphagen vertex\n"
-						"nodepth\n"
 					"}\n"
-					"polygonoffset\n"
 					"surfaceparm noshadows\n"
 					"surfaceparm nodlight\n"
 				"}\n"
@@ -785,9 +792,7 @@ static void P_LoadTexture(part_type_t *ptype, qboolean warn)
 						"blendfunc GL_SRC_COLOR GL_ONE_MINUS_SRC_COLOR\n"
 						"rgbgen vertex\n"
 						"alphagen vertex\n"
-						"nodepth\n"
 					"}\n"
-					"polygonoffset\n"
 					"surfaceparm noshadows\n"
 					"surfaceparm nodlight\n"
 				"}\n"
@@ -805,9 +810,7 @@ static void P_LoadTexture(part_type_t *ptype, qboolean warn)
 						"blendfunc GL_SRC_ALPHA GL_ONE\n"
 						"rgbgen vertex\n"
 						"alphagen vertex\n"
-						"nodepth\n"
 					"}\n"
-					"polygonoffset\n"
 					"surfaceparm noshadows\n"
 					"surfaceparm nodlight\n"
 				"}\n"
@@ -825,9 +828,7 @@ static void P_LoadTexture(part_type_t *ptype, qboolean warn)
 						"blendfunc GL_SRC_COLOR GL_ONE\n"
 						"rgbgen vertex\n"
 						"alphagen vertex\n"
-						"nodepth\n"
 					"}\n"
-					"polygonoffset\n"
 					"surfaceparm noshadows\n"
 					"surfaceparm nodlight\n"
 				"}\n"
@@ -845,9 +846,7 @@ static void P_LoadTexture(part_type_t *ptype, qboolean warn)
 						"blendfunc GL_ONE GL_ONE_MINUS_SRC_ALPHA\n"
 						"rgbgen vertex\n"
 						"alphagen vertex\n"
-						"nodepth\n"
 					"}\n"
-					"polygonoffset\n"
 					"surfaceparm noshadows\n"
 					"surfaceparm nodlight\n"
 				"}\n"
@@ -865,9 +864,7 @@ static void P_LoadTexture(part_type_t *ptype, qboolean warn)
 						"blendfunc GL_ZERO GL_ONE_MINUS_SRC_ALPHA\n"
 						"rgbgen vertex\n"
 						"alphagen vertex\n"
-						"nodepth\n"
 					"}\n"
-					"polygonoffset\n"
 					"surfaceparm noshadows\n"
 					"surfaceparm nodlight\n"
 				"}\n"
@@ -885,9 +882,7 @@ static void P_LoadTexture(part_type_t *ptype, qboolean warn)
 						"blendfunc GL_ZERO GL_ONE_MINUS_SRC_COLOR\n"
 						"rgbgen vertex\n"
 						"alphagen vertex\n"
-						"nodepth\n"
 					"}\n"
-					"polygonoffset\n"
 					"surfaceparm noshadows\n"
 					"surfaceparm nodlight\n"
 				"}\n"
@@ -905,9 +900,7 @@ static void P_LoadTexture(part_type_t *ptype, qboolean warn)
 						"blendfunc GL_SRC_ALPHA GL_ONE_MINUS_SRC_COLOR\n"
 						"rgbgen vertex\n"
 						"alphagen vertex\n"
-						"nodepth\n"
 					"}\n"
-					"polygonoffset\n"
 					"surfaceparm noshadows\n"
 					"surfaceparm nodlight\n"
 				"}\n"
