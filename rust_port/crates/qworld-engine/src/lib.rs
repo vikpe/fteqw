@@ -77,7 +77,7 @@ mod tests {
         entities_with_nul.push(0);
 
         let mut file = Vec::new();
-        file.extend_from_slice(&qworld_bsp::BSP_VERSION_Q1.to_le_bytes());
+        file.extend_from_slice(&qworld_bsp::BSP_MAGIC_V29.to_le_bytes());
         let dir_pos = file.len();
         file.extend(std::iter::repeat_n(0u8, qworld_bsp::Lump::COUNT * 8));
 

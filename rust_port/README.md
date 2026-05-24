@@ -10,21 +10,25 @@ design rationale, use cases, and phasing.
 
 Workspace + initial port scaffold landed. Everything compiles on
 native (Linux/Mac/Windows via wgpu's Vulkan/Metal/DX12) and the
-wasm-bindgen surface compiles too. **19 tests passing** (cargo
+wasm-bindgen surface compiles too. **39 tests passing** (cargo
 test --workspace).
+
+End-to-end milestone reached: `qworld render <map.bsp> --out shot.png`
+produces an isometric overview PNG of any Q1 BSP, **both V29 and
+BSP2** (verified on dm3 / povdmm4 / dust2qw).
 
 Real implementations so far:
 
-- `qworld-core` — shared types (Vec3, Angles, Bbox, color, ID newtypes)
+- `qworld-core` — shared types (Vec3, Angles, Bbox, color, ID newtypes) + embedded `QUAKE_PALETTE` const (vanilla id1 palette, decoded at compile time) + `load_palette` for custom palettes
 - `qworld-fs` — PAK header/entry parsing (Q1/Q2 format) + PK3 via `zip`
-- `qworld-bsp` — Q1 BSP (v29) header + 15 lump directory + entity-string parser
-- `qworld-mdl` — Q1 MDL + SPR header parsing
+- `qworld-bsp` — Q1 BSP **v29 + BSP2**: magic detection, 15 lump directory + entity-string parser + geometry decoders (vertexes/edges/surfedges/faces — V29 widens to BSP2 32-bit shape on read, in-memory types are always BSP2-shaped) + `face_vertices` polygon resolver + `texinfo` + `miptex` (with missing-entry handling) + `lighting_bytes` raw lightmap accessor
+- `qworld-mdl` — Full MDL decoder: header, skins (single + group), stverts (with seam-wrap UVs), triangles, frames (single + group), `TriVertx::position` decompression, `Skin::to_rgba(palette)` for PNG export. SPR header parser.
 - `qworld-image` — LMP (Quake-palette indexed) decoder + PCX via `pcx` crate + PNG/TGA/JPG via `image`
 - `qworld-wav` — WAV decode via `hound`
 - `qworld-demo` — QWD block reader, MVD message types, NQ .dem block reader, format sniffer
 - `qworld-server` — local in-process server: parses BSP entities, picks `info_player_*` spawn point natively (no QC)
-- `qworld-render` — wgpu GPU context init + headless render-target (clear color + readback)
-- `bins/qworld-cli` — working `qworld pak list/extract`, `qworld bsp info/spawn`, `qworld demo sniff` commands (clap-driven)
+- `qworld-render` — wgpu GPU context + `HeadlessTarget` (color + optional depth) + `MeshPipeline` with WGSL shader, `Vertex`/`Mesh`, camera uniform. Real triangle rendering verified end-to-end.
+- `bins/qworld-cli` — working `qworld pak list/extract`, `qworld bsp info/spawn`, `qworld demo sniff`, `qworld render <bsp> --out <png>` commands (clap-driven)
 
 `todo!()` stubs (signatures + module structure documented; bodies
 deferred):
