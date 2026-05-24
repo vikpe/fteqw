@@ -139,6 +139,15 @@ reference. See [rust_port_plan.md](rust_port_plan.md).
 linkage. A native-only plugin that no use case ever needs — *or
 where the Rust port has a better alternative* — can go.
 
+**Platform abstraction code (`sys_*.c`, `gl_vid*.c`) for Linux,
+Windows, macOS, SDL stays** even though the current web build
+doesn't compile it. Reason: the long-term plan ([rust_port_plan.md])
+includes unix CLI + streambot use cases; future iterations may want
+to also build slim FTE for those targets, or use the C code as
+reference for the Rust port. Only truly-dead platforms get
+deleted: DOS, MorphOS, Xbox/XDK, MS-DOS-era, Android (already
+dropped).
+
 ### Misc
 - Keep: `MULTITHREAD`, `LOADERTHREAD`, `QUAKESTATS`, `QUAKEHUD`,
   `QWSKINS`, `NOQCDESCRIPTIONS 2`
