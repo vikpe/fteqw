@@ -122,10 +122,12 @@ Drop (legacy / not preview-related):
 
 ### Plugins
 - Keep: `ezhud` (statically linked via `LINK_EZHUD=1`; required for
-  web link to succeed)
-- **OPEN**: `serverb` (server browser — depends on web app role)
-- Drop: everything else (avplug, cef, hl2, mpq, cod, winamp, irc,
-  jabber, emailnot, xsv, bullet, models plugin, etc.)
+  web link to succeed), `ezscript` (kept for now — quake.world may
+  ship user automation scripts)
+- Drop: everything else (already removed: avplug, cef, berkelium,
+  hl2, mpq, cod, winamp, irc, jabber, emailnot, xsv, bullet,
+  spaceinv, terrorgen, namemaker, qi, openxr.c, hud, serverb,
+  botlib, quake3, models)
 
 For the CLI demo->mpeg use case, the Rust port pipes raw RGBA from
 wgpu to a `ffmpeg` subprocess; it does not need FTE's avplug as
