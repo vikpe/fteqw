@@ -799,9 +799,7 @@ CLIENT_OBJS = \
 				\
 	pr_menu.o
 
-VKQUAKE_OBJS =		\
-	vk_init.o	\
-	vk_backend.o
+VKQUAKE_OBJS =
 
 GLQUAKE_OBJS =		\
 	gl_draw.o		\
@@ -811,8 +809,7 @@ GLQUAKE_OBJS =		\
 	gl_rsurf.o		\
 	gl_screen.o		\
 	gl_bloom.o		\
-	gl_vidcommon.o		\
-	$(VKQUAKE_OBJS)
+	gl_vidcommon.o
 
 D3DQUAKE_OBJS =		\
 	d3d8_backend.o \
