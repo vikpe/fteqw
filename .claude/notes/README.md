@@ -6,6 +6,7 @@ they travel between machines and sessions.
 ## Index
 
 - [Workflow rules](workflow.md) — always-run scripts, build/sync conventions
+- [Build configurability inventory](build_configurability.md) — full inventory of build targets, LINK_* flags, config variants, supported games/protocols/formats, renderers, plugins, and major engine features; reference for slim-build planning
 - [Demo event extraction by format](demo_event_extraction_by_format.md) — what events each demo format (NQ/QWD/MVD) yields and why MVD has the richest set
 - [NQ demo event extraction tiers](nq_demo_event_extraction_tiers.md) — tiered breakdown of NetQuake .dem event recoverability with svc_ refs
 - [QWD demo event extraction tiers](qwd_demo_event_extraction_tiers.md) — tiered breakdown of QWD event recoverability; key insight that //ktx events work in QWD too
