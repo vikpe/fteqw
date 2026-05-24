@@ -43,8 +43,9 @@ Defaults below are proposals; **OPEN** items need a decision before
 the header can be authored.
 
 ### Games
-- Keep: QuakeWorld baseline (always on)
-- Drop: `NQPROT`, `Q2CLIENT`, `Q2SERVER`, `Q3CLIENT`, `Q3SERVER`,
+- Keep: QuakeWorld baseline (always on), `NQPROT` (required for
+  NetQuake .dem demo playback — quake.world serves NQ demos too)
+- Drop: `Q2CLIENT`, `Q2SERVER`, `Q3CLIENT`, `Q3SERVER`,
   `HEXEN2`, `HLCLIENT`, `HLSERVER`, `AVAIL_BOTLIB`
 
 ### Maps
