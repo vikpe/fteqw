@@ -1,0 +1,28 @@
+[package]
+name = "qworld-render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+qworld-core = { workspace = true }
+qworld-bsp = { workspace = true }
+qworld-mdl = { workspace = true }
+qworld-image = { workspace = true }
+qworld-shader = { workspace = true }
+wgpu = { workspace = true }
+glam = { workspace = true }
+bytemuck = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+futures-intrusive = { workspace = true }
+
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+pollster = { workspace = true }
+
+# Add the WebGL backend only on the web target.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wgpu = { workspace = true, features = ["webgl"] }
+
+[lints]
+workspace = true

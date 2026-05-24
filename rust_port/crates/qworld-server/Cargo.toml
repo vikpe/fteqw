@@ -1,0 +1,16 @@
+[package]
+name = "qworld-server"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+qworld-core = { workspace = true }
+qworld-bsp = { workspace = true }
+qworld-net = { workspace = true }
+glam = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

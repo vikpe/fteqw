@@ -1,0 +1,25 @@
+[package]
+name = "qworld-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "qworld"
+path = "src/main.rs"
+
+[dependencies]
+qworld-fs = { workspace = true }
+qworld-bsp = { workspace = true }
+qworld-demo = { workspace = true }
+qworld-server = { workspace = true }
+clap = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[lints]
+workspace = true
