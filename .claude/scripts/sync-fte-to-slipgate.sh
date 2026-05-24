@@ -69,7 +69,7 @@ if [ "${1:-}" = "build" ]; then
         make FTE_TARGET=web makelibs
     fi
     rm -f release/ftewebgl.js release/ftewebgl.wasm
-    make -j"$(nproc)" gl-rel LINK_EZHUD=1 LINK_OPENSSL=1
+    make -j"$(nproc)" gl-rel FTE_CONFIG=qwslim LINK_EZHUD=1 LINK_OPENSSL=1
 
     sync_artifacts
     exit 0
