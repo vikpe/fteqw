@@ -17,8 +17,10 @@
  * Visibility:
  *   - Hidden in coop (deathmatch == 0).
  *   - Names + frags always visible (last-known values survive standby).
- *   - Live stats (location, health, armor, best weapon) only while the
- *     match is active; same gate as minimap_players.qc.
+ *   - Location and best weapon always shown (standby included).
+ *   - Health, armor and powerups only while the match is active; same
+ *     gate as minimap_players.qc.
+ *   - No live stats on a local listen server.
  *
  * Grouping:
  *   - Teamplay with no empty team strings: team header per team,
@@ -296,8 +298,8 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
         }
     }
 
-    // Live-stats gate: match running ("min left" in status) OR countdown.
-    // Hidden during pre-match standby and on local listen server.
+    // Health/armor/powerup gate: match running ("min left" in status) OR
+    // countdown. Hidden during pre-match standby and on local listen server.
     string status = serverkey("status");
     float  match_active = (strstrofs(status, "min left", 0) >= 0
                            || !strcasecmp(status, "countdown"))
@@ -378,7 +380,7 @@ float(float evtype, float scanx, float chary, float devid) PlayerInfoInputEvent 
 // right_top.x is the row's right edge (widget right margin); right_top.y is
 // its top edge. The row outer block extends content_w + 2*player_pad.x
 // horizontally and L.row_height vertically; content draws inset by player_pad.
-// Stats are skipped when match_active is 0. Tracked-row highlight + the hit
+// Armor, health and powerups are skipped when match_active is 0. Tracked-row highlight + the hit
 // rect for click dispatch both span the full outer block.
 void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float match_active, float is_single_pov, participant_t player) PI_DrawPlayerRow =
 {
@@ -453,10 +455,11 @@ void(pi_layout_t L, vector right_top, float content_width, float seat, float tra
     float  frags_text_width = stringwidth(frags_text, 0, font);
     drawstring([frags_right - frags_text_width, content_y, 0], frags_text, font, '1 1 1', 1, 0);
 
-    // Live stats: location, health/armor, best weapon. Single-POV demos
-    // only have these for the recording client, so the whole block is
-    // skipped (matches the collapsed name-only column layout above).
-    if (match_active && !is_single_pov) {
+    // Live stats: location, best weapon, plus health/armor/powerups while
+    // the match is active. Single-POV demos only have these for the
+    // recording client, so the whole block is skipped (matches the
+    // collapsed name-only column layout above).
+    if (!is_single_pov && !isserver()) {
         vector origin = getentity(player.slot + 1, GE_ORIGIN);
         if (origin != '0 0 0') {
             string location_name = getlocationname(origin);
@@ -487,52 +490,57 @@ void(pi_layout_t L, vector right_top, float content_width, float seat, float tra
         float player_model_index = getmodelindex("progs/player.mdl");
         if (entity_active && entity_model_index == player_model_index && health > 0) {
             int    items = getplayerstat(player.slot, STAT_ITEMS, EV_INTEGER);
-            float  armor = getplayerstat(player.slot, STAT_ARMOR, EV_FLOAT);
 
-            // Armor: own column, omitted at 0. Tinted by armor type
-            // (GA green, YA yellow, RA red). Capped at 999 so the value
-            // fits 3 digits, matching the health column.
-            if (armor > 0) {
-                float  armor_display = (armor > 999) ? 999 : armor;
-                string armor_value = sprintf("%d", armor_display);
-                float  armor_width = stringwidth(armor_value, 0, font);
-                vector armor_color = '1 1 1';
-                if      (items & MM_IT_ARMOR3) armor_color = '1 0.3 0.3';
-                else if (items & MM_IT_ARMOR2) armor_color = '1 1 0.3';
-                else if (items & MM_IT_ARMOR1) armor_color = '0.3 1 0.3';
-                drawstring([armor_right - armor_width, content_y, 0],
-                           armor_value, font, armor_color, 1, 0);
-                // Slash flush in the col_gap between armor and health,
-                // no extra margin on either side.
-                drawstring([armor_right, content_y, 0],
-                           "/", font, '0.6 0.6 0.6', 0.75, 0);
-            }
+            // Armor, health and powerups: match running or countdown only
+            // (pre-match standby values are prewar and not meaningful).
+            if (match_active) {
+                float  armor = getplayerstat(player.slot, STAT_ARMOR, EV_FLOAT);
 
-            // Health: hud_health rule - red at the low threshold (<= 25),
-            // white otherwise. Right-aligned in the health column. Capped
-            // at 999 so the value fits 3 digits.
-            float  health_display    = (health > 999) ? 999 : health;
-            string health_text       = sprintf("%d", health_display);
-            float  health_text_width = stringwidth(health_text, 0, font);
-            vector health_color      = (health <= 25) ? '1 0.3 0.3' : '1 1 1';
-            drawstring([health_right - health_text_width, content_y, 0], health_text, font, health_color, 1, 0);
+                // Armor: own column, omitted at 0. Tinted by armor type
+                // (GA green, YA yellow, RA red). Capped at 999 so the value
+                // fits 3 digits, matching the health column.
+                if (armor > 0) {
+                    float  armor_display = (armor > 999) ? 999 : armor;
+                    string armor_value = sprintf("%d", armor_display);
+                    float  armor_width = stringwidth(armor_value, 0, font);
+                    vector armor_color = '1 1 1';
+                    if      (items & MM_IT_ARMOR3) armor_color = '1 0.3 0.3';
+                    else if (items & MM_IT_ARMOR2) armor_color = '1 1 0.3';
+                    else if (items & MM_IT_ARMOR1) armor_color = '0.3 1 0.3';
+                    drawstring([armor_right - armor_width, content_y, 0],
+                               armor_value, font, armor_color, 1, 0);
+                    // Slash flush in the col_gap between armor and health,
+                    // no extra margin on either side.
+                    drawstring([armor_right, content_y, 0],
+                               "/", font, '0.6 0.6 0.6', 0.75, 0);
+                }
 
-            // Powerup glyphs: single colored chars, no inter-char margin.
-            // Q = quad (blue), P = pent (red), R = ring (yellow). Drawn
-            // rightmost first so the highest-priority one sits closest
-            // to the name.
-            float char_width = stringwidth("Q", 0, font);
-            float powerup_x  = name_x - L.col_gap - char_width;
-            if (items & MM_IT_QUAD) {
-                drawstring([powerup_x, content_y, 0], "Q", font, '0.38 0.65 0.98', 1, 0);
-                powerup_x -= char_width;
-            }
-            if (items & MM_IT_INVULNERABILITY) {
-                drawstring([powerup_x, content_y, 0], "P", font, '1 0 0', 1, 0);
-                powerup_x -= char_width;
-            }
-            if (items & MM_IT_INVISIBILITY) {
-                drawstring([powerup_x, content_y, 0], "R", font, '1 1 0', 1, 0);
+                // Health: hud_health rule - red at the low threshold (<= 25),
+                // white otherwise. Right-aligned in the health column. Capped
+                // at 999 so the value fits 3 digits.
+                float  health_display    = (health > 999) ? 999 : health;
+                string health_text       = sprintf("%d", health_display);
+                float  health_text_width = stringwidth(health_text, 0, font);
+                vector health_color      = (health <= 25) ? '1 0.3 0.3' : '1 1 1';
+                drawstring([health_right - health_text_width, content_y, 0], health_text, font, health_color, 1, 0);
+
+                // Powerup glyphs: single colored chars, no inter-char margin.
+                // Q = quad (blue), P = pent (red), R = ring (yellow). Drawn
+                // rightmost first so the highest-priority one sits closest
+                // to the name.
+                float char_width = stringwidth("Q", 0, font);
+                float powerup_x  = name_x - L.col_gap - char_width;
+                if (items & MM_IT_QUAD) {
+                    drawstring([powerup_x, content_y, 0], "Q", font, '0.38 0.65 0.98', 1, 0);
+                    powerup_x -= char_width;
+                }
+                if (items & MM_IT_INVULNERABILITY) {
+                    drawstring([powerup_x, content_y, 0], "P", font, '1 0 0', 1, 0);
+                    powerup_x -= char_width;
+                }
+                if (items & MM_IT_INVISIBILITY) {
+                    drawstring([powerup_x, content_y, 0], "R", font, '1 1 0', 1, 0);
+                }
             }
 
             // Best weapon: RLG (both) > RL > LG > GL. Mirrors the minimap's
