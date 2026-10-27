@@ -3077,6 +3077,7 @@ void Key_Event (unsigned int devid, int key, unsigned int unicode, qboolean down
 		return;
 	}
 
+#ifndef FTE_TARGET_WEB	// HUB: no hard-coded demo keys (arrows, any key -> menu); binds only.
 //
 // during demo playback, most keys bring up the main menu
 //
@@ -3121,6 +3122,7 @@ void Key_Event (unsigned int devid, int key, unsigned int unicode, qboolean down
 			}
 		}
 	}
+#endif
 
 	//prompts get the first chance
 	if (Key_Dest_Has(kdm_prompt))

@@ -13,6 +13,15 @@
 extern qboolean hub_match_in_progress;
 extern double   hub_match_elapsed_ms;
 
+// Registers hub console commands. Called from CL_Init.
+void Hub_Init(void);
+
+// QTV transition capture (cl_hub_vidweb.c): the backbuffer now, or deferred to the
+// end of the current frame, before the gamma pass.
+void Hub_CaptureBackbuffer(const char *texname);
+void Hub_RequestTransitionCapture(void);
+void Hub_RunPendingTransitionCapture(void);
+
 // Hook entry points called from the engine.
 void Hub_CheckServerInfo(void);        // end of CL_CheckServerInfo
 void Hub_HostFrame(double frametime);  // each Host_Frame tick

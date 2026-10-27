@@ -338,7 +338,7 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
 float(float evtype, float scanx, float chary, float devid) PlayerInfoInputEvent =
 {
     if (!autocvar_playerinfo) return 0;
-    if (evtype != IE_KEYDOWN || scanx != K_MOUSE1) return 0;
+    if (evtype != IE_KEYDOWN || (scanx != K_MOUSE1 && scanx != K_TOUCH)) return 0;
 
     // Single-POV demos (QWD, NQ .dem, single-slot MVD wraps) lock the
     // view to the recording client; there's nothing meaningful to track.

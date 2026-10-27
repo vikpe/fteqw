@@ -1119,6 +1119,7 @@ int Hub_DemoEvent_Scan(void)
 	char     saved_name[MAX_OSPATH];
 	char     saved_demospeed[32];
 	qboolean saved_was_systempath = cls.lastdemowassystempath;
+	int      saved_track          = Cam_TrackNum(&cl.playerview[0]);
 	int      demotype             = cls.demoplayback;
 	Q_strncpyz(saved_name,      cls.lastdemoname,    sizeof(saved_name));
 	Q_strncpyz(saved_demospeed, cl_demospeed.string, sizeof(saved_demospeed));
@@ -1181,8 +1182,9 @@ int Hub_DemoEvent_Scan(void)
 		                  demotype, 0, 0);
 	}
 	Hub_ResetMatchState();
-	cls.demoseektime = saved_time;
-	cls.demoseeking  = DEMOSEEK_TIME;
+	cls.demoseektime  = saved_time;
+	cls.demoseektrack = saved_track;
+	cls.demoseeking   = DEMOSEEK_TIME;
 	// Restore cl_demospeed: the EOF-pause path sets it to 0 when the
 	// scan races to the end of the demo.
 	Cvar_Set(&cl_demospeed, saved_demospeed);

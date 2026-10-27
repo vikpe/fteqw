@@ -13,12 +13,7 @@ float  transition_is_active;
 float  transition_start_time;
 float  transition_duration;
 float  transition_effect;
-
-// Per-transition random seed passed to non-loop effect shaders via
-// vc.r, so deterministic-looking effects (e.g. plasma_burn) can
-// scramble their pattern each time. Regenerated on every TransitionStart
-// and TransitionOnQtvCapture.
-float  transition_seed;
+float  transition_has_run;  // transition_effect holds the last run effect once set
 
 float  transition_should_capture;
 float  transition_is_capturing;
@@ -73,6 +68,7 @@ void() TransitionOnSpawn =
 void() TransitionOnQtvCapture =
 {
     transition_effect          = TransitionPickEffect();
+    transition_has_run         = 1;
     transition_duration        = bound(0.05, TransitionEffectDuration(transition_effect, autocvar_transition_duration), 5);
     transition_is_active       = 0;
     transition_is_waiting      = 1;
@@ -80,7 +76,6 @@ void() TransitionOnQtvCapture =
     transition_wait_start_time = cltime;
     transition_render_time     = 0;
     transition_render_last_cltime = cltime;
-    transition_seed            = random();
     transition_prev_con_stayhidden  = cvar("con_stayhidden");
     transition_prev_con_notifylines = cvar("con_notifylines");
     cvar_set("con_stayhidden",  "1");
@@ -197,12 +192,12 @@ void() TransitionPollTriggers =
 void(float effect, float duration) TransitionStart =
 {
     transition_effect         = effect;
+    transition_has_run        = 1;
     transition_duration       = bound(0.05, TransitionEffectDuration(effect, duration), 5);
     transition_start_time     = cltime;
     transition_should_capture = 1;
     transition_render_time     = 0;
     transition_render_last_cltime = cltime;
-    transition_seed           = random();
     if (autocvar_transition_debug_loop) {
         // Debug: enter the looping/waiting phase and stay there. The
         // OnSpawn/PollTriggers checks above bail out so we never promote
@@ -250,11 +245,17 @@ float() TransitionDefaultEffect =
     return effect;
 };
 
+// "randomize" never repeats the last run effect: pick among the others.
 float() TransitionPickEffect =
 {
-    if (autocvar_transition_style == "randomize")
-        return floor(random() * TRANSITION_EFFECT_COUNT);
-    return TransitionDefaultEffect();
+    if (autocvar_transition_style != "randomize")
+        return TransitionDefaultEffect();
+    if (!transition_has_run)
+        return min(floor(random() * TRANSITION_EFFECT_COUNT), TRANSITION_EFFECT_COUNT - 1);
+    float effect = min(floor(random() * (TRANSITION_EFFECT_COUNT - 1)), TRANSITION_EFFECT_COUNT - 2);
+    if (effect >= transition_effect)
+        effect += 1;
+    return effect;
 };
 
 float(float now) TransitionProgress =
@@ -283,10 +284,7 @@ void(float vwidth, float vheight) TransitionDrawOverlay =
                            [transition_render_time, 0, 0], progress);
         return;
     }
-    // vc.r carries the per-transition random seed for shaders that
-    // want to scramble their pattern each run (plasma_burn etc.).
-    TransitionDrawQuad(name, vwidth, vheight,
-                       [transition_seed, 1, 1], progress);
+    TransitionDrawQuad(name, vwidth, vheight, '1 1 1', progress);
 };
 
 void() TransitionFinish =

@@ -87,6 +87,7 @@ void(string spec, __out vector rgb, __out float alpha) ML_ParseColor;
 void(vector view_min, vector view_size, string label, float seat_scale,
      __out vector pos, __out vector size, __out vector font_size) ML_ButtonRect;
 float(vector pos, vector size, vector cursor) ML_PointInRect;
+float(float scanx) ML_IsPointerKey;
 
 // ----- entry points ---------------------------------------------------------
 
@@ -170,10 +171,10 @@ void(float seat, vector view_min, vector view_size) MouseLockDraw =
 // player view the user isn't currently controlling.
 //
 // Consumes IE_KEYDOWN / IE_KEYUP - mouse buttons (K_MOUSE1..K_MOUSE10),
-// the wheel (K_MWHEELUP/DOWN), and most keyboard scan codes. K_TAB and
-// K_SPACE are whitelisted through ONLY when canvas_focus is set, so a
-// Space pressed while typing into an external input (chat box, demo URL
-// field) doesn't slip past as +jump / scoreboard. Mouse motion events
+// the wheel (K_MWHEELUP/DOWN), touch keys, and keyboard keys while the
+// canvas is unfocused. Keyboard keys pass through ONLY when canvas_focus is
+// set, so typing into an external input (chat box, demo URL field) doesn't
+// slip past as binds (+showscores, track_next, ...). Mouse motion events
 // (IE_MOUSEABS / IE_MOUSEDELTA) pass through so MouseLockInputEvent's
 // release detection keeps working.
 float(float evtype, float scanx) MouseLockSwallowMissed =
@@ -181,7 +182,7 @@ float(float evtype, float scanx) MouseLockSwallowMissed =
     if (!autocvar_mouselock) return 0;
     if (mouselock_is_active) return 0;
     if (evtype != IE_KEYDOWN && evtype != IE_KEYUP) return 0;
-    if (autocvar_canvas_focus && (scanx == K_TAB || scanx == K_SPACE)) return 0;
+    if (autocvar_canvas_focus && !ML_IsPointerKey(scanx)) return 0;
     return 1;
 };
 
@@ -286,4 +287,10 @@ void(string spec, __out vector rgb, __out float alpha) ML_ParseColor =
     float b = (argc >= 3) ? stof(argv(2)) : 0;
     alpha   = (argc >= 4) ? stof(argv(3)) : 1;
     rgb     = [r, g, b] / 255;
+};
+
+// Mouse buttons, wheel and touch keys (K_MOUSE1 = 512 .. K_MOUSE10 = 523, K_TOUCH* = 600 .. 603).
+float(float scanx) ML_IsPointerKey =
+{
+    return (scanx >= K_MOUSE1 && scanx <= K_MOUSE10) || (scanx >= K_TOUCH && scanx <= K_TOUCHLONG);
 };

@@ -8,6 +8,7 @@
 static void        gather_players(hub_participants_t *out);
 static int         should_build_teams(const hub_participants_t *p);
 static void        compute_team_groups(hub_participants_t *p);
+static void        apply_majority_colors(hub_participants_t *p, hub_participant_team_t *team);
 static void        encode_conchar_to_unicode(conchar_t *src, char *out, int outsize);
 static int         compare_player_by_name_ascii(const void *a, const void *b);
 static int         compare_team_by_team_ascii(const void *a, const void *b);
@@ -58,7 +59,7 @@ static void gather_players(hub_participants_t *out)
 		// stuffs the numeric bottom_color+1 in there (cl_parse.c
 		// svc_updatecolors), which is useless for display. Override
 		// with the palette color name so downstream consumers
-		// (bindings.cpp:getTitle, the team-group display) get human-
+		// (bindings.cpp:getParticipants, the team-group display) get human-
 		// readable team names that match participants.qc's
 		// NQ_ColorName output.
 		if (is_netquake_demo)
@@ -128,7 +129,7 @@ static int should_build_teams(const hub_participants_t *p)
 	return distinct_count == 2;
 }
 
-// Groups players by team string, sums frags, sorts by team_ascii.
+// Groups players by team string, sums frags, picks majority colors, sorts by team_ascii.
 static void compute_team_groups(hub_participants_t *p)
 {
 	int i, k;
@@ -163,7 +164,35 @@ static void compute_team_groups(hub_participants_t *p)
 			p->teams[existing].frag_sum += player->frags;
 		}
 	}
+	for (k = 0; k < p->team_count; k++)
+		apply_majority_colors(p, &p->teams[k]);
 	qsort(p->teams, p->team_count, sizeof(p->teams[0]), compare_team_by_team_ascii);
+}
+
+// Most common top / bottom palette slot among the team's players (first in name order
+// wins ties), with the RGB of a player that has it.
+static void apply_majority_colors(hub_participants_t *p, hub_participant_team_t *team)
+{
+	int top_counts[17]    = {0};
+	int bottom_counts[17] = {0};
+	int top_best_count    = 0;
+	int bottom_best_count = 0;
+	int i;
+	for (i = 0; i < p->player_count; i++) {
+		const hub_participant_player_t *player = &p->players[i];
+		if (strcmp(player->team_bytestr, team->team_bytestr))
+			continue;
+		if (++top_counts[player->top_color] > top_best_count) {
+			top_best_count  = top_counts[player->top_color];
+			team->top_color = player->top_color;
+			memcpy(team->top_rgb, player->top_rgb, sizeof(team->top_rgb));
+		}
+		if (++bottom_counts[player->bottom_color] > bottom_best_count) {
+			bottom_best_count  = bottom_counts[player->bottom_color];
+			team->bottom_color = player->bottom_color;
+			memcpy(team->bottom_rgb, player->bottom_rgb, sizeof(team->bottom_rgb));
+		}
+	}
 }
 
 // ----- decode / introspection -----------------------------------------------

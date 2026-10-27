@@ -36,13 +36,14 @@ float(vector xy, float floor_z)                                      MinimapCanS
 // ----- entry point (called from main.qc:CSQC_InputEvent) --------------------
 
 // Input router handler. Self-gates on minimap state: minimap off or event
-// is not a left-mouse-down -> 0 (passthrough). Inside the minimap rect ->
+// is not a left-mouse-down / touch-down -> 0 (passthrough). Inside the minimap rect ->
 // 1 (consumed, teleport issued or rejected silently). Outside the rect ->
 // 0 (passthrough, e.g. mouse1 inside the main view still triggers +attack).
 float(float evtype, float scanx, float chary, float devid) MinimapInputEvent =
 {
     if (autocvar_minimap_mode == MINIMAP_OFF) return 0;
-    if (evtype != IE_KEYDOWN || scanx != K_MOUSE1) return 0;
+    if (evtype != IE_KEYDOWN || (scanx != K_MOUSE1 && scanx != K_TOUCH)) return 0;
+    // The engine moves the cursor to the finger on touch-down.
     return MinimapTeleport(getmousepos());
 };
 

@@ -98,6 +98,20 @@ void Cam_AutoTrack_Update(const char *mode)
 		autotrack_statsrule = Z_StrDup(mode);
 	}
 }
+// HUB: active autotrack mode as a name, for the web bindings. Reflects
+// explicit picks (TM_USER) that don't change the cl_autotrack cvar.
+const char *Cam_AutoTrackModeName(void)
+{
+	switch (autotrackmode)
+	{
+	case TM_HIGHTRACK:	return "high";
+	case TM_KILLER:		return "killer";
+	case TM_MODHINTS:	return "mod";
+	case TM_STATS:		return "stats";
+	default:			return "user";
+	}
+}
+
 static void Cam_AutoTrack_f(void)
 {
 	if (*Cmd_Argv(1))
@@ -1010,6 +1024,7 @@ void Cam_FinishMove(playerview_t *pv, usercmd_t *cmd)
 
 	if (cls.demoplayback == DPB_MVD)
 	{
+#ifndef FTE_TARGET_WEB	// HUB: movement commands move the free-fly camera, not speed/seek/splitscreen.
 		int nb = 0;
 		nb |= (cmd->sidemove<0)?4:0;
 		nb |= (cmd->sidemove>0)?8:0;
@@ -1040,6 +1055,7 @@ void Cam_FinishMove(playerview_t *pv, usercmd_t *cmd)
 				Cvar_SetValue(&cl_splitscreen, min(cl_splitscreen.ival + 1, MAX_SPLITS-1));
 		}
 		pv->cam_oldbuttons = (pv->cam_oldbuttons & 3) | (nb & ~3);
+#endif
 		if (cmd->impulse)
 		{
 			int pl = cmd->impulse;

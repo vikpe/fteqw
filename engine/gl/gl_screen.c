@@ -26,6 +26,7 @@ extern qboolean gammaworks;
 #include "glquake.h"
 #include "shader.h"
 #include "gl_draw.h"
+#include "cl_hub.h"
 
 #include <time.h>
 
@@ -117,7 +118,10 @@ qboolean GLSCR_UpdateScreen (void)
 			return false;	//don't refresh if we can't do so safely.
 		else
 		{
+			Hub_RunPendingTransitionCapture();	// HUB: fallback, no live frame came
 			SCR_DrawLoading (true);
+			// HUB: gamma/contrast like every other frame, so a held transition frame keeps its look.
+			R2D_BrightenScreen();
 			SCR_SetUpToDrawConsole();
 			if (Key_Dest_Has(kdm_console))
 				SCR_DrawConsole(false);
@@ -223,6 +227,7 @@ qboolean GLSCR_UpdateScreen (void)
 			SCR_DrawTwoDimensional(nohud);
 
 		V_UpdatePalette (false);
+		Hub_RunPendingTransitionCapture();	// HUB: before the gamma pass
 		R2D_BrightenScreen();
 		Media_RecordFrame();
 	}

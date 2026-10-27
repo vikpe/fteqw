@@ -19,6 +19,8 @@ void(float apilevel, string enginename, float engineversion) CSQC_Init =
     registercommand("minimap_editor_remove", "Remove the currently highlighted cull volume (the closest one in range, shown brighter with a yellow accent border).");
     registercommand("minimap_editor_undo",   "Undo the last minimap_editor_add or minimap_editor_remove. Single level - no redo.");
     registercommand("minimap_editor_export",   "Write the current in-memory cull volumes to maps/<map>.cull. The only command that touches the file system.");
+    registercommand("track_next", "Track the next player (name order, wraps).");
+    registercommand("track_prev", "Track the previous player (name order, wraps).");
     registercommand("transition", strcat("Trigger a screen transition effect. Usage: transition <style> [duration_seconds]. Styles: ", TransitionStylesString(), "."));
     MinimapRegisterDescriptions();
 };
@@ -71,6 +73,7 @@ float(float evtype, float scanx, float chary, float devid) CSQC_InputEvent =
     if (MouseLockInputEvent(evtype, scanx, chary, devid)) return 1;
     if (PlayerInfoInputEvent(evtype, scanx, chary, devid)) return 1;
     if (MinimapInputEvent(evtype, scanx, chary, devid)) return 1;
+    if (GesturesInputEvent(evtype, scanx, chary, devid)) return 1;
     // Last: while the cursor is visible (we don't hold the lock), drop
     // any mouse button / wheel event that none of the UI handlers
     // claimed. Stops a miss-click from being interpreted by the engine
@@ -147,6 +150,7 @@ void(float vwidth, float vheight, float notmenu) CSQC_UpdateView =
     drawfill('0 0 0', [vwidth, vheight, 0], '0 0 0', 1);
     drawfill('0 0 0', '0 0 0', '1 1 1', 1);  // reset blendmode (FTE quirk)
 
+    GesturesFrame();
     TransitionPollTriggers();
     TransitionBeginCapture(vwidth, vheight);
 

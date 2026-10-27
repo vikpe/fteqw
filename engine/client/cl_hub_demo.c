@@ -67,3 +67,7 @@ int Hub_IsCtfMode(void)
 	return cached_is_ctf;
 }
 
+int Hub_IsSeekableDemo(void)
+{
+	return cls.demoplayback != DPB_NONE && cls.lastdemoname[0];
+}

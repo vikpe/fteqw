@@ -26,6 +26,8 @@ float(string cmd) CSQC_ConsoleCommand =
         default:        return PowcamCmdHelp();
         }
     }
+    if (argv(0) == "track_next") { TrackParticipantByDelta(1);  return 1; }
+    if (argv(0) == "track_prev") { TrackParticipantByDelta(-1); return 1; }
     if (argv(0) == "minimap_editor_add")    return CullEditAddCmd();
     if (argv(0) == "minimap_editor_remove") return CullEditRemoveCmd();
     if (argv(0) == "minimap_editor_undo")   return CullEditUndoCmd();

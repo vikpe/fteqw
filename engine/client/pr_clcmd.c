@@ -1503,6 +1503,11 @@ const char *PF_cl_serverkey_internal(const char *keyname)
 	{
 		ret = va("%u", cls.challenge);
 	}
+	else if (!strcmp(keyname, "demo_is_seekable"))
+	{	// HUB: "1" during demo file playback, "0" for QTV / live (cl_hub_demo.c).
+		extern int Hub_IsSeekableDemo(void);
+		ret = Hub_IsSeekableDemo() ? "1" : "0";
+	}
 	else if (!strcmp(keyname, "demo_is_single_pov"))
 	{	// Client-side engine state, queried by CSQC widgets that hide
 		// controls only meaningful in real multi-POV playback. "1" for

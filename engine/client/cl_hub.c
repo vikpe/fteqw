@@ -2,6 +2,7 @@
 
 #include "quakedef.h"
 #include "cl_hub.h"
+#include "cl_hub_demo.h"
 #include "cl_hub_demo_timeline.h"
 
 // Engine helper (zqtp.c) that returns one of: "disconnected",
@@ -15,7 +16,18 @@ double   hub_match_elapsed_ms     = -1;
 
 static char hub_prev_status[MAX_INFO_KEY] = "";
 
+// Last positive cl_demospeed, restored when demo_toggle_pause resumes.
+static float hub_last_positive_demo_speed = 1;
+
+static void Hub_DemoTogglePause_f(void);
+
 static qboolean Hub_MapHasSeparateLit(const char *map_name);
+
+void Hub_Init(void)
+{
+	Cmd_AddCommandD("demo_toggle_pause", Hub_DemoTogglePause_f,
+	                "Pauses demo playback, or resumes it at the last non-zero speed. No-op for QTV / live.");
+}
 
 // Parse "<N> min[s]/sec[s]/hour[s] left" from cl.serverinfo "status",
 // returning remaining match milliseconds or -1 if the string isn't in
@@ -314,4 +326,18 @@ static qboolean Hub_MapHasSeparateLit(const char *map_name)
 {
 	return bsearch(map_name, hub_separate_lit_maps, countof(hub_separate_lit_maps),
 	               sizeof(hub_separate_lit_maps[0]), Hub_CompareMapName) != NULL;
+}
+
+static void Hub_DemoTogglePause_f(void)
+{
+	extern cvar_t cl_demospeed;
+	if (!Hub_IsSeekableDemo())
+		return;
+	if (cl_demospeed.value > 0)
+	{
+		hub_last_positive_demo_speed = cl_demospeed.value;
+		Cvar_SetValue(&cl_demospeed, 0);
+	}
+	else
+		Cvar_SetValue(&cl_demospeed, hub_last_positive_demo_speed);
 }

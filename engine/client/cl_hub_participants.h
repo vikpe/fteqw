@@ -9,7 +9,7 @@
 // 2 distinct teams; team key is bottom_color on NetQuake demos, raw team
 // string otherwise).
 //
-// Consumers (currently bindings.cpp's getTitle) call Hub_BuildParticipants
+// Consumers (bindings.cpp's getParticipants, ezhud's score bar) call Hub_BuildParticipants
 // with a stack-allocated hub_participants_t and read the resulting arrays.
 
 #ifndef CL_HUB_PARTICIPANTS_H
@@ -39,6 +39,8 @@ typedef struct {
 
 typedef struct {
 	int  frag_sum;
+	int  top_color;     // majority palette slot among the team's players
+	int  bottom_color;  // majority palette slot among the team's players
 	unsigned char top_rgb[3];
 	unsigned char bottom_rgb[3];
 	char team_bytestr[HUB_PARTICIPANT_NAME_BYTES];

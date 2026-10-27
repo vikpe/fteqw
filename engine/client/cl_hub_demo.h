@@ -44,6 +44,10 @@ int Hub_IsSinglePovDemo(void);
 // actually a CTF/rune game.
 int Hub_IsCtfMode(void);
 
+// True during playback of a demo file (seekable, pausable); false for QTV
+// streams, live servers and when nothing is playing.
+int Hub_IsSeekableDemo(void);
+
 #ifdef __cplusplus
 }
 #endif

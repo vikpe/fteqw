@@ -366,6 +366,20 @@ static void Sys_RequestPointerLock_f(void)
 	});
 }
 
+// HUB: `hub_request <name>` calls Module.onHubRequest(name) on the embedding page.
+// Lets CSQC ask the page for things only it can do (e.g. "fullscreen" on its container).
+static void Sys_HubRequest_f(void)
+{
+	if (Cmd_Argc() < 2)
+	{
+		Con_Printf("usage: %s <name>\n", Cmd_Argv(0));
+		return;
+	}
+	EM_ASM({
+		if (typeof Module !== 'undefined' && typeof Module['onHubRequest'] === 'function')
+			Module['onHubRequest'](UTF8ToString($0));
+	}, Cmd_Argv(1));
+}
 
 static void Sys_Register_File_Associations_f(void)
 {	//we should be able to register 'web+foo://' schemes here. we can't skip the web+ part though, which is a shame.
@@ -400,6 +414,7 @@ void Sys_Init(void)
 	vid_height.flags &= ~CVAR_VIDEOLATCH;
 
 	Cmd_AddCommandD("sys_browserredirect", Sys_BrowserRedirect_f, "Navigates the browser to a different url. For sites using quake maps as a more interesting sitemap.");
+	Cmd_AddCommandD("hub_request", Sys_HubRequest_f, "hub_request <name>: calls Module.onHubRequest(name) on the embedding page.");
 	Cmd_AddCommandD("requestpointerlock", Sys_RequestPointerLock_f, "Asks the browser to lock the mouse pointer to the canvas. Must be triggered from a user gesture (e.g. CSQC click handler).");
 	if (EM_ASM_INT(return window.showOpenFilePicker!=undefined;))	//doesn't work in firefox.
 		Cmd_AddCommandD("sys_openfile", Sys_OpenFile_f, "Opens a file picker");	//opens file picker

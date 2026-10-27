@@ -11,10 +11,13 @@
 #include "cl_hub_demo_timeline.h"
 
 static void Hub_TrackUserid_f(void);
+static void Hub_AutotrackToggle_f(void);
 
 void Hub_Cam_Init(void)
 {
 	Cmd_AddCommand("track_userid", Hub_TrackUserid_f);
+	Cmd_AddCommandD("autotrack_toggle", Hub_AutotrackToggle_f,
+	                "Switches autotrack off (keeps the tracked player) or back on (cl_autotrack, else auto).");
 }
 
 int Hub_ResolveCamLockSlot(int requested_slot)
@@ -118,4 +121,18 @@ static void Hub_TrackUserid_f(void)
 		seat_count = MAX_SPLITS;
 	for (int seat = 0; seat < seat_count; seat++)
 		Hub_TrackPlayerByUserid(seat, Cmd_Argv(seat + 1));
+}
+
+// "user" keeps the current camera lock; re-enabling falls back to "auto" when
+// cl_autotrack itself resolves to user.
+static void Hub_AutotrackToggle_f(void)
+{
+	if (strcmp(Cam_AutoTrackModeName(), "user"))
+	{
+		Cam_AutoTrack_Update("user");
+		return;
+	}
+	Cam_AutoTrack_Update(NULL);
+	if (!strcmp(Cam_AutoTrackModeName(), "user"))
+		Cam_AutoTrack_Update("auto");
 }

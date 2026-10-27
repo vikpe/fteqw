@@ -5992,6 +5992,7 @@ void CL_Init (void)
 	Cmd_AddCommandD ("demo_nudge", CL_DemoNudge_f, "Nudge the demo by one frame. Argument should be +1 or -1. Nudging backwards is limited.");
 	Hub_DemoEvent_Init();
 	Hub_Cam_Init();
+	Hub_Init();
 	Cmd_AddCommandAD ("timedemo", CL_TimeDemo_f, CL_DemoList_c, NULL);
 #ifdef _DEBUG
 	Cmd_AddCommand ("freespace", CL_FreeSpace_f);

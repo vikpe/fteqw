@@ -63,6 +63,12 @@ player_info.qc
 // Module.FTE_RequestPointerLock via the `requestpointerlock` engine command).
 mouselock.qc
 
+// Track next / previous participant (commands + swipe)
+track.qc
+
+// Player-view gestures: tap, double tap, long press, swipe (depends on mouselock, track)
+gestures.qc
+
 // Screen transition overlay (capture-and-melt during connect/map change)
 transition_shaders.qc
 transition.qc

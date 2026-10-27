@@ -7,6 +7,7 @@
 // so all hub-fork additions sit together in engine/client/.
 
 #include "quakedef.h"
+#include "cl_hub.h"
 
 #ifdef GLQUAKE
 
@@ -63,11 +64,43 @@ void Hub_CaptureBackbuffer(const char *texname)
 	qglTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 }
 
+// Set by qtvplay while the old stream still renders; consumed at the end of that frame.
+static qboolean hub_is_transition_capture_pending;
+
+void Hub_RequestTransitionCapture(void)
+{
+	hub_is_transition_capture_pending = true;
+}
+
+// Called right before R2D_BrightenScreen: copies the frame without gamma, starts the
+// addon's hold state, then shows the connecting stage that qtvplay held back.
+void Hub_RunPendingTransitionCapture(void)
+{
+	if (!hub_is_transition_capture_pending)
+		return;
+	hub_is_transition_capture_pending = false;
+	if (R2D_Flush)
+		R2D_Flush();
+	Hub_CaptureBackbuffer("hub_transition_src");
+#ifdef CSQC_DAT
+	CSQC_HubOnQtvCapture();
+#endif
+	SCR_SetLoadingStage(LS_CONNECTION);
+}
+
 #else
 
 void Hub_CaptureBackbuffer(const char *texname)
 {
 	(void)texname;
+}
+
+void Hub_RequestTransitionCapture(void)
+{
+}
+
+void Hub_RunPendingTransitionCapture(void)
+{
 }
 
 #endif

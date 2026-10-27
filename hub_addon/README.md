@@ -112,6 +112,17 @@ X-ray:
 * `xray_color_team` - `r g b` team color.
 * `xray_color_enemy` - `r g b` enemy color.
 
+Gestures (mouse and touch on the player view):
+
+* `gestures` - `0` or `1`. Disabled while the pointer is locked (aim mode).
+  * tap: toggle demo play/pause (demo only)
+  * double tap: demo left / right quarter seeks -10s / +10s, otherwise
+    `hub_request fullscreen`
+  * long press: scoreboard while held
+  * swipe right / left: track next / previous player
+* `gestures_mouse_swipe` - `0` or `1` (default `0`); also treat mouse drags
+  as swipes. Touch swipes always work.
+
 Minimap (see `minimap help` for in-game descriptions):
 
 * `minimap_mode` - 0=off, 1=pip, 2=split, 3=full.
@@ -138,6 +149,8 @@ Both commands print full descriptions when invoked with `help`.
 
 * `powcam <subcmd>` - `active` (current schedule), `timers` (all tracked
   pickup timers), `recheck` (force-reschedule), `help`.
+* `track_next` / `track_prev` - track the next / previous player (name
+  order, wraps).
 * `minimap <subcmd>` - `reload` (reparse cull file and re-derive
   bounds), `status` (current mode, map, volume count, view params,
   bbox), `probe` (top-down ASCII traceline coverage map of the BSP),

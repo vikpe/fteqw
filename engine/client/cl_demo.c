@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #include "fs.h"
 #include "cl_hub_demo_timeline.h"
 #include "cl_hub_demo_event.h"
+#include "cl_hub.h"
 
 void CL_FinishTimeDemo (void);
 float demtime;
@@ -409,14 +410,21 @@ void CL_ProgressDemoTime(void)
 	}
 }
 
-static void CL_DemoSeek_RestoreTrack(void)
+// HUB: cl_demospeed saved when a demo_jump starts (-1 = none), restored when it ends.
+static float demo_seek_saved_speed = -1;
+
+static void CL_DemoSeek_RestoreState(void)
 {
+	extern cvar_t cl_demospeed;
 	if (cls.demoseektrack >= 0)
 	{
 		Cam_Lock(&cl.playerview[0], cls.demoseektrack);
 		cls.findtrack = false;
 	}
 	cls.demoseektrack = -1;
+	if (demo_seek_saved_speed >= 0)
+		Cvar_SetValue(&cl_demospeed, demo_seek_saved_speed);
+	demo_seek_saved_speed = -1;
 }
 
 void CL_DemoJump_f(void)
@@ -479,15 +487,20 @@ void CL_DemoJump_f(void)
 	if (newtime < 0)
 		newtime = 0;
 
+	// HUB: save tracked player and speed for either seek direction, but keep
+	// existing values if a seek is already pending.
+	if (cls.demoseeking == DEMOSEEK_NOT)
+	{
+		extern cvar_t cl_demospeed;
+		cls.demoseektrack = Cam_TrackNum(&cl.playerview[0]);
+		demo_seek_saved_speed = cl_demospeed.value;
+	}
+
 	if (newtime >= demtime)
 		cls.demoseektime = newtime;
 	else
 	{
 		vfsfile_t *df = cls.demoinfile;
-
-		//save tracked player before rewind, but keep existing value if a seek is already pending
-		if (cls.demoseeking == DEMOSEEK_NOT)
-			cls.demoseektrack = Cam_TrackNum(&cl.playerview[0]);
 
 		Con_Printf("Rewinding demo\n");
 		if (df->seekstyle != SS_UNSEEKABLE)
@@ -676,7 +689,7 @@ qboolean CL_GetDemoMessage (void)
 				if (cl.gametime > cls.demoseektime)
 				{
 					cls.demoseeking = DEMOSEEK_NOT;
-					CL_DemoSeek_RestoreTrack();
+					CL_DemoSeek_RestoreState();
 					return 0;
 				}
 			}
@@ -815,7 +828,7 @@ readnext:
 		if (cls.demoseeking == DEMOSEEK_TIME && demtime >= cls.demoseektime)
 		{
 			cls.demoseeking = DEMOSEEK_NOT;
-			CL_DemoSeek_RestoreTrack();
+			CL_DemoSeek_RestoreState();
 		}
 	}
 	else if (cls.timedemo)
@@ -2469,6 +2482,8 @@ void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int 
 	CL_Disconnect_f ();
 
 	demo_flushcache();
+	// HUB: a restart (rewind, demo-event scan) must not inherit a stale end-of-demo pause.
+	endofdemo = false;
 
 	NET_InitClient(true);
 //
@@ -3364,19 +3379,16 @@ void CL_QTVPlay_f (void)
 	}
 
 #ifdef FTE_TARGET_WEB
-	// HUB: snapshot the current backbuffer into the named RT the
-	// transition addon samples, then notify CSQC so it enters the
-	// hold-capture-then-melt state machine. Done up front so the
-	// capture is guaranteed to be the last live frame, independent
-	// of how qtvplay was invoked (Module.command, demo URL drop,
-	// manifest browser, server stuffcmd). The named texture is
-	// created with IF_NOPURGE so Image_Purge during the next
-	// CL_MakeActive doesn't free it before the melt runs.
-	extern void Hub_CaptureBackbuffer(const char *texname);
-	Hub_CaptureBackbuffer("hub_transition_src");
+	// HUB: a live stream is captured at the end of this frame, before the gamma pass;
+	// otherwise capture the backbuffer now. The transition addon holds and melts it.
+	qboolean is_capture_deferred = cls.state == ca_active;
+	if (!is_capture_deferred)
+	{
+		Hub_CaptureBackbuffer("hub_transition_src");
 #ifdef CSQC_DAT
-	CSQC_HubOnQtvCapture();
+		CSQC_HubOnQtvCapture();
 #endif
+	}
 #endif
 
 	streamid = Cmd_Argv(1);
@@ -3437,8 +3449,20 @@ void CL_QTVPlay_f (void)
 			"SOURCE: %s\n", streamid);
 		msglen += strlen(msg+msglen);
 
-		SCR_SetLoadingStage(LS_CONNECTION);
-		CL_QTVPlay_Establish(host, password, msg);
+#ifdef FTE_TARGET_WEB
+		if (is_capture_deferred)
+		{	// HUB: the connecting stage starts after the capture (Hub_RunPendingTransitionCapture).
+			struct pendingqtv_s *previous_pending = pendingqtv;
+			CL_QTVPlay_Establish(host, password, msg);
+			if (pendingqtv != previous_pending)
+				Hub_RequestTransitionCapture();
+		}
+		else
+#endif
+		{
+			SCR_SetLoadingStage(LS_CONNECTION);
+			CL_QTVPlay_Establish(host, password, msg);
+		}
 	}
 	else
 	{

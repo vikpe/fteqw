@@ -35,6 +35,9 @@ void Hub_OnExplicitTrack(void);
 // digit string.
 void Hub_TrackPlayerByUserid(int seat, char *plrarg);
 
+// Active autotrack mode: "user", "high", "killer", "mod" or "stats" (cl_cam.c).
+const char *Cam_AutoTrackModeName(void);
+
 #ifdef __cplusplus
 }
 #endif
