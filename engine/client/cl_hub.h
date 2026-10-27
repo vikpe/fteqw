@@ -24,4 +24,8 @@ void Hub_HostFrame(double frametime);  // each Host_Frame tick
 // no-op. Called from cl_parse.c's Model_CheckDownloads.
 void Hub_RequestMapLoc(const char *bsp_filename);
 
+// Enqueues `<mapsrc><map>.lit.gz` as a required download for maps in the
+// compiled-in list. Call right after the world BSP is enqueued.
+void Hub_RequestMapLit(const char *bsp_filename);
+
 #endif

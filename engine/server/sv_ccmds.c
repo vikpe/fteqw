@@ -627,7 +627,9 @@ extern cvar_t cl_download_mapsrc;
 static qboolean SV_Map_DownloadStart(char *mapname/*must be duped*/)
 {
 	char buf[512];
-	struct dl_download *dl = HTTP_CL_Get(va("%s%s.bsp", cl_download_mapsrc.string, uri_escape(mapname, buf, sizeof(buf))), va("maps/%s.bsp", mapname), SV_Map_Downloaded);
+	// HUB: map sources store maps as plain gzip; saved under the plain
+	// name and decompressed on read by the BSP loader.
+	struct dl_download *dl = HTTP_CL_Get(va("%s%s.bsp.gz", cl_download_mapsrc.string, uri_escape(mapname, buf, sizeof(buf))), va("maps/%s.bsp", mapname), SV_Map_Downloaded);
 	if (dl)
 	{
 		dl->user_ctx = mapname;

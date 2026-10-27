@@ -15,6 +15,8 @@ double   hub_match_elapsed_ms     = -1;
 
 static char hub_prev_status[MAX_INFO_KEY] = "";
 
+static qboolean Hub_MapHasSeparateLit(const char *map_name);
+
 // Parse "<N> min[s]/sec[s]/hour[s] left" from cl.serverinfo "status",
 // returning remaining match milliseconds or -1 if the string isn't in
 // that form (e.g. it reads "Standby" or "Countdown").
@@ -179,6 +181,25 @@ void Hub_RequestMapLoc(const char *bsp_filename)
 	            loc_path, NULL);
 }
 
+// Download list is LIFO, so enqueueing after the world BSP fetches the lit first.
+// Listen servers (sv.state) skip the enqueue; their world is already loaded.
+void Hub_RequestMapLit(const char *bsp_filename)
+{
+	extern cvar_t cl_download_mapsrc;
+	char map_path[MAX_QPATH];
+	char lit_path[MAX_QPATH];
+	size_t length;
+	if (!bsp_filename || !*cl_download_mapsrc.string) return;
+	if (strncmp(bsp_filename, "maps/", 5)) return;
+	length = strlen(bsp_filename);
+	if (length < 4 || strcmp(bsp_filename + length - 4, ".bsp")) return;
+	COM_StripExtension(bsp_filename, map_path, sizeof(map_path));
+	if (!Hub_MapHasSeparateLit(map_path + 5)) return;
+	Q_snprintfz(lit_path, sizeof(lit_path), "%s.lit", map_path);
+	CL_CheckOrEnqueDownloadFile(va("%s%s.lit.gz", cl_download_mapsrc.string, map_path + 5),
+	                            lit_path, DLLF_REQUIRED);
+}
+
 void Hub_HostFrame(double frametime)
 {
     // Same scope as Hub_CheckServerInfo: only ticks for demo / qtv.
@@ -228,4 +249,69 @@ void Hub_HostFrame(double frametime)
 		if (hub_match_in_progress && hub_match_elapsed_ms >= 0)
 			hub_match_elapsed_ms += frametime * 1000.0;
 	}
+}
+
+// Maps whose lit ships separately as `<map>.lit.gz` (legacy + GPL id maps).
+// Fixed set, sorted (byte order) for bsearch.
+static const char *const hub_separate_lit_maps[] = {
+	"aerowalk",
+	"bravado",
+	"ctf2m1",
+	"ctf2m2",
+	"ctf5",
+	"ctf8",
+	"dm1",
+	"dm2",
+	"dm3",
+	"dm4",
+	"dm5",
+	"dm6",
+	"e1m1",
+	"e1m2",
+	"e1m3",
+	"e1m4",
+	"e1m5",
+	"e1m6",
+	"e1m7",
+	"e1m8",
+	"e2m1",
+	"e2m2",
+	"e2m3",
+	"e2m4",
+	"e2m5",
+	"e2m6",
+	"e2m7",
+	"e3m1",
+	"e3m2",
+	"e3m3",
+	"e3m4",
+	"e3m5",
+	"e3m6",
+	"e3m7",
+	"e4m1",
+	"e4m2",
+	"e4m3",
+	"e4m4",
+	"e4m5",
+	"e4m6",
+	"e4m7",
+	"e4m8",
+	"end",
+	"endif",
+	"povdmm4",
+	"schloss",
+	"shifter",
+	"start",
+	"ztndm3",
+};
+
+static int Hub_CompareMapName(const void *key, const void *element)
+{
+	return strcmp((const char *)key, *(const char *const *)element);
+}
+
+static qboolean Hub_MapHasSeparateLit(const char *map_name)
+{
+	return bsearch(map_name, hub_separate_lit_maps, countof(hub_separate_lit_maps),
+	               sizeof(hub_separate_lit_maps[0]), Hub_CompareMapName) != NULL;
 }

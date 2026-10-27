@@ -1,66 +1,76 @@
 name: main
 
-on: [push, pull_request, workflow_dispatch]
+on: [push, workflow_dispatch]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  EMSDK_VERSION: "2.0.12"
 
 jobs:
   web:
     name: make-web
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
 
     steps:
-      - name: Get number of CPU cores
-        uses: SimenB/github-actions-cpu-cores@v2
-        id: cpu-cores
-
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
       - name: Extract versions
         run: grep 'VER=' engine/Makefile | tee makelibs_versions
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         id: cache
         with:
           path: engine/libs-*
-          key: ${{ runner.os }}-web-${{ hashFiles('makelibs_versions') }}
+          key: ${{ runner.os }}-web-emsdk-${{ env.EMSDK_VERSION }}-${{ hashFiles('makelibs_versions') }}
 
-      - uses: mymindstorm/setup-emsdk@v14
+      - uses: emscripten-core/setup-emsdk@4528d102f7230f0e7b276855c01ea1159be0e984 # v16
         with:
-          version: "2.0.12"
-          actions-cache-folder: "emsdk-cache-2.0.12"
-          cache-key: "emsdk-2.0.12"
+          version: ${{ env.EMSDK_VERSION }}
+          actions-cache-folder: emsdk-cache-${{ env.EMSDK_VERSION }}
+          cache-key: ${{ runner.os }}-emsdk-${{ env.EMSDK_VERSION }}
 
       - name: Verify emscripten
         run: emcc -v
 
       - name: Build dependencies
+        if: steps.cache.outputs.cache-hit != 'true'
         working-directory: engine
         run: make FTE_TARGET=web makelibs
-        if: steps.cache.outputs.cache-hit != 'true'
 
-      - uses: ammaraskar/gcc-problem-matcher@0.3.0
+      - name: Register compiler problem matcher
+        run: echo "::add-matcher::.github/gcc-problem-matcher.json"
 
       - name: Build web
         working-directory: engine
-        run: make -j ${{ steps.cpu-cores.outputs.count }} FTE_TARGET=web gl-rel LINK_EZHUD=1 LINK_OPENSSL=1
+        run: make -j "$(nproc)" FTE_TARGET=web gl-rel LINK_EZHUD=1 LINK_OPENSSL=1
 
       - name: Debug release contents
         run: ls -R engine/release
 
       - name: Format JS artifacts with Prettier
-        run: npx prettier@3 --write "engine/release/**/*.js" --log-level debug
+        run: npx --yes prettier@3 --write "engine/release/**/*.js" --log-level debug
 
       - name: Get version
         id: version
-        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: fteqw-web-${{ steps.version.outputs.short_sha }}
           path: |
             engine/release/fte*
             !engine/release/*.db
+          if-no-files-found: error
           compression-level: 9
 
   hub_addon:
@@ -68,32 +78,38 @@ jobs:
     timeout-minutes: 5
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
 
-      - uses: actions/cache@v4
+      - name: Add tools dir to PATH
+        run: echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - uses: actions/cache@v6
         id: fteqcc-cache
         with:
-          path: /usr/local/bin/fteqcc64
+          path: ~/.local/bin/fteqcc64
           key: ${{ runner.os }}-fteqcc-2024-06-30
 
       - name: Fetch fteqcc
-        run: |
-          curl -o fteqcc_linux64.zip https://www.fteqcc.org/dl/fteqcc_linux64.zip
-          sudo unzip -d /usr/local/bin fteqcc_linux64.zip fteqcc64
-          sudo chmod +x /usr/local/bin/fteqcc64
         if: steps.fteqcc-cache.outputs.cache-hit != 'true'
+        run: |
+          curl -fsSL -o "$RUNNER_TEMP/fteqcc_linux64.zip" https://www.fteqcc.org/dl/fteqcc_linux64.zip
+          mkdir -p "$HOME/.local/bin"
+          unzip -o -d "$HOME/.local/bin" "$RUNNER_TEMP/fteqcc_linux64.zip" fteqcc64
+          chmod +x "$HOME/.local/bin/fteqcc64"
 
       - name: Get version
         id: version
-        run: echo "short_sha=$(git rev-parse --short HEAD)" >> $GITHUB_OUTPUT
+        run: echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
 
       - name: Compile hub_addon
         working-directory: hub_addon
         run: make FTEQCC=fteqcc64
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: hub-addon-${{ steps.version.outputs.short_sha }}
-          path: |
-            hub_addon/csaddon.*
+          path: hub_addon/csaddon.*
+          if-no-files-found: error
           compression-level: 9

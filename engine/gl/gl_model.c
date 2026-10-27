@@ -1766,7 +1766,9 @@ void Mod_LoadLighting (model_t *loadmodel, bspx_header_t *bspx, qbyte *mod_base,
 				Q_snprintfz(litname, sizeof(litname), litnames[best].pattern, litbase);
 			else
 				Q_snprintfz(litname, sizeof(litname), litnames[best].pattern, litbasep);
-			litdata = FS_LoadMallocGroupFile(&loadmodel->memgroup, litname, &litsize, false);
+			// HUB: filter so gzipped lits (saved under the plain name by
+			// Hub_RequestMapLit) are decompressed on read.
+			litdata = FS_LoadMallocGroupFile(&loadmodel->memgroup, litname, &litsize, true);
 		}
 		else
 		{

@@ -1011,11 +1011,13 @@ qboolean	CL_CheckOrEnqueDownloadFile (const char *filename, const char *localnam
 			if (strncmp(cl_download_mapsrc.string, "http://", 7) && strncmp(cl_download_mapsrc.string, "https://", 8))
 			{
 				Con_Printf("%s: Scheme not specified, assuming https.\n", cl_download_mapsrc.name);
-				filename = va("https://%s/%s", cl_download_mapsrc.string, filename+5);
+				filename = va("https://%s/%s.gz", cl_download_mapsrc.string, filename+5);
 			}
 			else
 #endif
-				filename = va("%s%s", cl_download_mapsrc.string, filename+5);
+				// HUB: map sources store maps as plain gzip (`<map>.bsp.gz`).
+				// Saved under the plain name; VFS_Filter decompresses on read.
+				filename = va("%s%s.gz", cl_download_mapsrc.string, filename+5);
 			flags |= DLLF_TRYWEB|DLLF_ALLOWWEB;
 		}
 	}
@@ -1249,7 +1251,13 @@ static void Model_CheckDownloads (void)
 
 		CL_CheckOrEnqueDownloadFile(s, s, ((i==1)?DLLF_REQUIRED:0)|DLLF_ALLOWWEB);	//world is required to be loaded.
 		CL_CheckModelResources(s);
-		if (i == 1) Hub_RequestMapLoc(s);
+		if (i == 1)
+		{
+			Hub_RequestMapLoc(s);
+			// HUB: must enqueue after the world BSP above so it downloads
+			// first (see Hub_RequestMapLit).
+			Hub_RequestMapLit(s);
+		}
 	}
 
 #ifdef HAVE_LEGACY
