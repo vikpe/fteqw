@@ -2533,8 +2533,10 @@ void SCR_SetUpToDrawConsole (void)
 					{
 						if (CL_TryingToConnect())	//if we're trying to connect, make sure there's a loading/connecting screen showing instead of forcing the menu visible
 							SCR_SetLoadingStage(LS_CONNECTION);
+#ifndef FTE_TARGET_WEB	// HUB: the embedding web app owns the UI; never auto-open the main menu.
 						else if (!Key_Dest_Has(kdm_menu) && !Key_Dest_Has(kdm_prompt) && !PM_IsApplying() && !startuppending)	//don't force anything until the startup stuff has been done
 							M_ToggleMenu_f();
+#endif
 					}
 				}
 				else

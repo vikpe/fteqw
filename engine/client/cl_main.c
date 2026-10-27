@@ -7647,7 +7647,11 @@ void CL_StartCinematicOrMenu(void)
 			if (!cls.state && !Key_Dest_Has(~kdm_game))
 				//if we're (now) meant to be using csqc for menus, make sure that its running.
 				if (!CSQC_UnconnectedInit())
+				{
+#ifndef FTE_TARGET_WEB	// HUB: the embedding web app owns the UI; never auto-open the main menu.
 					M_ToggleMenu_f();
+#endif
+				}
 		}
 		//Con_ForceActiveNow();
 	}
