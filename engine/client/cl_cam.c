@@ -98,6 +98,29 @@ void Cam_AutoTrack_Update(const char *mode)
 		autotrack_statsrule = Z_StrDup(mode);
 	}
 }
+// HUB: autotrack mode saved across a demo_jump. A rewind restarts the demo and
+// svc_serverdata re-applies cl_autotrack, which would drop an explicit pick.
+static int autotrack_saved_mode = -1;
+static char *autotrack_saved_statsrule;
+
+void Cam_AutoTrack_Save(void)
+{
+	autotrack_saved_mode = autotrackmode;
+	Z_Free(autotrack_saved_statsrule);
+	autotrack_saved_statsrule = autotrack_statsrule ? Z_StrDup(autotrack_statsrule) : NULL;
+}
+
+void Cam_AutoTrack_Restore(void)
+{
+	if (autotrack_saved_mode < 0)
+		return;
+	autotrackmode = autotrack_saved_mode;
+	Z_Free(autotrack_statsrule);
+	autotrack_statsrule = autotrack_saved_statsrule;
+	autotrack_saved_statsrule = NULL;
+	autotrack_saved_mode = -1;
+}
+
 // HUB: active autotrack mode as a name, for the web bindings. Reflects
 // explicit picks (TM_USER) that don't change the cl_autotrack cvar.
 const char *Cam_AutoTrackModeName(void)

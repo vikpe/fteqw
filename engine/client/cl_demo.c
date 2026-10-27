@@ -422,6 +422,7 @@ static void CL_DemoSeek_RestoreState(void)
 		cls.findtrack = false;
 	}
 	cls.demoseektrack = -1;
+	Cam_AutoTrack_Restore();
 	if (demo_seek_saved_speed >= 0)
 		Cvar_SetValue(&cl_demospeed, demo_seek_saved_speed);
 	demo_seek_saved_speed = -1;
@@ -487,12 +488,13 @@ void CL_DemoJump_f(void)
 	if (newtime < 0)
 		newtime = 0;
 
-	// HUB: save tracked player and speed for either seek direction, but keep
-	// existing values if a seek is already pending.
+	// HUB: save tracked player, autotrack mode and speed for either seek
+	// direction, but keep existing values if a seek is already pending.
 	if (cls.demoseeking == DEMOSEEK_NOT)
 	{
 		extern cvar_t cl_demospeed;
 		cls.demoseektrack = Cam_TrackNum(&cl.playerview[0]);
+		Cam_AutoTrack_Save();
 		demo_seek_saved_speed = cl_demospeed.value;
 	}
 

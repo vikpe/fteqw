@@ -1579,6 +1579,8 @@ void Cam_Reset(void);
 void Cam_TrackPlayer(int seat, char *cmdname, char *plrarg);
 void CL_InitCam(void);
 void Cam_AutoTrack_Update(const char *mode);	//reset autotrack setting (because we started a new map or whatever)
+void Cam_AutoTrack_Save(void);		//HUB: snapshot autotrack mode before a demo_jump
+void Cam_AutoTrack_Restore(void);	//HUB: re-apply the snapshot once the seek completes
 
 //
 //zqtp.c
