@@ -56,9 +56,6 @@ jobs:
       - name: Debug release contents
         run: ls -R engine/release
 
-      - name: Format JS artifacts with Prettier
-        run: npx --yes prettier@3 --write "engine/release/**/*.js" --log-level debug
-
       - name: Get version
         id: version
         run: echo "short_sha=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
