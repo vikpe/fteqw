@@ -213,21 +213,31 @@ void Hub_RequestMapLoc(const char *bsp_filename)
 
 // Download list is LIFO, so enqueueing after the world BSP fetches the lit first.
 // Listen servers (sv.state) skip the enqueue; their world is already loaded.
-void Hub_RequestMapLit(const char *bsp_filename)
+// Returns true while the lit is still to be downloaded.
+qboolean Hub_RequestMapLit(const char *bsp_filename)
 {
 	extern cvar_t cl_download_mapsrc;
 	char map_path[MAX_QPATH];
 	char lit_path[MAX_QPATH];
 	size_t length;
-	if (!bsp_filename || !*cl_download_mapsrc.string) return;
-	if (strncmp(bsp_filename, "maps/", 5)) return;
+	if (!bsp_filename || !*cl_download_mapsrc.string) return false;
+	if (strncmp(bsp_filename, "maps/", 5)) return false;
 	length = strlen(bsp_filename);
-	if (length < 4 || strcmp(bsp_filename + length - 4, ".bsp")) return;
+	if (length < 4 || strcmp(bsp_filename + length - 4, ".bsp")) return false;
 	COM_StripExtension(bsp_filename, map_path, sizeof(map_path));
-	if (!Hub_MapHasSeparateLit(map_path + 5)) return;
+	if (!Hub_MapHasSeparateLit(map_path + 5)) return false;
 	Q_snprintfz(lit_path, sizeof(lit_path), "%s.lit", map_path);
-	CL_CheckOrEnqueDownloadFile(va("%s%s.lit.gz", cl_download_mapsrc.string, map_path + 5),
-	                            lit_path, DLLF_REQUIRED);
+	return !CL_CheckOrEnqueDownloadFile(va("%s%s.lit.gz", cl_download_mapsrc.string, map_path + 5),
+	                                    lit_path, DLLF_REQUIRED);
+}
+
+// CL_ParseModellist loads an already-present world bsp before Model_CheckDownloads
+// asks for its lit. Request the lit first; true means hold that early load.
+qboolean Hub_HoldWorldForLit(const char *bsp_filename)
+{
+	// a missing bsp is enqueued later, and Hub_RequestMapLit must follow it (LIFO)
+	if (!bsp_filename || !CL_CheckDLFile(bsp_filename)) return false;
+	return Hub_RequestMapLit(bsp_filename);
 }
 
 void Hub_HostFrame(double frametime)
