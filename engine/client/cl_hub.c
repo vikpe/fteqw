@@ -164,6 +164,23 @@ void Hub_CheckServerInfo(void)
 	Q_strncpyz(hub_prev_status, status, sizeof(hub_prev_status));
 }
 
+// TP_NewMap looks for the .loc once per map; when this GET lands after the
+// map has loaded, nothing would pick it up. Reload once it's on disk.
+static void Hub_MapLocDownloaded(struct dl_download *dl)
+{
+	extern cvar_t host_mapname;
+	char loc_base[MAX_QPATH];
+	if (dl->status != DL_FINISHED) return;	// missing .loc is fine
+	// DL_Close only closes the file after notifying; close it now so the FS can read it
+	if (dl->file) VFS_CLOSE(dl->file);
+	dl->file = NULL;
+	FS_FlushFSHashWritten(dl->localname);
+	// arrived before the map loaded (TP_NewMap will find it) or for a previous map
+	COM_FileBase(dl->localname, loc_base, sizeof(loc_base));
+	if (strcmp(loc_base, host_mapname.string)) return;
+	TP_ReloadCurrentLocs();
+}
+
 // Best-effort GET of the matching .loc from cl_download_mapsrc when the
 // world BSP is being precached. The standard CL_CheckOrEnqueDownloadFile
 // path can't be used here because sv.state is set on +map (listen
@@ -171,8 +188,9 @@ void Hub_CheckServerInfo(void)
 // we'd be downloading from"; HTTP_CL_Get sidesteps that, same pattern
 // SV_Map_DownloadStart (sv_ccmds.c) uses for its own BSP fetch.
 //
-// Silent on every failure path (NULL callback, no UI feedback, no
-// fallback) - a missing .loc is fine, location names just stay empty.
+// Silent on every failure path (no UI feedback, no fallback) - a
+// missing .loc is fine, location names just stay empty. On success
+// Hub_MapLocDownloaded reloads locs if the map already loaded.
 // CL_CheckDLFile skips the GET when the .loc is already in the FS
 // (id1 paks loaded at boot, prior-session cache, custom map pk3 that
 // happens to be registered before this hook fires).
@@ -190,7 +208,7 @@ void Hub_RequestMapLoc(const char *bsp_filename)
 	Q_snprintfz(loc_path, sizeof(loc_path), "locs/%s.loc", loc_base);
 	if (CL_CheckDLFile(loc_path)) return;
 	HTTP_CL_Get(va("%s%s.loc", cl_download_mapsrc.string, loc_base),
-	            loc_path, NULL);
+	            loc_path, Hub_MapLocDownloaded);
 }
 
 // Download list is LIFO, so enqueueing after the world BSP fetches the lit first.

@@ -30,7 +30,8 @@ void Hub_HostFrame(double frametime);  // each Host_Frame tick
 // at world-BSP precache time. `bsp_filename` is the BSP path the engine
 // is about to load (e.g. "maps/dm6.bsp"); a non-matching shape (wrong
 // folder / extension / empty cvar / file already in FS) is a silent
-// no-op. Called from cl_parse.c's Model_CheckDownloads.
+// no-op. Reloads locs on arrival if the map has already loaded.
+// Called from cl_parse.c's Model_CheckDownloads.
 void Hub_RequestMapLoc(const char *bsp_filename);
 
 // Enqueues `<mapsrc><map>.lit.gz` as a required download for maps in the
