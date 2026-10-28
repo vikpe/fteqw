@@ -48,6 +48,79 @@ qboolean disablepreparse;
 qboolean endofdemo;
 
 #define BUFFERTIME 0.5
+
+// HUB: live (qtv) stream backlog control. CL_GetDemoMessage only pulls
+// stream data at the pace of demtime, so every stall (network underrun,
+// mid-match asset load, skipped frames) permanently adds to the distance
+// behind the live edge, and the browser queues the difference without
+// bound. Measure the stream's byte rate so the backlog can be expressed
+// in seconds, then play slightly fast while above the target and skip
+// ahead outright when far behind.
+#define STREAM_BACKLOG_TARGET_SECS		BUFFERTIME	// where playback should sit behind the live edge
+#define STREAM_BACKLOG_SKIP_SECS		5.0			// beyond this, warp back down to the target
+#define STREAM_RATE_MIN_BYTES_PER_SEC	2048		// floor so a quiet stream can't inflate the seconds estimate
+static float    stream_rate_bytes_per_sec;	// bytes consumed per demo second, over the last ~1s window
+static int      stream_window_bytes;
+static int      stream_window_ms;
+static qboolean is_stream_skipping;
+
+static qboolean CL_IsLiveStream(void)
+{
+	return cls.demoplayback == DPB_MVD && !*cls.lastdemoname &&
+	       cls.demoinfile && cls.demoinfile->seekstyle == SS_UNSEEKABLE;
+}
+
+static void stream_backlog_reset(void)
+{
+	stream_rate_bytes_per_sec = 0;
+	stream_window_bytes = 0;
+	stream_window_ms = 0;
+	is_stream_skipping = false;
+}
+
+static void stream_backlog_account(int bytes, int ms)
+{
+	stream_window_bytes += bytes;
+	stream_window_ms += ms;
+	if (stream_window_ms >= 1000)
+	{
+		stream_rate_bytes_per_sec = stream_window_bytes * 1000.0f / stream_window_ms;
+		stream_window_bytes = 0;
+		stream_window_ms = 0;
+	}
+}
+
+// Seconds of stream data received but not yet parsed. 0 until the rate
+// is known, and always 0 for file playback.
+static float stream_backlog_secs(void)
+{
+	float rate;
+	if (!CL_IsLiveStream() || stream_rate_bytes_per_sec <= 0)
+		return 0;
+	rate = max(stream_rate_bytes_per_sec, STREAM_RATE_MIN_BYTES_PER_SEC);
+	return (demobuffersize + FS_StreamPendingBytes(cls.demoinfile)) / rate;
+}
+
+// True while the backlog should be parsed without waiting for demtime.
+// Starts past STREAM_BACKLOG_SKIP_SECS, stops once back at the target.
+static qboolean stream_backlog_should_skip(void)
+{
+	float backlog_secs = stream_backlog_secs();
+	if (is_stream_skipping)
+	{
+		if (backlog_secs > STREAM_BACKLOG_TARGET_SECS)
+			return true;
+		is_stream_skipping = false;
+		return false;
+	}
+	if (backlog_secs > STREAM_BACKLOG_SKIP_SECS)
+	{
+		Con_DPrintf("qtv: %.1fs behind the live edge, skipping ahead\n", backlog_secs);
+		is_stream_skipping = true;
+		return true;
+	}
+	return false;
+}
 /*
 ==============================================================================
 
@@ -394,6 +467,15 @@ void CL_ProgressDemoTime(void)
 		demtime += host_frametime*cl_demospeed.value;
 	else
 		demtime += host_frametime;
+
+	// HUB: live stream: run up to 1.5x while behind the target backlog
+	// so stalls don't accumulate into permanent delay.
+	if (cls.state == ca_active)
+	{
+		float behind_secs = stream_backlog_secs() - STREAM_BACKLOG_TARGET_SECS;
+		if (behind_secs > 0)
+			demtime += host_frametime * min(behind_secs, 0.5);
+	}
 
 	// HUB: hard cap demtime at the demo's last known packet
 	// timestamp. Without this, `cl_demospeed 100` from a
@@ -771,6 +853,7 @@ readnext:
 	if (demopos)
 	{
 		demo_flushbytes(demopos);
+		stream_backlog_account(demopos, 0);
 		demopos = 0;
 	}
 
@@ -800,6 +883,7 @@ readnext:
 		{
 			demotime = olddemotime + msecsadded*(1.0f/1000);
 			nextdemotime = demotime;
+			stream_backlog_account(0, msecsadded);
 		}
 	}
 	else if (cls.demoplayback == DPB_QUAKEWORLD)
@@ -870,7 +954,11 @@ readnext:
 		}
 		else if (demtime < demotime)
 		{
-			return 0;		// don't need another message yet
+			// HUB: live stream far behind the live edge: parse the
+			// backlog now instead of carrying it for the rest of the match.
+			if (!stream_backlog_should_skip())
+				return 0;		// don't need another message yet
+			demtime = demotime;
 		}
 	}
 	else
@@ -1102,6 +1190,7 @@ readit:
 		return 0;
 	}
 	demo_flushbytes(demopos);
+	stream_backlog_account(demopos, 0);
 
 	if (cls.demoplayback == DPB_MVD)
 	{
@@ -2547,6 +2636,7 @@ void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int 
 	Netchan_Setup (NCF_CLIENT, &cls.netchan, &net_from, 0, 0);
 
 	demtime = -bufferdelay;
+	stream_backlog_reset();
 	cls.demostarttime = 0;
 	cl.gametime = -bufferdelay;
 	cl.gametimemark = realtime;//demtime;

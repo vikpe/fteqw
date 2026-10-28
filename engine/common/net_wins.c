@@ -11687,6 +11687,10 @@ vfsfile_t *FS_OpenTCP(const char *name, int defaultport, qboolean assumetls/*use
 	else
 		return NULL;
 }
+int FS_StreamPendingBytes(vfsfile_t *file)
+{
+	return 0;
+}
 #elif defined(FTE_TARGET_WEB)
 typedef struct {
 	vfsfile_t funcs;
@@ -11833,9 +11837,22 @@ vfsfile_t *FS_OpenTCP(const char *name, int defaultport, qboolean assumetls)
 
 	return &newf->funcs;
 }
+// HUB: backlog visible to qtv playback: our own readbuffer plus whatever
+// the browser has queued for the socket.
+int FS_StreamPendingBytes(vfsfile_t *file)
+{
+	wsfile_t *f = (wsfile_t*)file;
+	if (!file || file->ReadBytes != VFSWS_ReadBytes || f->id < 0)
+		return 0;
+	return f->readbuffered + emscriptenfte_ws_pending(f->id);
+}
 #else
 vfsfile_t *FS_OpenTCP(const char *name, int defaultport, qboolean assumetls)
 {
 	return NULL;
+}
+int FS_StreamPendingBytes(vfsfile_t *file)
+{
+	return 0;
 }
 #endif

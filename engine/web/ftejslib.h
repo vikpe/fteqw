@@ -25,6 +25,7 @@ void emscriptenfte_ws_close(int sockid);								//close it again
 int emscriptenfte_ws_cansend(int sockid, int extra, int maxpending);	//returns false if we're blocking for some reason. avoids overflowing. everything is otherwise reliable.
 int emscriptenfte_ws_send(int sockid, const void *data, int len);		//send data to the peer. queues data. never dropped.
 int emscriptenfte_ws_recv(int sockid, void *data, int len);				//receive data from the peer.
+int emscriptenfte_ws_pending(int sockid);								//bytes received but not yet read via emscriptenfte_ws_recv.
 
 int emscriptenfte_rtc_create(int clientside, void *ctxp, int ctxi, void(*cb)(void *ctxp, int ctxi, int type, const char *data), const char *json_config);					//open a webrtc connection to a specific broker url
 void emscriptenfte_rtc_offer(int sock, const char *offer, const char *sdptype);//sets the remote sdp.

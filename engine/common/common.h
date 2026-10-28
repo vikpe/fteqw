@@ -705,6 +705,7 @@ void *FS_MallocFile(const char *filename, enum fs_relative relativeto, qofs_t *f
 vfsfile_t *QDECL FS_OpenVFS(const char *filename, const char *mode, enum fs_relative relativeto);
 vfsfile_t *FS_OpenTemp(void);
 vfsfile_t *FS_OpenTCP(const char *name, int defaultport, qboolean assumetls);
+int FS_StreamPendingBytes(vfsfile_t *file);	//bytes buffered below a stream opened with FS_OpenTCP that the engine hasn't read yet. 0 for anything else.
 
 vfsfile_t *FS_OpenWithFriends(const char *fname, char *sysname, size_t sysnamesize, int numfriends, ...);
 

@@ -1288,7 +1288,7 @@ mergeInto(LibraryManager.library,
 	{
 		var _url = UTF8ToString(brokerurl);
 		var _protocol = UTF8ToString(protocolname);
-		var s = {ws:null, inq:[], err:0, con:0};
+		var s = {ws:null, inq:[], inqbytes:0, err:0, con:0};
 		try {
 			s.ws = new WebSocket(_url, _protocol);
 		} catch(err) { console.log(err); }
@@ -1304,6 +1304,7 @@ mergeInto(LibraryManager.library,
 			{
 				assert(typeof event.data !== 'string' && event.data.byteLength, 'websocket data is not usable');
 				s.inq.push(new Uint8Array(event.data));
+				s.inqbytes += event.data.byteLength;
 			};
 
 		return _emscriptenfte_handle_alloc(s);
@@ -1363,17 +1364,37 @@ mergeInto(LibraryManager.library,
 		var s = FTEH.h[sockid];
 		if (s === undefined)
 			return -1;
-		var inp = s.inq.shift();
+		var inp = s.inq[0];
 		if (inp)
 		{
+			// HUB: typed array lengths are read-only, so the old
+			// `inp.length = len` truncation was a no-op and a frame
+			// larger than the caller's buffer overflowed the heap.
+			// Copy what fits and keep the remainder queued.
 			if (inp.length > len)
-				inp.length = len;
+			{
+				HEAPU8.set(inp.subarray(0, len), data);
+				s.inq[0] = inp.subarray(len);
+				s.inqbytes -= len;
+				return len;
+			}
+			s.inq.shift();
+			s.inqbytes -= inp.length;
 			HEAPU8.set(inp, data);
 			return inp.length;
 		}
 		if (s.err)
 			return -1;
 		return 0;
+	},
+	// HUB: bytes received but not yet handed to the engine. Lets the
+	// qtv playback code see how far behind the live edge it is.
+	emscriptenfte_ws_pending : function(sockid)
+	{
+		var s = FTEH.h[sockid];
+		if (s === undefined)
+			return 0;
+		return s.inqbytes;
 	},
 
 	emscriptenfte_rtc_create__deps: ['emscriptenfte_handle_alloc'],
@@ -1385,7 +1406,7 @@ mergeInto(LibraryManager.library,
 
 		var dcconfig = {ordered: false, maxRetransmits: 0, reliable:false};
 
-		var s = {pc:null, ws:null, inq:[], err:0, con:0, isclient:clientside, callcb:
+		var s = {pc:null, ws:null, inq:[], inqbytes:0, err:0, con:0, isclient:clientside, callcb:
 			function(evtype,stringdata)
 			{	//private helper
 
@@ -1428,6 +1449,7 @@ mergeInto(LibraryManager.library,
 			{
 				assert(typeof event.data !== 'string' && event.data.byteLength);
 				s.inq.push(new Uint8Array(event.data));
+				s.inqbytes += event.data.byteLength;
 			};
 
 		s.pc.onicecandidate = function(e)
