@@ -34,13 +34,8 @@ void Hub_HostFrame(double frametime);  // each Host_Frame tick
 // Called from cl_parse.c's Model_CheckDownloads.
 void Hub_RequestMapLoc(const char *bsp_filename);
 
-// Enqueues `<mapsrc><map>.lit.gz` as a required download for maps in the
-// compiled-in list. Call right after the world BSP is enqueued.
-// Returns true while the lit is still to be downloaded.
-qboolean Hub_RequestMapLit(const char *bsp_filename);
-
-// Called from cl_parse.c's CL_ParseModellist before its early world load.
-// Returns true when that load must wait for the world's lit.
-qboolean Hub_HoldWorldForLit(const char *bsp_filename);
+// True for maps the map source serves as packaged/<map>.bsp.gz (lit and loc
+// appended). `map_name` is the bare name, e.g. "dm4".
+qboolean Hub_MapIsPackaged(const char *map_name);
 
 #endif

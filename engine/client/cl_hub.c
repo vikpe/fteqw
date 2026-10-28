@@ -21,8 +21,6 @@ static float hub_last_positive_demo_speed = 1;
 
 static void Hub_DemoTogglePause_f(void);
 
-static qboolean Hub_MapHasSeparateLit(const char *map_name);
-
 void Hub_Init(void)
 {
 	Cmd_AddCommandD("demo_toggle_pause", Hub_DemoTogglePause_f,
@@ -211,35 +209,6 @@ void Hub_RequestMapLoc(const char *bsp_filename)
 	            loc_path, Hub_MapLocDownloaded);
 }
 
-// Download list is LIFO, so enqueueing after the world BSP fetches the lit first.
-// Listen servers (sv.state) skip the enqueue; their world is already loaded.
-// Returns true while the lit is still to be downloaded.
-qboolean Hub_RequestMapLit(const char *bsp_filename)
-{
-	extern cvar_t cl_download_mapsrc;
-	char map_path[MAX_QPATH];
-	char lit_path[MAX_QPATH];
-	size_t length;
-	if (!bsp_filename || !*cl_download_mapsrc.string) return false;
-	if (strncmp(bsp_filename, "maps/", 5)) return false;
-	length = strlen(bsp_filename);
-	if (length < 4 || strcmp(bsp_filename + length - 4, ".bsp")) return false;
-	COM_StripExtension(bsp_filename, map_path, sizeof(map_path));
-	if (!Hub_MapHasSeparateLit(map_path + 5)) return false;
-	Q_snprintfz(lit_path, sizeof(lit_path), "%s.lit", map_path);
-	return !CL_CheckOrEnqueDownloadFile(va("%s%s.lit.gz", cl_download_mapsrc.string, map_path + 5),
-	                                    lit_path, DLLF_REQUIRED);
-}
-
-// CL_ParseModellist loads an already-present world bsp before Model_CheckDownloads
-// asks for its lit. Request the lit first; true means hold that early load.
-qboolean Hub_HoldWorldForLit(const char *bsp_filename)
-{
-	// a missing bsp is enqueued later, and Hub_RequestMapLit must follow it (LIFO)
-	if (!bsp_filename || !CL_CheckDLFile(bsp_filename)) return false;
-	return Hub_RequestMapLit(bsp_filename);
-}
-
 void Hub_HostFrame(double frametime)
 {
     // Same scope as Hub_CheckServerInfo: only ticks for demo / qtv.
@@ -291,9 +260,9 @@ void Hub_HostFrame(double frametime)
 	}
 }
 
-// Maps whose lit ships separately as `<map>.lit.gz` (legacy + GPL id maps).
-// Fixed set, sorted (byte order) for bsearch.
-static const char *const hub_separate_lit_maps[] = {
+// Maps whose lit ships separately (legacy + GPL id maps); the map source has them
+// as packaged/<map>.bsp.gz with lit and loc appended. Sorted (byte order) for bsearch.
+static const char *const hub_packaged_maps[] = {
 	"aerowalk",
 	"bravado",
 	"ctf2m1",
@@ -350,10 +319,10 @@ static int Hub_CompareMapName(const void *key, const void *element)
 	return strcmp((const char *)key, *(const char *const *)element);
 }
 
-static qboolean Hub_MapHasSeparateLit(const char *map_name)
+qboolean Hub_MapIsPackaged(const char *map_name)
 {
-	return bsearch(map_name, hub_separate_lit_maps, countof(hub_separate_lit_maps),
-	               sizeof(hub_separate_lit_maps[0]), Hub_CompareMapName) != NULL;
+	return bsearch(map_name, hub_packaged_maps, countof(hub_packaged_maps),
+	               sizeof(hub_packaged_maps[0]), Hub_CompareMapName) != NULL;
 }
 
 static void Hub_DemoTogglePause_f(void)

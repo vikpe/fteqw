@@ -1015,9 +1015,9 @@ qboolean	CL_CheckOrEnqueDownloadFile (const char *filename, const char *localnam
 			}
 			else
 #endif
-				// HUB: map sources store maps as plain gzip (`<map>.bsp.gz`).
-				// Saved under the plain name; VFS_Filter decompresses on read.
-				filename = va("%s%s.gz", cl_download_mapsrc.string, filename+5);
+				// HUB: map sources store maps as plain gzip (`<map>.bsp.gz`), maps with a
+				// separate lit under packaged/ with it appended. VFS_Filter decompresses on read.
+				filename = va("%s%s%s.gz", cl_download_mapsrc.string, Hub_MapIsPackaged(base) ? "packaged/" : "", filename+5);
 			flags |= DLLF_TRYWEB|DLLF_ALLOWWEB;
 		}
 	}
@@ -1251,13 +1251,7 @@ static void Model_CheckDownloads (void)
 
 		CL_CheckOrEnqueDownloadFile(s, s, ((i==1)?DLLF_REQUIRED:0)|DLLF_ALLOWWEB);	//world is required to be loaded.
 		CL_CheckModelResources(s);
-		if (i == 1)
-		{
-			Hub_RequestMapLoc(s);
-			// HUB: must enqueue after the world BSP above so it downloads
-			// first (see Hub_RequestMapLit).
-			Hub_RequestMapLit(s);
-		}
+		if (i == 1) Hub_RequestMapLoc(s);
 	}
 
 #ifdef HAVE_LEGACY
@@ -4724,11 +4718,7 @@ static void CL_ParseModellist (qboolean lots)
 	SCR_SetLoadingFile("loading data");
 
 	//we need to try to load it now if we can, so any embedded archive will be loaded *before* we start looking for other content...
-	// HUB: unless its lit is still downloading; CL_LoadModels loads it after.
-	if (Hub_HoldWorldForLit(cl.model_name[1]))
-		cl.model_precache[1] = NULL;
-	else
-		cl.model_precache[1] = cl.model_name[1]?Mod_ForName (cl.model_name[1], MLV_SILENTSYNC):NULL;
+	cl.model_precache[1] = cl.model_name[1]?Mod_ForName (cl.model_name[1], MLV_SILENTSYNC):NULL;
 	if (cl.model_precache[1] && cl.model_precache[1]->loadstate == MLS_LOADED)
 		FS_LoadMapPackFile(cl.model_precache[1]->name, cl.model_precache[1]->archive);
 
