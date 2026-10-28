@@ -6313,9 +6313,10 @@ qboolean Host_SimulationTime(float time)
 #define	HRF_ARCHIVE		(1<<16)	//zip - treated as a multiple-file 'installer'
 #define HRF_MODEL		(1<<17)
 #define HRF_CONFIG		(1<<18)	//exec it on the console...
+#define HRF_DEMO_UNKNOWN	(1<<19)	// HUB: demo without extension, type detected from content.
 
 #define HRF_ACTION (HRF_OVERWRITE|HRF_NOOVERWRITE|HRF_ABORT)
-#define HRF_DEMO		(HRF_DEMO_MVD|HRF_DEMO_QWD|HRF_DEMO_DM2|HRF_DEMO_DEM)
+#define HRF_DEMO		(HRF_DEMO_MVD|HRF_DEMO_QWD|HRF_DEMO_DM2|HRF_DEMO_DEM|HRF_DEMO_UNKNOWN)
 #define HRF_FILETYPES	(HRF_DEMO|HRF_QTVINFO|HRF_MANIFEST|HRF_BSP|HRF_PACKAGE|HRF_ARCHIVE|HRF_MODEL|HRF_CONFIG)
 typedef struct {
 	struct dl_download *dl;
@@ -6428,6 +6429,11 @@ unsigned int Host_GuessFileType(const char *mimetype, const char *filename)
 		for (i = 0; i < countof(exts); i++)
 			if (!Q_strstopcasecmp(ext, stop, exts[i].ext))
 				return exts[i].type;
+
+		// HUB: no extension (e.g. hash-named cdn demos like "abc/123.gz"),
+		// assume a demo; it is fully buffered so the type can be detected.
+		if (!*ext)
+			return HRF_DEMO_UNKNOWN|HRF_DECOMPRESS;
 	}
 	return 0;
 }
@@ -6677,6 +6683,8 @@ done:
 			else if (f->flags & HRF_DEMO_DEM)
 				CL_PlayDemoFile(f->srcfile, f->fname, true);	//should be able to handle the cd-track header.
 #endif
+			else if (f->flags & HRF_DEMO_UNKNOWN)
+				CL_PlayDemoFile(f->srcfile, f->fname, true);	// HUB: detects the type from content.
 			else //if (f->flags & HRF_DEMO_MVD)
 				CL_PlayDemoStream(f->srcfile, f->fname, true, DPB_MVD, 0, 0);
 			f->srcfile = NULL;

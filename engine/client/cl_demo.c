@@ -35,6 +35,7 @@ static int cls_lasttype;
 void CL_PlayDemo(char *demoname, qboolean usesystempath);
 void CL_PlayDemoFile(vfsfile_t *f, char *demoname, qboolean issyspath);
 void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int demotype, float bufferdelay, unsigned int eztv_ext);
+static int CL_DetectQWDemoType(vfsfile_t *f);
 
 extern cvar_t qtvcl_forceversion1;
 extern cvar_t qtvcl_eztvextensions;
@@ -2689,11 +2690,10 @@ vfsfile_t *CL_OpenFileInZipOrSys(char *name, qboolean usesystempath)
 //tries to determine the demo type
 void CL_PlayDemoFile(vfsfile_t *f, char *demoname, qboolean issyspath)
 {
-
 #if defined(Q2CLIENT) || defined(NQPROT)
-	//figure out where we started
-	qofs_t start = VFS_TELL(f);
+	qofs_t start;
 #endif
+	int demotype;
 
 	if (!VFS_GETLEN (f))
 	{
@@ -2701,6 +2701,17 @@ void CL_PlayDemoFile(vfsfile_t *f, char *demoname, qboolean issyspath)
 		Con_Printf ("demo \"%s\" is empty.\n", demoname);
 		return;
 	}
+
+#ifdef AVAIL_GZDEC
+	// HUB: detect gzip from content (passthrough otherwise), so
+	// extensionless gzipped demos play.
+	f = FS_DecompressGZip(f, NULL);
+#endif
+
+#if defined(Q2CLIENT) || defined(NQPROT)
+	//figure out where we started
+	start = VFS_TELL(f);
+#endif
 
 #ifdef Q2CLIENT
 	//just assume if it has a known extension
@@ -2806,8 +2817,119 @@ void CL_PlayDemoFile(vfsfile_t *f, char *demoname, qboolean issyspath)
 	//it doesn't have a assumable extension, isn't q2, nor NQ. then it must be a QuakeWorld demo
 	//could also be .qwz or .dmz or whatever that nq extension is. we don't support either.
 
-	//mvd and qwd have no identifying markers, other than the extension.
-	CL_PlayDemoStream(f, demoname, issyspath, DPB_QUAKEWORLD, 0, 0);
+	// HUB: mvd and qwd have no identifying markers, so detect from content.
+	demotype = CL_DetectQWDemoType(f);
+	if (demotype == DPB_NONE)
+	{
+		VFS_CLOSE(f);
+		Con_Printf ("demo \"%s\" has an unknown or unsupported format.\n", demoname);
+		return;
+	}
+	CL_PlayDemoStream(f, demoname, issyspath, demotype, 0, 0);
+}
+
+// HUB: walk both qwd and mvd block framing over a prefix and pick the one
+// that parses further. Mirrors slipgate's qworld_demo::detect_format.
+#define DEMO_DETECT_BYTE_COUNT	(MAX_OVERALLMSGLEN + 16)
+#define DEMO_DETECT_MAX_BLOCKS	48
+#define DEMO_USERCMD_SIZE		36	//usercmd + view angles, same size in qwd and mvd
+static int CL_CountDemoBlocks(const qbyte *buffer, int byte_count, qboolean is_mvd)
+{
+	int offset = 0;
+	int block_count = 0;
+	int type;
+	int body_size;
+	qboolean has_payload;
+	unsigned int payload_size;
+
+	while (offset < byte_count && block_count < DEMO_DETECT_MAX_BLOCKS)
+	{
+		if (is_mvd)
+		{	//byte time delta, byte type (upper bits are the player slot)
+			if (offset + 2 > byte_count)
+				break;
+			type = buffer[offset + 1] & dem_mask;
+			offset += 2;
+		}
+		else
+		{	//float time, byte type
+			if (offset + 5 > byte_count)
+				break;
+			type = buffer[offset + 4];
+			offset += 5;
+		}
+
+		body_size = 0;
+		has_payload = false;
+		switch (type)
+		{
+		case dem_cmd:
+			body_size = DEMO_USERCMD_SIZE;
+			break;
+		case dem_read:
+			has_payload = true;
+			break;
+		case dem_set:
+			body_size = 8;
+			break;
+		case dem_multiple:
+			if (!is_mvd)
+				return block_count;
+			body_size = 4;
+			has_payload = true;
+			break;
+		case dem_single:
+		case dem_stats:
+		case dem_all:
+			if (!is_mvd)
+				return block_count;
+			has_payload = true;
+			break;
+		default:
+			return block_count;
+		}
+
+		offset += body_size;
+		if (has_payload)
+		{
+			if (offset + 4 > byte_count)
+				break;
+			payload_size = buffer[offset] | (buffer[offset + 1] << 8) | (buffer[offset + 2] << 16) | ((unsigned int)buffer[offset + 3] << 24);
+			if (payload_size > MAX_OVERALLMSGLEN)
+				break;
+			offset += 4 + payload_size;
+		}
+		if (offset > byte_count)
+			break;	//truncated block
+		block_count++;
+	}
+	return block_count;
+}
+
+static int CL_DetectQWDemoType(vfsfile_t *f)
+{
+	qofs_t start = VFS_TELL(f);
+	qbyte *buffer = BZ_Malloc(DEMO_DETECT_BYTE_COUNT);
+	int byte_count = VFS_READ(f, buffer, DEMO_DETECT_BYTE_COUNT);
+	int qwd_block_count = 0;
+	int mvd_block_count = 0;
+	qboolean is_qwz = false;
+
+	VFS_SEEK(f, start);
+	if (byte_count >= 4)
+	{
+		qwd_block_count = CL_CountDemoBlocks(buffer, byte_count, false);
+		mvd_block_count = CL_CountDemoBlocks(buffer, byte_count, true);
+		//qwz (unsupported) starts with 0x80; a qwd time byte can be 0x80
+		//too, so also require qwd framing to fail on the first block.
+		is_qwz = buffer[0] == 0x80 && !qwd_block_count;
+	}
+	BZ_Free(buffer);
+
+	if (is_qwz || (!qwd_block_count && !mvd_block_count))
+		return DPB_NONE;
+	//a tie means no divergence; every modern qw recording is mvd.
+	return (qwd_block_count > mvd_block_count) ? DPB_QUAKEWORLD : DPB_MVD;
 }
 #ifdef WEBCLIENT
 void CL_PlayDownloadedDemo(struct dl_download *dl)
@@ -2853,6 +2975,11 @@ void CL_PlayDemo(char *demoname, qboolean usesystempath)
 		if (f)
 			break;
 #endif
+	}
+	if (!f)
+	{	// HUB: fall back to the name as given, for extensionless demos.
+		Q_strncpyz (name, demoname, sizeof(name));
+		f = CL_OpenFileInZipOrSys(name, usesystempath);
 	}
 	if (!f)
 	{
