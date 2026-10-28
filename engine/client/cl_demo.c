@@ -881,7 +881,7 @@ readnext:
 	if (demopos)
 	{
 		demo_flushbytes(demopos);
-		stream_backlog_account(demopos, 0);
+		stream_backlog_account(demopos, msecsadded);	// once per consumed frame, not per header peek
 		demopos = 0;
 	}
 
@@ -911,7 +911,6 @@ readnext:
 		{
 			demotime = olddemotime + msecsadded*(1.0f/1000);
 			nextdemotime = demotime;
-			stream_backlog_account(0, msecsadded);
 		}
 	}
 	else if (cls.demoplayback == DPB_QUAKEWORLD)
@@ -1218,7 +1217,7 @@ readit:
 		return 0;
 	}
 	demo_flushbytes(demopos);
-	stream_backlog_account(demopos, 0);
+	stream_backlog_account(demopos, msecsadded);
 
 	if (cls.demoplayback == DPB_MVD)
 	{
