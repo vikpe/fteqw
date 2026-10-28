@@ -38,6 +38,7 @@ void CL_PlayDemoStream(vfsfile_t *file, char *filename, qboolean issyspath, int 
 
 extern cvar_t qtvcl_forceversion1;
 extern cvar_t qtvcl_eztvextensions;
+extern cvar_t qtv_buffertime;
 extern cvar_t record_flush;
 
 static unsigned char demobuffer[1024*66];	//input buffer
@@ -54,7 +55,6 @@ qboolean endofdemo;
 // bound. Measure the stream's byte rate so the backlog can be expressed
 // in seconds, then scale playback speed toward the target (ezquake's
 // qtv_adjustbuffer 1) and skip ahead outright when far behind.
-#define STREAM_BACKLOG_TARGET_SECS		0.5			// where playback should sit behind the live edge
 #define STREAM_BACKLOG_SKIP_SECS		10.0		// beyond this, warp back down to the target
 #define STREAM_RATE_MIN_BYTES_PER_SEC	2048		// floor so a quiet stream can't inflate the seconds estimate
 static float    stream_rate_bytes_per_sec;	// bytes consumed per demo second, over the last ~1s window
@@ -66,6 +66,12 @@ static qboolean CL_IsLiveStream(void)
 {
 	return cls.demoplayback == DPB_MVD && !*cls.lastdemoname &&
 	       cls.demoinfile && cls.demoinfile->seekstyle == SS_UNSEEKABLE;
+}
+
+// Where playback should sit behind the live edge (qtv_buffertime).
+static float stream_backlog_target_secs(void)
+{
+	return bound(0.1, qtv_buffertime.value, 30);
 }
 
 static void stream_backlog_reset(void)
@@ -105,28 +111,35 @@ static float stream_backlog_secs(void)
 // STREAM_SPEED_LOW_START and the target. 1 until the rate is known.
 static float stream_backlog_speed(void)
 {
+	static float print_timer;
+	float backlog_secs;
 	float speed;
 	if (!CL_IsLiveStream() || stream_rate_bytes_per_sec <= 0)
 		return 1;
-	speed = stream_backlog_secs() / STREAM_BACKLOG_TARGET_SECS;
+	backlog_secs = stream_backlog_secs();
+	speed = backlog_secs / stream_backlog_target_secs();
 	if (speed > STREAM_SPEED_LOW_START && speed < 1)
-		return 1;
+		speed = 1;
+	Con_ThrottlePrintf(&print_timer, 2, "qtv: backlog %.2fs, speed %.2f, rate %.0f B/s\n",
+	                   backlog_secs, speed, stream_rate_bytes_per_sec);
 	return speed;
 }
 
 // True while the backlog should be parsed without waiting for demtime.
-// Starts past STREAM_BACKLOG_SKIP_SECS, stops once back at the target.
+// Starts past STREAM_BACKLOG_SKIP_SECS (or twice the target, if larger),
+// stops once back at the target.
 static qboolean stream_backlog_should_skip(void)
 {
 	float backlog_secs = stream_backlog_secs();
+	float target_secs = stream_backlog_target_secs();
 	if (is_stream_skipping)
 	{
-		if (backlog_secs > STREAM_BACKLOG_TARGET_SECS)
+		if (backlog_secs > target_secs)
 			return true;
 		is_stream_skipping = false;
 		return false;
 	}
-	if (backlog_secs > STREAM_BACKLOG_SKIP_SECS)
+	if (backlog_secs > max(STREAM_BACKLOG_SKIP_SECS, target_secs * 2))
 	{
 		Con_DPrintf("qtv: %.1fs behind the live edge, skipping ahead\n", backlog_secs);
 		is_stream_skipping = true;
@@ -3318,7 +3331,7 @@ fail:
 			else
 				Con_Printf("qtv connection established to %s\n", qtv->hostname);
 			// HUB: prebuffer up to the backlog target.
-			CL_PlayDemoStream(qtv->stream, NULL, false, DPB_MVD, STREAM_BACKLOG_TARGET_SECS, iseztv);
+			CL_PlayDemoStream(qtv->stream, NULL, false, DPB_MVD, stream_backlog_target_secs(), iseztv);
 			qtv->stream = NULL;
 			demo_resetcache(qtv->requestsize - (tail-qtv->requestbuffer), tail);
 			*link = qtv->next;

@@ -125,6 +125,7 @@ cvar_t	cl_servername = CVARFD("cl_servername", "", CVAR_NOSET, "The hostname of 
 cvar_t	cl_serveraddress = CVARD("cl_serveraddress", "none", "The address of the last server you connected to");
 cvar_t	qtvcl_forceversion1 = CVAR("qtvcl_forceversion1", "0");
 cvar_t	qtvcl_eztvextensions = CVAR("qtvcl_eztvextensions", "1");
+cvar_t	qtv_buffertime = CVARD("qtv_buffertime", "1", "Seconds of live qtv stream to keep buffered. Playback speed scales with the buffer to hold it there.");
 
 cvar_t	record_flush = CVARD("record_flush", "0", "If set, explicitly flushes demo data to disk while recording. This may be inefficient, depending on how your operating system is configured.");
 cvar_t cl_demospeed = CVARF("cl_demospeed", "1", 0);
@@ -5973,6 +5974,7 @@ void CL_Init (void)
 
 	Cvar_Register (&qtvcl_forceversion1,				cl_controlgroup);
 	Cvar_Register (&qtvcl_eztvextensions,				cl_controlgroup);
+	Cvar_Register (&qtv_buffertime,					cl_controlgroup);
 #ifdef FTPCLIENT
 	Cmd_AddCommand ("ftp", CL_FTP_f);
 #endif
