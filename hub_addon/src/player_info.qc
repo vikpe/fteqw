@@ -466,16 +466,16 @@ void(pi_layout_t L, vector right_top, float content_width, float seat, float tra
             string location_name = getlocationname(origin);
             if (location_name != "") {
                 // Three pieces: open-bracket | content | close-bracket, with
-                // a half-char gap between each bracket and the content so the
+                // a quarter-char gap between each bracket and the content so the
                 // brackets aren't crammed against the text.
                 string location_inner       = PI_FormatLocation(location_name);
                 float  location_inner_width = stringwidth(location_inner, 0, font);
                 float  bracket_width        = stringwidth(chr2str(16), 0, font);
-                float  half_char_width      = font.x * 0.5;
-                float  location_total_width = bracket_width + half_char_width + location_inner_width + half_char_width + bracket_width;
+                float  bracket_gap_width    = font.x * 0.25;
+                float  location_total_width = bracket_width + bracket_gap_width + location_inner_width + bracket_gap_width + bracket_width;
                 float  location_open_x      = location_right - location_total_width;
-                float  location_content_x   = location_open_x + bracket_width + half_char_width;
-                float  location_close_x     = location_content_x + location_inner_width + half_char_width;
+                float  location_content_x   = location_open_x + bracket_width + bracket_gap_width;
+                float  location_close_x     = location_content_x + location_inner_width + bracket_gap_width;
                 drawstring([location_open_x,    content_y, 0], chr2str(16),    font, '1 1 1', 1, 0);
                 drawstring([location_content_x, content_y, 0], location_inner, font, '1 1 1', 1, 0);
                 drawstring([location_close_x,   content_y, 0], chr2str(17),    font, '1 1 1', 1, 0);
