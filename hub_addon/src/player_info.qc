@@ -17,9 +17,8 @@
  * Visibility:
  *   - Hidden in coop (deathmatch == 0).
  *   - Names + frags always visible (last-known values survive standby).
- *   - Location and best weapon always shown (standby included).
- *   - Health, armor and powerups only while the match is active; same
- *     gate as minimap_players.qc.
+ *   - Location, best weapon, health, armor and powerups always shown
+ *     (standby included), for any server mod - no "status" gate.
  *   - No live stats on a local listen server.
  *
  * Grouping:
@@ -143,7 +142,7 @@ float pi_hit_count;
 void(vector view_size, __out pi_layout_t L)                                                                PI_LayoutFor;
 string(string raw)                                                                                         PI_FormatLocation;
 float(pi_layout_t L, float score)                                                                          PI_TeamBoxWidth;
-void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float match_active, float is_single_pov, participant_t player) PI_DrawPlayerRow;
+void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float is_single_pov, participant_t player) PI_DrawPlayerRow;
 void(pi_layout_t L, vector right_top, participant_t team)                                                                              PI_DrawTeamHeader;
 float()                                                                                                    PI_FontSlot;
 
@@ -298,13 +297,6 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
         }
     }
 
-    // Health/armor/powerup gate: match running ("min left" in status) OR
-    // countdown. Hidden during pre-match standby and on local listen server.
-    string status = serverkey("status");
-    float  match_active = (strstrofs(status, "min left", 0) >= 0
-                           || !strcasecmp(status, "countdown"))
-                          && !isserver();
-
     // Switch to the user-selected font for the widget's text rendering,
     // restore the previous setting before returning so other QC overlays
     // aren't affected.
@@ -319,13 +311,13 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
             cursor.y += L.team_box_height;
             for (int i = 0; i < Participants_PlayerCount; i++) {
                 if (Participants_Players[i].team != Participants_Teams[g].name) continue;
-                PI_DrawPlayerRow(L, cursor, content_width, seat, tracked_slot, match_active, is_single_pov, Participants_Players[i]);
+                PI_DrawPlayerRow(L, cursor, content_width, seat, tracked_slot, is_single_pov, Participants_Players[i]);
                 cursor.y += L.row_height;
             }
         }
     } else {
         for (int i = 0; i < Participants_PlayerCount; i++) {
-            PI_DrawPlayerRow(L, cursor, content_width, seat, tracked_slot, match_active, is_single_pov, Participants_Players[i]);
+            PI_DrawPlayerRow(L, cursor, content_width, seat, tracked_slot, is_single_pov, Participants_Players[i]);
             cursor.y += L.row_height;
         }
     }
@@ -380,9 +372,9 @@ float(float evtype, float scanx, float chary, float devid) PlayerInfoInputEvent 
 // right_top.x is the row's right edge (widget right margin); right_top.y is
 // its top edge. The row outer block extends content_w + 2*player_pad.x
 // horizontally and L.row_height vertically; content draws inset by player_pad.
-// Armor, health and powerups are skipped when match_active is 0. Tracked-row highlight + the hit
-// rect for click dispatch both span the full outer block.
-void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float match_active, float is_single_pov, participant_t player) PI_DrawPlayerRow =
+// Tracked-row highlight + the hit rect for click dispatch both span the
+// full outer block.
+void(pi_layout_t L, vector right_top, float content_width, float seat, float tracked_slot, float is_single_pov, participant_t player) PI_DrawPlayerRow =
 {
     vector font = L.font_size;
 
@@ -491,9 +483,10 @@ void(pi_layout_t L, vector right_top, float content_width, float seat, float tra
         if (entity_active && entity_model_index == player_model_index && health > 0) {
             int    items = getplayerstat(player.slot, STAT_ITEMS, EV_INTEGER);
 
-            // Armor, health and powerups: match running or countdown only
-            // (pre-match standby values are prewar and not meaningful).
-            if (match_active) {
+            // Armor, health and powerups. Shown whenever the player is
+            // alive - no serverinfo "status" gate, so non-KTX servers
+            // (FTE / plain mvdsv FFA) get them too.
+            {
                 float  armor = getplayerstat(player.slot, STAT_ARMOR, EV_FLOAT);
 
                 // Armor: own column, omitted at 0. Tinted by armor type
