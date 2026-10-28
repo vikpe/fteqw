@@ -1354,6 +1354,7 @@ void CL_QTVDemos_f (void);
 void CL_DemoJump_f(void);
 void CL_DemoNudge_f(void);
 void CL_ProgressDemoTime(void);
+float CL_DemoPlaybackSpeed(void);
 void CL_TimeDemo_f (void);
 typedef struct
 {

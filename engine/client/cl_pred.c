@@ -611,7 +611,6 @@ short LerpAngles16(short to, short from, float frac)
 
 void CL_CalcClientTime(void)
 {
-	extern cvar_t cl_demospeed;
 	if (!cls.state)
 	{
 		if (!cl.implicitpause)
@@ -637,13 +636,13 @@ void CL_CalcClientTime(void)
 		if (cls.protocol == CP_QUAKE2 || cls.protocol==CP_NETQUAKE/*FIXME*/ || (cls.protocol != CP_QUAKE3 && (!cl_lerp_smooth.ival || (cl_lerp_smooth.ival == 2 && !(cls.demoplayback || cl.allocated_client_slots == 1 || cl.playerview[0].spectator))) && cls.demoplayback!=DPB_MVD))
 		{	//no drift logic
 			double f;
-			extern cvar_t cl_demospeed;
+			float speed = CL_DemoPlaybackSpeed();	// HUB: live qtv ignores cl_demospeed
 			f = cl.gametime - cl.oldgametime;
 			if (f > 0.1)
 				f = 0.1;
 			f = (realtime - cl.gametimemark) / (f);
-			if (cls.demoplayback && cl_demospeed.value > 0 && cls.state == ca_active)
-				f *= cl_demospeed.value;
+			if (cls.demoplayback && speed > 0 && cls.state == ca_active)
+				f *= speed;
 			f = bound(0, f, 1);
 			cl.servertime = cl.oldgametime + f*(cl.gametime-cl.oldgametime);
 		}
@@ -651,6 +650,7 @@ void CL_CalcClientTime(void)
 		{	//funky magic drift logic. we be behind the most recent frame in order to attempt to cover network congestions (which is apparently common in germany).
 			float min, max;
 			float r;
+			float speed;
 
 //			oldst = cl.servertime;
 
@@ -661,8 +661,9 @@ void CL_CalcClientTime(void)
 			if (max < min)
 				max = min;
 
-			if (cls.demoplayback && cl_demospeed.value > 0 && cls.state == ca_active)
-				r = cl_demospeed.value;
+			speed = CL_DemoPlaybackSpeed();	// HUB: live qtv ignores cl_demospeed
+			if (cls.demoplayback && speed > 0 && cls.state == ca_active)
+				r = speed;
 			else
 				r = 1;
 
@@ -1337,8 +1338,7 @@ void CL_PredictMovePNum (int seat)
 
 				if (cls.demoplayback)
 				{
-					extern cvar_t cl_demospeed;
-					msec *= cl_demospeed.value;
+					msec *= CL_DemoPlaybackSpeed();	// HUB: live qtv ignores cl_demospeed
 				}
 
 				to.cmd->msec = bound(0, msec, 250);

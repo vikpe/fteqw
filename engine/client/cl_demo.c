@@ -47,17 +47,15 @@ static int demopreparsedbytes;	//number of bytes within the valid buffer that ha
 qboolean disablepreparse;
 qboolean endofdemo;
 
-#define BUFFERTIME 0.5
-
 // HUB: live (qtv) stream backlog control. CL_GetDemoMessage only pulls
 // stream data at the pace of demtime, so every stall (network underrun,
 // mid-match asset load, skipped frames) permanently adds to the distance
 // behind the live edge, and the browser queues the difference without
 // bound. Measure the stream's byte rate so the backlog can be expressed
-// in seconds, then play slightly fast while above the target and skip
-// ahead outright when far behind.
-#define STREAM_BACKLOG_TARGET_SECS		BUFFERTIME	// where playback should sit behind the live edge
-#define STREAM_BACKLOG_SKIP_SECS		5.0			// beyond this, warp back down to the target
+// in seconds, then scale playback speed toward the target (ezquake's
+// qtv_adjustbuffer 1) and skip ahead outright when far behind.
+#define STREAM_BACKLOG_TARGET_SECS		0.5			// where playback should sit behind the live edge
+#define STREAM_BACKLOG_SKIP_SECS		10.0		// beyond this, warp back down to the target
 #define STREAM_RATE_MIN_BYTES_PER_SEC	2048		// floor so a quiet stream can't inflate the seconds estimate
 static float    stream_rate_bytes_per_sec;	// bytes consumed per demo second, over the last ~1s window
 static int      stream_window_bytes;
@@ -99,6 +97,21 @@ static float stream_backlog_secs(void)
 		return 0;
 	rate = max(stream_rate_bytes_per_sec, STREAM_RATE_MIN_BYTES_PER_SEC);
 	return (demobuffersize + FS_StreamPendingBytes(cls.demoinfile)) / rate;
+}
+
+#define STREAM_SPEED_LOW_START	0.3		// backlog fraction of the target below which playback slows
+
+// Playback speed multiplier: backlog / target, held at 1x between
+// STREAM_SPEED_LOW_START and the target. 1 until the rate is known.
+static float stream_backlog_speed(void)
+{
+	float speed;
+	if (!CL_IsLiveStream() || stream_rate_bytes_per_sec <= 0)
+		return 1;
+	speed = stream_backlog_secs() / STREAM_BACKLOG_TARGET_SECS;
+	if (speed > STREAM_SPEED_LOW_START && speed < 1)
+		return 1;
+	return speed;
 }
 
 // True while the backlog should be parsed without waiting for demtime.
@@ -447,9 +460,19 @@ void demo_resetcache(int bytes, void *data)
 }
 
 
-void CL_ProgressDemoTime(void)
+// HUB: effective demo playback speed. Live qtv ignores cl_demospeed and
+// follows the backlog instead.
+float CL_DemoPlaybackSpeed(void)
 {
 	extern cvar_t cl_demospeed;
+	if (CL_IsLiveStream())
+		return stream_backlog_speed();
+	return cl_demospeed.value;
+}
+
+void CL_ProgressDemoTime(void)
+{
+	float speed;
 	extern int    hub_demo_start_offset_ms;
 	extern int    hub_demo_total_ms;
 
@@ -463,19 +486,11 @@ void CL_ProgressDemoTime(void)
 		return;
 	cl.demopausedtilltime = 0;
 	cl.demonudge = 0;
-	if (cl_demospeed.value >= 0 && cls.state == ca_active)
-		demtime += host_frametime*cl_demospeed.value;
+	speed = CL_DemoPlaybackSpeed();
+	if (speed >= 0 && cls.state == ca_active)
+		demtime += host_frametime*speed;
 	else
 		demtime += host_frametime;
-
-	// HUB: live stream: run up to 1.5x while behind the target backlog
-	// so stalls don't accumulate into permanent delay.
-	if (cls.state == ca_active)
-	{
-		float behind_secs = stream_backlog_secs() - STREAM_BACKLOG_TARGET_SECS;
-		if (behind_secs > 0)
-			demtime += host_frametime * min(behind_secs, 0.5);
-	}
 
 	// HUB: hard cap demtime at the demo's last known packet
 	// timestamp. Without this, `cl_demospeed 100` from a
@@ -3302,7 +3317,8 @@ fail:
 			}
 			else
 				Con_Printf("qtv connection established to %s\n", qtv->hostname);
-			CL_PlayDemoStream(qtv->stream, NULL, false, DPB_MVD, BUFFERTIME, iseztv);
+			// HUB: prebuffer up to the backlog target.
+			CL_PlayDemoStream(qtv->stream, NULL, false, DPB_MVD, STREAM_BACKLOG_TARGET_SECS, iseztv);
 			qtv->stream = NULL;
 			demo_resetcache(qtv->requestsize - (tail-qtv->requestbuffer), tail);
 			*link = qtv->next;
