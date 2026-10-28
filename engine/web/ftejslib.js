@@ -1599,14 +1599,36 @@ mergeInto(LibraryManager.library,
 		// .loc URLs through fetch so missing overlays stay silent.
 		// fetch can't report onprogress, but .loc files are tiny so
 		// the loader doesn't need it.
-		if (_url.endsWith('.loc'))
+		var is_loc = _url.endsWith('.loc');
+		// HUB: only the demo pipelines write these hosts, always gzip,
+		// so the browser inflates it while downloading.
+		var is_trusted_gzip = _url.startsWith('https://d.quake.world/')
+			|| _url.startsWith('https://demos.quake.world/');
+		if (is_loc || is_trusted_gzip)
 		{
 			fetch(_url).then(function(res) {
 				if (!res.ok) {
 					if (onerror) {{{makeDynCall('vii','onerror')}}}(ctx, res.status);
 					return;
 				}
-				return res.arrayBuffer().then(function(buf) {
+				var body = res;
+				if (is_trusted_gzip)
+				{
+					var total_byte_count = Number(res.headers.get("content-length")) || 0;
+					var loaded_byte_count = 0;
+					var progress = new TransformStream({
+						transform: function(chunk, controller) {
+							loaded_byte_count += chunk.byteLength;
+							if (onprogress)
+								{{{makeDynCall('viii','onprogress')}}}(ctx, loaded_byte_count, total_byte_count);
+							controller.enqueue(chunk);
+						}
+					});
+					body = new Response(res.body
+						.pipeThrough(progress)
+						.pipeThrough(new DecompressionStream('gzip')));
+				}
+				return body.arrayBuffer().then(function(buf) {
 					if (!onload) return;
 					var ct = (res.headers.get("content-type") || "").split(";")[0].trim();
 					var blen = lengthBytesUTF8(ct) + 1;
