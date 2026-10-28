@@ -16,6 +16,7 @@
  *
  * Visibility:
  *   - Hidden in coop (deathmatch == 0).
+ *   - Hidden when wider than half the player view.
  *   - Names + frags always visible (last-known values survive standby).
  *   - Location, best weapon, health, armor and powerups always shown
  *     (standby included), for any server mod - no "status" gate.
@@ -155,6 +156,8 @@ void() PlayerInfoBeginFrame =
     pi_hit_count = 0;
 };
 
+#define PI_MAX_VIEW_WIDTH_FRACTION 0.5   // hide when wider than this share of the player view
+
 // Drawn once per splitscreen seat. `seat` is the 0-based splitscreen seat
 // index (cl.playerview slot); used as the row's seat tag for click dispatch
 // and to read this seat's tracked player via player_localentnum (the caller
@@ -279,22 +282,28 @@ void(float seat, vector view_min, vector view_size) PlayerInfoDraw =
     }
 
     // Background frame. Alpha == 0 disables the frame entirely.
-    {
-        float  frame_argc  = tokenize(autocvar_playerinfo_frame_color);
-        float  frame_red   = (frame_argc >= 1) ? stof(argv(0)) : 0;
-        float  frame_green = (frame_argc >= 2) ? stof(argv(1)) : 0;
-        float  frame_blue  = (frame_argc >= 3) ? stof(argv(2)) : 0;
-        float  frame_alpha = (frame_argc >= 4) ? stof(argv(3)) : 0;
+    float  frame_argc  = tokenize(autocvar_playerinfo_frame_color);
+    float  frame_red   = (frame_argc >= 1) ? stof(argv(0)) : 0;
+    float  frame_green = (frame_argc >= 2) ? stof(argv(1)) : 0;
+    float  frame_blue  = (frame_argc >= 3) ? stof(argv(2)) : 0;
+    float  frame_alpha = (frame_argc >= 4) ? stof(argv(3)) : 0;
+    float  frame_pad_x = autocvar_playerinfo_frame_padding.x * L.scale;
+    float  frame_pad_y = autocvar_playerinfo_frame_padding.y * L.scale;
 
-        if (frame_alpha > 0) {
-            float  frame_pad_x = autocvar_playerinfo_frame_padding.x * L.scale;
-            float  frame_pad_y = autocvar_playerinfo_frame_padding.y * L.scale;
-            vector frame_pos   = [anchor_right - content_width - frame_pad_x, anchor_top - frame_pad_y, 0];
-            vector frame_size  = [content_width + frame_pad_x * 2,
-                                  total_height + frame_pad_y * 2, 0];
-            vector frame_rgb   = [frame_red, frame_green, frame_blue] / 255;
-            drawfill(frame_pos, frame_size, frame_rgb, frame_alpha);
-        }
+    // Hide when the widget (row highlight, or the frame if visible) is wider
+    // than PI_MAX_VIEW_WIDTH_FRACTION of the player view.
+    float edge_pad_x   = (frame_alpha > 0) ? max(frame_pad_x, L.player_pad.x) : L.player_pad.x;
+    float widget_width = content_width + edge_pad_x * 2;
+    if (widget_width > view_size.x * PI_MAX_VIEW_WIDTH_FRACTION) {
+        return;
+    }
+
+    if (frame_alpha > 0) {
+        vector frame_pos  = [anchor_right - content_width - frame_pad_x, anchor_top - frame_pad_y, 0];
+        vector frame_size = [content_width + frame_pad_x * 2,
+                             total_height + frame_pad_y * 2, 0];
+        vector frame_rgb  = [frame_red, frame_green, frame_blue] / 255;
+        drawfill(frame_pos, frame_size, frame_rgb, frame_alpha);
     }
 
     // Switch to the user-selected font for the widget's text rendering,
