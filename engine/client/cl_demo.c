@@ -72,7 +72,7 @@ static qboolean CL_IsLiveStream(void)
 // Where playback should sit behind the live edge (qtv_buffertime).
 static float stream_backlog_target_secs(void)
 {
-	return bound(0.1, qtv_buffertime.value, 30);
+	return bound(0.5, qtv_buffertime.value, 5);
 }
 
 static void stream_backlog_reset(void)
