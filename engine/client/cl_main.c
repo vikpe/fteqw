@@ -2453,6 +2453,7 @@ void CL_ClearState (qboolean gamestart)
 	cl.oldgametime = 0;
 	cl.gametime = 0;
 	cl.gametimemark = 0;
+	Hub_ClearServerTimeStat();
 	cl.splitclients = 1;
 	cl.autotrack_hint = -1;
 	cl.autotrack_killer = -1;

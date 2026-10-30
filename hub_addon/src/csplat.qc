@@ -1841,7 +1841,7 @@ __variant(float playernum, float statnum, float stattype) getplayerstat = #0:get
 		Retrieves a specific player's stat, matching the type specified on the server. This builtin is primarily intended for mvd playback where ALL players are known. Return value matches the specified EV_ stattype. For EV_ENTITY, world will be returned if the entity is not in the pvs, use type-punning with EV_INTEGER to get the entity number if you just want to see if its set. STAT_ITEMS should be queried as an EV_INTEGER on account of runes and items2 being packed into the upper bits. */
 
 float() getmatchelapsed = #0:getmatchelapsed; /*
-		Match elapsed time in seconds, derived from "X min[s] left" prints and demtime for demos. Returns -1 when no match clock is available (pre-match standby, countdown, live QTV before the first time announcement). */
+		Match elapsed time in seconds. Demos: demtime past the scanned countdown. QTV: the server clock stats at join (STAT_TIME - STAT_MATCHSTARTTIME), else the first "X min left" decrement. Returns -1 when no match clock is available (pre-match standby, countdown, QTV mid-match before either anchor). */
 
 float() isdemoseeking = #0:isdemoseeking; /*
 		Returns 1 while the engine is fast-parsing a demo to reach a seek target, 0 otherwise. Useful for skipping overlay work that would just flicker through transient mid-seek state. */

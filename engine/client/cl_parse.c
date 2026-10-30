@@ -6153,6 +6153,8 @@ static void CL_SetStatNumeric (int pnum, unsigned int stat, int ivalue, float fv
 		// HUB: feed the per-player MVD stat broadcast into the
 		// demo-event extractor's STAT_HEALTH / STAT_ITEMS shadow.
 		Hub_DemoEvent_OnStatUpdate(cls_lastto, stat, old_ivalue, ivalue);
+		if (stat == STAT_TIME)
+			Hub_OnServerTimeStat(cls_lastto);
 
 		// QTube: Also update teaminfo, but avoid overwriting flags and runes
 		if (stat == STAT_ITEMS) {

@@ -25,6 +25,8 @@ void Hub_RunPendingTransitionCapture(void);
 // Hook entry points called from the engine.
 void Hub_CheckServerInfo(void);        // end of CL_CheckServerInfo
 void Hub_HostFrame(double frametime);  // each Host_Frame tick
+void Hub_OnServerTimeStat(int slot);   // MVD/QTV STAT_TIME stored for `slot`
+void Hub_ClearServerTimeStat(void);    // CL_ClearState
 
 // Best-effort fetch of the matching `.loc` file from cl_download_mapsrc
 // at world-BSP precache time. `bsp_filename` is the BSP path the engine

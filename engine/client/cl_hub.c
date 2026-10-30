@@ -16,6 +16,11 @@ double   hub_match_elapsed_ms     = -1;
 
 static char hub_prev_status[MAX_INFO_KEY] = "";
 
+// Match elapsed from the server clock pair (STAT_TIME - STAT_MATCHSTARTTIME),
+// stamped with the realtime it arrived. -1 when no pair has been seen.
+static double hub_server_stat_elapsed_ms = -1;
+static double hub_server_stat_realtime;
+
 // Last positive cl_demospeed, restored when demo_toggle_pause resumes.
 static float hub_last_positive_demo_speed = 1;
 
@@ -50,6 +55,48 @@ void Hub_ResetMatchState(void)
 	hub_match_in_progress    = false;
 	hub_match_elapsed_ms     = -1;
 	hub_prev_status[0]       = 0;
+}
+
+// Called when STAT_TIME lands for `slot`; STAT_MATCHSTARTTIME precedes it in
+// the same block, so the pair is read together. A later STAT_MATCHSTARTTIME
+// alone (respawn) must not restamp a stale STAT_TIME.
+void Hub_OnServerTimeStat(int slot)
+{
+	int server_time_ms = cl.players[slot].stats[STAT_TIME];
+	int match_start_ms = cl.players[slot].stats[STAT_MATCHSTARTTIME];
+	if (server_time_ms <= 0 || match_start_ms <= 0 || server_time_ms < match_start_ms)
+	{
+		hub_server_stat_elapsed_ms = -1;
+		return;
+	}
+	hub_server_stat_elapsed_ms = server_time_ms - match_start_ms;
+	hub_server_stat_realtime   = realtime;
+}
+
+void Hub_ClearServerTimeStat(void)
+{
+	hub_server_stat_elapsed_ms = -1;
+}
+
+// QTV mid-match join. A proxy may put its own uptime in STAT_TIME, so the pair
+// is trusted only inside the minute the current "X min left" reading opened.
+static void Hub_AnchorQtvFromServerStats(void)
+{
+	if (hub_server_stat_elapsed_ms < 0)
+		return;
+	int remaining_ms = hub_parse_status_remaining_ms();
+	int total_ms     = (int)(atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit")) * 60 * 1000) + hub_overtime_ms;
+	if (remaining_ms < 0 || total_ms <= 0 || remaining_ms > total_ms)
+		return;
+	const double slack_ms    = 1000;
+	double window_start_ms   = total_ms - remaining_ms;
+	double elapsed_ms        = hub_server_stat_elapsed_ms + (realtime - hub_server_stat_realtime) * 1000.0;
+	qboolean is_in_window    = elapsed_ms >= window_start_ms - slack_ms
+	                        && elapsed_ms <  window_start_ms + 60 * 1000 + slack_ms;
+	if (!is_in_window)
+		return;
+	hub_match_elapsed_ms  = elapsed_ms;
+	hub_match_in_progress = true;
 }
 
 // NQ demos drive demtime from cl.gametime, which is absolute level time -
@@ -107,6 +154,19 @@ void Hub_CheckServerInfo(void)
 	{
 		if (hub_remaining_ms >= 0 && remaining_ms > hub_remaining_ms)
 			hub_overtime_ms += remaining_ms - hub_remaining_ms;
+		else if (hub_remaining_ms >= 0 && remaining_ms < hub_remaining_ms
+		         && hub_match_elapsed_ms < 0 && !cls.lastdemoname[0])
+		{
+			// QTV joined mid-match without a usable server clock pair:
+			// the first minute decrement is an exact anchor.
+			float timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
+			int   total_ms  = (int)(timelimit * 60 * 1000) + hub_overtime_ms;
+			if (total_ms > 0)
+			{
+				hub_match_elapsed_ms  = total_ms - remaining_ms;
+				hub_match_in_progress = true;
+			}
+		}
 		hub_remaining_ms = remaining_ms;
 	}
 
@@ -144,19 +204,7 @@ void Hub_CheckServerInfo(void)
 	{
 		hub_match_in_progress = true;
 		if (!strcmp(hub_prev_status, "countdown"))
-		{
 			hub_match_elapsed_ms = 0;
-		}
-		else if (hub_match_elapsed_ms < 0 && !cls.lastdemoname[0])
-		{
-			// QTV joined mid-match: derive elapsed from the "X min
-			// left" status string. Demos use the scan-captured
-			// countdown anchor instead (see Hub_HostFrame).
-			float timelimit = atof(InfoBuf_ValueForKey(&cl.serverinfo, "timelimit"));
-			int   total_ms  = (int)(timelimit * 60 * 1000) + hub_overtime_ms;
-			if (remaining_ms >= 0 && total_ms > 0)
-				hub_match_elapsed_ms = total_ms - remaining_ms;
-		}
 	}
 
 	Q_strncpyz(hub_prev_status, status, sizeof(hub_prev_status));
@@ -255,6 +303,8 @@ void Hub_HostFrame(double frametime)
 	else
 	{
 		// Live (QTV): tick by real-time frame delta when in-progress.
+		if (hub_match_elapsed_ms < 0 && cl.matchstate == MATCH_INPROGRESS)
+			Hub_AnchorQtvFromServerStats();
 		if (hub_match_in_progress && hub_match_elapsed_ms >= 0)
 			hub_match_elapsed_ms += frametime * 1000.0;
 	}
