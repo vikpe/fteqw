@@ -87,6 +87,18 @@ mergeInto(LibraryManager.library,
 		ctxwarned:0,
 		pointerislocked:0,
 		pointerwantlock:0,
+		// HUB: emscripten's openal resumes once, on touchstart, which ios doesn't count as a user gesture
+		resumeaudio : function()
+		{
+			if (typeof AL === 'undefined')
+				return;
+			for (const id in AL.contexts)
+			{
+				const ac = AL.contexts[id].audioCtx;
+				if (ac.state != 'running' && ac.state != 'closed')
+					ac.resume().catch(()=>{});
+			}
+		},
 		// Optional pre-dispatch hook installed by the embedding web app.
 		// Signature: (event) => boolean. Returning true consumes the
 		// event - skips pointerlock acquisition and skips forwarding to
@@ -331,6 +343,9 @@ mergeInto(LibraryManager.library,
 						if (!FTEC.wakelock && navigator.wakeLock && document.visibilityState === "visible")
 							navigator.wakeLock.request("screen").then((value)=>{FTEC.wakelock = value;value.addEventListener("release", ()=>{FTEC.wakelock=null;});}).catch(()=>{});
 					}catch(e){console.log(e);}
+					// HUB: ios interrupts audio while backgrounded; try to resume without waiting for a tap
+					if (document.visibilityState === "visible")
+						FTEC.resumeaudio();
 					break;
 				case 'focus':
 				case 'blur':
@@ -658,6 +673,14 @@ mergeInto(LibraryManager.library,
 			{
 				document.addEventListener(event, FTEC.handleevent, true);
 			});
+
+			// HUB: ios starts audio from completed taps only, and suspends it while in the background
+			['touchend', 'click', 'keydown'].forEach(function(event)
+			{
+				document.addEventListener(event, FTEC.resumeaudio, {capture:true, passive:true});
+			});
+			if (navigator.audioSession)
+				navigator.audioSession.type = 'playback';	//ios: play with the mute switch on
 
 			var windowevents = ['message','gamepadconnected', 'gamepaddisconnected', 'beforeunload', 'focus', 'blur'];
 			windowevents.forEach(function(event)
