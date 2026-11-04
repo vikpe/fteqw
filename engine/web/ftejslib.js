@@ -425,11 +425,13 @@ mergeInto(LibraryManager.library,
 				case 'touchmove':
 					event.preventDefault();
 					const touches = event.changedTouches;
+					const touchrect = Module['canvas'].getBoundingClientRect();
+					const touchscale = Module['canvas'].width/touchrect.width;
 					for (let i = 0; i < touches.length; i++)
 					{
 						const t = touches[i];
 						if (FTEC.evcb.mouse)
-							{{{makeDynCall('viiffff','FTEC.evcb.mouse')}}}(t.identifier+1, true, t.pageX, t.pageY, 0, Math.sqrt(t.radiusX*t.radiusX+t.radiusY*t.radiusY));
+							{{{makeDynCall('viiffff','FTEC.evcb.mouse')}}}(t.identifier+1, true, (t.clientX - touchrect.left)*touchscale, (t.clientY - touchrect.top)*(Module['canvas'].height/touchrect.height), 0, Math.sqrt(t.radiusX*t.radiusX+t.radiusY*t.radiusY)*touchscale);
 						if (FTEC.evcb.button)
 						{
 							if (event.type == 'touchstart')
