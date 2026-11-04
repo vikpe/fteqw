@@ -537,6 +537,7 @@ static void CL_DemoSeek_RestoreState(void)
 	if (demo_seek_saved_speed >= 0)
 		Cvar_SetValue(&cl_demospeed, demo_seek_saved_speed);
 	demo_seek_saved_speed = -1;
+	S_StopAllSounds(true);
 }
 
 void CL_DemoJump_f(void)
