@@ -88,6 +88,26 @@ mergeInto(LibraryManager.library,
 		pointerislocked:0,
 		pointerwantlock:0,
 		// HUB: emscripten's openal resumes once, on touchstart, which ios doesn't count as a user gesture
+		safeinset : function()
+		{
+			const canvas = Module['canvas'];
+			const rect = canvas.getBoundingClientRect();
+			if (!rect.width || !rect.height)
+				return [0, 0, 0, 0];
+			const probe = document.createElement('div');
+			probe.style.cssText = 'position:fixed;visibility:hidden;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)';
+			document.body.appendChild(probe);
+			const style = getComputedStyle(probe);
+			const [top, right, bottom, left] = [style.paddingTop, style.paddingRight, style.paddingBottom, style.paddingLeft].map(v => parseFloat(v) || 0);
+			probe.remove();
+			const scale = canvas.width / rect.width;
+			return [
+				Math.max(0, left - rect.left),
+				Math.max(0, top - rect.top),
+				Math.max(0, rect.right - (window.innerWidth - right)),
+				Math.max(0, rect.bottom - (window.innerHeight - bottom)),
+			].map(v => v * scale);
+		},
 		resumeaudio : function()
 		{
 			if (typeof AL === 'undefined')
@@ -263,7 +283,8 @@ mergeInto(LibraryManager.library,
 				case 'resize': {
                                         if (FTEC.evcb.resize != 0)
                                         {
-                                                {{{makeDynCall('viif','FTEC.evcb.resize')}}}(Module['canvas'].width, Module['canvas'].height, scale);
+                                                const inset = FTEC.safeinset();
+                                                {{{makeDynCall('viifffff','FTEC.evcb.resize')}}}(Module['canvas'].width, Module['canvas'].height, scale, inset[0], inset[1], inset[2], inset[3]);
                                         }
 					break;
 				}
@@ -749,7 +770,10 @@ mergeInto(LibraryManager.library,
                         canvas.style.removeProperty("width");
                         canvas.style.removeProperty("height");
                         if (FTEC.evcb.resize != 0)
-                                {{{makeDynCall('viif','FTEC.evcb.resize')}}}(bw, bh, 1);
+                        {
+                                const inset = FTEC.safeinset();
+                                {{{makeDynCall('viifffff','FTEC.evcb.resize')}}}(bw, bh, 1, inset[0], inset[1], inset[2], inset[3]);
+                        }
 		};
 		window.onresize();
 

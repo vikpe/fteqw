@@ -113,6 +113,8 @@ typedef struct
 	float			dpi_x;
 	float			dpi_y;
 
+	float			safeinset_left, safeinset_top, safeinset_right, safeinset_bottom;
+
 	conchar_t		*ime_preview;		//pending IME preview text that has been entered but isn't committed yet. set by video code.
 	size_t			ime_previewlen;
 	size_t			ime_caret;

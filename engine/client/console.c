@@ -1696,6 +1696,10 @@ void Con_DrawNotifyOne (console_t *con)
 
 	Font_BeginString(font_console, con->notif_x * vid.width, con->notif_y * vid.height, &nx, &y);
 	Font_Transform(con->notif_w * vid.width, 0, &nw, NULL);
+	if (con->flags & CONF_NOTIFY_RIGHT)
+		nw -= vid.safeinset_right;
+	else
+		nx += vid.safeinset_left;
 
 	if (con->notif_l < 0)
 		con->notif_l = 0;

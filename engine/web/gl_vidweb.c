@@ -449,12 +449,16 @@ static void IN_GamePadOrientationEvent(int joydevid, float px,float py,float pz,
 	IN_SetHandPosition(dev, org, ang, NULL, NULL);
 }
 
-static void VID_Resized(int width, int height, float scale)
+static void VID_Resized(int width, int height, float scale, float safeleft, float safetop, float saferight, float safebottom)
 {
 	extern cvar_t vid_conautoscale, vid_conwidth;
 	extern cvar_t vid_dpi_x, vid_dpi_y;
 	vid.pixelwidth = width;
 	vid.pixelheight = height;
+	vid.safeinset_left = safeleft;
+	vid.safeinset_top = safetop;
+	vid.safeinset_right = saferight;
+	vid.safeinset_bottom = safebottom;
 //Con_Printf("Resized: %i %i\n", vid.pixelwidth, vid.pixelheight);
 
 	//if you're zooming in, it should stay looking like its zoomed.
@@ -668,7 +672,7 @@ qboolean GLVID_Init (rendererstate_t *info, unsigned char *palette)
 
 	qglViewport (0, 0, vid.pixelwidth, vid.pixelheight);
 
-	VID_Resized(vid.pixelwidth, vid.pixelheight, 1);
+	VID_Resized(vid.pixelwidth, vid.pixelheight, 1, 0, 0, 0, 0);
 
 	mouseactive = false;
 
