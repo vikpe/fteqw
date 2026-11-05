@@ -279,15 +279,6 @@ mergeInto(LibraryManager.library,
 					console.log(event.data);
 					FTEC.loadurl(event.data.url, event.data.cmd, undefined);
 					break;
-				case 'fullscreenchange':
-				case 'resize': {
-                                        if (FTEC.evcb.resize != 0)
-                                        {
-                                                const inset = FTEC.safeinset();
-                                                {{{makeDynCall('viifffff','FTEC.evcb.resize')}}}(Module['canvas'].width, Module['canvas'].height, scale, inset[0], inset[1], inset[2], inset[3]);
-                                        }
-					break;
-				}
 				case 'mousemove':
 					if (FTEC.evcb.mouse != 0)
 					{
@@ -682,7 +673,7 @@ mergeInto(LibraryManager.library,
 						'keypress', 'keydown', 'keyup',
 						'touchstart', 'touchend', 'touchcancel', 'touchleave', 'touchmove',
 						'dragenter', 'dragover', 'drop',
-						'message', 'resize',
+						'message',
 						'pointerlockerror', 'pointerlockchange', 'mozpointerlockchange', 'webkitpointerlockchange',
 						'focus', 'blur'];   //try to fix alt-tab
 			events.forEach(function(event)
@@ -745,15 +736,9 @@ mergeInto(LibraryManager.library,
 			let scale = window.devicePixelRatio;	//urgh. haxx.
 			if (scale <= 0)
 				scale = 1;
-                        let width = window.innerWidth;
-                        let height = window.innerHeight;
-                        //emscripten's browser library will revert sizes wrongly or something when we're fullscreen, so make sure that doesn't happen.
-                        if (!(document.fullscreenElement || document.webkitFullscreenElement))
-                        {
-                                let rect = Module['canvas'].getBoundingClientRect();
-                                width = rect.width;
-                                height = rect.height;
-                        }
+                        const rect = Module['canvas'].getBoundingClientRect();
+                        const width = rect.width;
+                        const height = rect.height;
                         // HUB: set the GL drawing buffer (canvas.width/height
                         // attributes) directly and strip inline CSS dimensions
                         // every frame. Browser.setCanvasSize() goes through
